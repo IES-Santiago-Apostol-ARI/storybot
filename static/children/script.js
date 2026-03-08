@@ -79,12 +79,26 @@ async function loadStories() {
 
 function renderStoryGrid() {
     const grid = document.querySelector('.story-grid');
+    const emptyState = document.getElementById('empty-state');
+
     grid.innerHTML = '';
 
-    stories.forEach(story => {
+    if (stories.length === 0) {
+        // Show empty state, hide grid
+        if (emptyState) emptyState.classList.remove('hidden');
+        grid.style.display = 'none';
+        return;
+    }
+
+    // Hide empty state, show grid
+    if (emptyState) emptyState.classList.add('hidden');
+    grid.style.display = ''; // Reset to CSS default (flex)
+
+    stories.forEach((story, index) => {
         const card = document.createElement('div');
         card.className = 'story-card';
         card.style.backgroundColor = story.led_color + '40'; // 25% opacity
+        card.style.setProperty('--card-index', index); // For staggered animation
         card.setAttribute('aria-label', story.title);
         card.textContent = story.emoji;
         card.onclick = () => playStory(story);
