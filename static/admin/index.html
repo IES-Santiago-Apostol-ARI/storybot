@@ -1,16 +1,16 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StoryBot Admin</title>
+    <title>Administración StoryBot</title>
     <link rel="stylesheet" href="/shared/theme.css">
     <link rel="stylesheet" href="/admin/styles.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>StoryBot Admin</h1>
+            <h1>Administración StoryBot</h1>
             <div class="status-icons">
                 <!-- NFC Reader Status -->
                 <span class="status-icon" id="nfc-status" title="NFC Reader: Checking...">
@@ -33,17 +33,17 @@
         </header>
 
         <section class="upload-section">
-            <h2>Upload New Story</h2>
+            <h2>Subir Nueva Historia</h2>
             <form id="upload-form" enctype="multipart/form-data" data-mode="upload">
                 <div class="form-group">
-                    <label for="title">Title *</label>
+                    <label for="title">Título *</label>
                     <input
                         type="text"
                         id="title"
                         name="title"
                         required
                         maxlength="100"
-                        placeholder="e.g., The Three Little Pigs"
+                        placeholder="Ej: Los Tres Cerditos"
                     >
                 </div>
 
@@ -56,9 +56,9 @@
                             name="emoji"
                             required
                             maxlength="10"
-                            placeholder="e.g., 🐷 🐖 🐽"
+                            placeholder="Por ejemplo: 🐷 🐖 🐽"
                         >
-                        <button type="button" class="emoji-trigger-btn" aria-label="Open emoji picker">
+                        <button type="button" class="emoji-trigger-btn" aria-label="Abrir selector de emojis">
                             <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
                                 <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm-4-8c.79 0 1.5-.71 1.5-1.5S8.79 9 8 9s-1.5.71-1.5 1.5S7.21 12 8 12zm8 0c.79 0 1.5-.71 1.5-1.5S16.79 9 16 9s-1.5.71-1.5 1.5S15.21 12 16 12zm-7.25 4.25c0 .41.34.75.75.75h13c.41 0 .75-.34.75-.75v-.5c0-2.52-2.02-4.5-4.5-4.5h-1.5c-2.52 0-4.5 1.98-4.5 4.5v.5z"/>
                             </svg>
@@ -67,15 +67,15 @@
                             <input
                                 type="text"
                                 class="emoji-search"
-                                placeholder="Search emojis..."
+                                placeholder="Buscar emojis..."
                             >
                             <div class="emoji-categories">
-                                <button type="button" class="emoji-category-tab active" data-category="Animals">Animals</button>
-                                <button type="button" class="emoji-category-tab" data-category="Food">Food</button>
-                                <button type="button" class="emoji-category-tab" data-category="Weather">Weather</button>
-                                <button type="button" class="emoji-category-tab" data-category="Activities">Activities</button>
-                                <button type="button" class="emoji-category-tab" data-category="Emotions">Emotions</button>
-                                <button type="button" class="emoji-category-tab" data-category="Objects">Objects</button>
+                                <button type="button" class="emoji-category-tab active" data-category="Animales">Animales</button>
+                                <button type="button" class="emoji-category-tab" data-category="Comida">Comida</button>
+                                <button type="button" class="emoji-category-tab" data-category="Clima">Clima</button>
+                                <button type="button" class="emoji-category-tab" data-category="Actividades">Actividades</button>
+                                <button type="button" class="emoji-category-tab" data-category="Emociones">Emociones</button>
+                                <button type="button" class="emoji-category-tab" data-category="Objetos">Objetos</button>
                             </div>
                             <div class="emoji-grid"></div>
                         </div>
@@ -83,7 +83,7 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="led_color">LED Color *</label>
+                    <label for="led_color">Color LED *</label>
                     <input
                         type="color"
                         id="led_color"
@@ -93,7 +93,7 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="audio">Audio File *</label>
+                    <label for="audio">Archivo de Audio *</label>
                     <input
                         type="file"
                         id="audio"
@@ -104,7 +104,7 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="cover">Cover Image (optional)</label>
+                    <label for="cover">Imagen de Portada (opcional)</label>
                     <input
                         type="file"
                         id="cover"
@@ -112,26 +112,30 @@
                         accept="image/*"
                     >
                     <div class="cover-actions hidden" id="cover-actions">
-                        <button type="button" id="clear-cover" class="btn btn-secondary btn-small">Remove Cover</button>
+                        <button type="button" id="clear-cover" class="btn btn-secondary btn-small">Eliminar Portada</button>
                         <span id="current-cover-name" class="current-file-name"></span>
                     </div>
                 </div>
 
                 <div class="form-buttons">
-                    <button type="submit" class="btn btn-primary">Upload Story</button>
-                    <button type="button" id="cancel-edit" class="btn btn-secondary hidden">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Subir Historia</button>
+                    <button type="button" id="cancel-edit" class="btn btn-secondary hidden">Cancelar</button>
                 </div>
             </form>
         </section>
 
         <section class="stories-section">
-            <h2>Story Library</h2>
+            <h2>Biblioteca de Historias</h2>
             <div id="story-list" class="story-list">
-                <p class="loading">Loading stories...</p>
+                <p class="loading">Cargando historias...</p>
             </div>
         </section>
 
         <div id="status-message" class="status-message hidden"></div>
+
+        <div class="children-mode-link">
+            <a href="/children" class="btn btn-secondary">Ir al modo niños</a>
+        </div>
     </div>
 
     <script src="/admin/script.js"></script>

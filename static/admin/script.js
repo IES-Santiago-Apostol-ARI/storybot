@@ -30,16 +30,16 @@ const currentCoverName = document.getElementById('current-cover-name');
 
 // Emoji Picker State
 let emojiPickerOpen = false;
-let activeCategory = 'Animals';
+let activeCategory = 'Animales';
 
 // Emoji Categories Data
 const emojiCategories = {
-    Animals: ['🐶', '🐱', '🐭', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐵', '🐔', '🐧', '🐦', '🦆'],
-    Food: ['🍎', '🍊', '🍋', '🍇', '🍓', '🫐', '🍑', '🍒', '🥕', '🥦', '🍞', '🥐', '🧀', '🍕', '🍰', '🍪', '🥛', '🍩'],
-    Weather: ['☀️', '🌤️', '⛅', '🌧️', '❄️', '🌈', '☁️', '🌪️', '🔥', '🌊', '🌙', '⭐', '✨', '🌟', '🌈', '🌦️', '🌨️', '🌩️'],
-    Activities: ['🎨', '🎭', '🎪', '🎰', '🎲', '🎯', '🎳', '🎵', '🎶', '🎤', '🏃', '🚴', '🏊', '🎪', '🎬', '🎮', '🎯', '🏆'],
-    Emotions: ['😊', '😄', '😂', '🥰', '😢', '😠', '😴', '🤔', '😮', '🤗', '😇', '😎', '🥳', '🤩', '😌', '🥲', '😏', '😋'],
-    Objects: ['🎁', '🎈', '🎀', '🎊', '🎉', '📚', '✏️', '🎓', '🏠', '🚗', '✈️', '🚀', '⏰', '💡', '🔔', '📷', '🎩', '🧸']
+    Animales: ['🐶', '🐱', '🐭', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐵', '🐔', '🐧', '🐦', '🦆'],
+    Comida: ['🍎', '🍊', '🍋', '🍇', '🍓', '🫐', '🍑', '🍒', '🥕', '🥦', '🍞', '🥐', '🧀', '🍕', '🍰', '🍪', '🥛', '🍩'],
+    Clima: ['☀️', '🌤️', '⛅', '🌧️', '❄️', '🌈', '☁️', '🌪️', '🔥', '🌊', '🌙', '⭐', '✨', '🌟', '🌈', '🌦️', '🌨️', '🌩️'],
+    Actividades: ['🎨', '🎭', '🎪', '🎰', '🎲', '🎯', '🎳', '🎵', '🎶', '🎤', '🏃', '🚴', '🏊', '🎪', '🎬', '🎮', '🎯', '🏆'],
+    Emociones: ['😊', '😄', '😂', '🥰', '😢', '😠', '😴', '🤔', '😮', '🤗', '😇', '😎', '🥳', '🤩', '😌', '🥲', '😏', '😋'],
+    Objetos: ['🎁', '🎈', '🎀', '🎊', '🎉', '📚', '✏️', '🎓', '🏠', '🚗', '✈️', '🚀', '⏰', '💡', '🔔', '📷', '🎩', '🧸']
 };
 
 // Emoji Keywords for Search
@@ -345,7 +345,7 @@ function enterEditMode(story) {
     // Show cover actions if story has cover
     if (story.cover_image) {
         coverActionsDiv.classList.remove('hidden');
-        currentCoverName.textContent = `Current: ${story.cover_image}`;
+        currentCoverName.textContent = `Actual: ${story.cover_image}`;
     } else {
         coverActionsDiv.classList.add('hidden');
         currentCoverName.textContent = '';
@@ -387,13 +387,13 @@ function updateFormUI() {
     const audioInput = document.getElementById('audio');
 
     if (formMode === 'edit') {
-        headerEl.textContent = 'Edit Story';
-        submitBtn.textContent = 'Save Changes';
+        headerEl.textContent = 'Editar Historia';
+        submitBtn.textContent = 'Guardar Cambios';
         cancelEditBtn.classList.remove('hidden');
         audioInput.required = false;
     } else {
-        headerEl.textContent = 'Upload New Story';
-        submitBtn.textContent = 'Upload Story';
+        headerEl.textContent = 'Subir Nueva Historia';
+        submitBtn.textContent = 'Subir Historia';
         cancelEditBtn.classList.add('hidden');
         audioInput.required = true;
     }
@@ -445,7 +445,7 @@ function scrollToCard(storyId) {
 function clearCover() {
     removeCoverFlag = true;
     document.getElementById('cover').value = '';
-    currentCoverName.textContent = 'Cover will be removed on save';
+    currentCoverName.textContent = 'La portada se eliminará al guardar';
     currentCoverName.style.color = 'var(--color-danger)';
 }
 
@@ -476,7 +476,7 @@ async function updateStory(event) {
 
     try {
         submitButton.disabled = true;
-        submitButton.textContent = 'Saving...';
+        submitButton.textContent = 'Guardando...';
         hideMessage();
 
         const response = await fetch(`/api/stories/${editingStoryId}`, {
@@ -486,11 +486,11 @@ async function updateStory(event) {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.detail || 'Failed to update story');
+            throw new Error(error.detail || 'Error al actualizar la historia');
         }
 
         const story = await response.json();
-        showMessage(`Story "${story.title}" updated successfully!`, 'success');
+        showMessage(`¡Historia "${story.title}" actualizada correctamente!`, 'success');
 
         // Exit edit mode and reload list
         exitEditMode(true); // Skip confirm since we just saved
@@ -500,12 +500,12 @@ async function updateStory(event) {
         setTimeout(() => scrollToCard(story.id), 100);
 
     } catch (error) {
-        console.error('Error updating story:', error);
-        showMessage(error.message || 'Failed to update story', 'error');
+        console.error('Error al actualizar la historia:', error);
+        showMessage(error.message || 'Error al actualizar la historia', 'error');
         // Keep form populated for retry (don't reset)
     } finally {
         submitButton.disabled = false;
-        submitButton.textContent = 'Save Changes';
+        submitButton.textContent = 'Guardar Cambios';
     }
 }
 
@@ -582,7 +582,7 @@ async function loadStories() {
         renderStoryList();
     } catch (error) {
         console.error('Error loading stories:', error);
-        showMessage('Failed to load stories. Please refresh the page.', 'error');
+        showMessage('Error al cargar historias. Por favor, actualiza la página.', 'error');
     }
 }
 
@@ -591,7 +591,7 @@ async function loadStories() {
  */
 function renderStoryList() {
     if (stories.length === 0) {
-        storyListContainer.innerHTML = '<p class="empty-state">No stories yet. Upload your first story above!</p>';
+        storyListContainer.innerHTML = '<p class="empty-state">Aún no hay historias. ¡Sube tu primera historia arriba!</p>';
         return;
     }
 
@@ -629,7 +629,7 @@ function createStoryCard(story) {
         nfcStatus.textContent = `NFC: ${story.nfc_uid}`;
         nfcStatus.classList.add('assigned');
     } else {
-        nfcStatus.textContent = 'No NFC card assigned';
+        nfcStatus.textContent = 'Tarjeta NFC no asignada';
     }
 
     info.appendChild(title);
@@ -641,7 +641,7 @@ function createStoryCard(story) {
     // Edit button (first in action row)
     const editButton = document.createElement('button');
     editButton.className = 'btn btn-primary';
-    editButton.textContent = 'Edit';
+    editButton.textContent = 'Editar';
     editButton.style.cssText = 'padding: 0.5rem 0.75rem; font-size: 14px;';
     editButton.onclick = () => enterEditMode(story);
     actions.appendChild(editButton);
@@ -649,7 +649,7 @@ function createStoryCard(story) {
     // Assign/Unassign NFC button
     const nfcButton = document.createElement('button');
     nfcButton.className = story.nfc_uid ? 'btn btn-success' : 'btn btn-warning';
-    nfcButton.textContent = story.nfc_uid ? 'Reassign NFC' : 'Assign NFC';
+    nfcButton.textContent = story.nfc_uid ? 'Reasignar NFC' : 'Asignar NFC';
     nfcButton.style.cssText = 'padding: 0.5rem 0.75rem; font-size: 14px;';
     nfcButton.onclick = () => startNFCAssignment(story.id);
     actions.appendChild(nfcButton);
@@ -657,7 +657,7 @@ function createStoryCard(story) {
     // Delete button
     const deleteButton = document.createElement('button');
     deleteButton.className = 'btn btn-danger';
-    deleteButton.textContent = 'Delete';
+    deleteButton.textContent = 'Eliminar';
     deleteButton.style.cssText = 'padding: 0.5rem 0.75rem; font-size: 14px;';
     deleteButton.onclick = () => deleteStory(story.id, story.title);
     actions.appendChild(deleteButton);
@@ -687,7 +687,7 @@ async function uploadStory(event) {
     try {
         // Disable button and show loading
         submitButton.disabled = true;
-        submitButton.textContent = 'Uploading...';
+        submitButton.textContent = 'Subiendo...';
         hideMessage();
 
         const response = await fetch('/api/stories', {
@@ -697,23 +697,23 @@ async function uploadStory(event) {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.detail || 'Failed to upload story');
+            throw new Error(error.detail || 'Error al subir la historia');
         }
 
         const story = await response.json();
-        showMessage(`Story "${story.title}" uploaded successfully!`, 'success');
+        showMessage(`¡Historia "${story.title}" subida correctamente!`, 'success');
 
         // Reset form and reload list
         uploadForm.reset();
         await loadStories();
 
     } catch (error) {
-        console.error('Error uploading story:', error);
-        showMessage(error.message || 'Failed to upload story', 'error');
+        console.error('Error al subir la historia:', error);
+        showMessage(error.message || 'Error al subir la historia', 'error');
     } finally {
         // Re-enable button
         submitButton.disabled = false;
-        submitButton.textContent = 'Upload Story';
+        submitButton.textContent = 'Subir Historia';
     }
 }
 
@@ -723,7 +723,7 @@ async function uploadStory(event) {
  * @param {string} storyTitle - Story title for confirmation
  */
 async function deleteStory(storyId, storyTitle) {
-    if (!confirm(`Are you sure you want to delete "${storyTitle}"?`)) {
+    if (!confirm(`¿Estás seguro de que quieres eliminar "${storyTitle}"?`)) {
         return;
     }
 
@@ -736,12 +736,12 @@ async function deleteStory(storyId, storyTitle) {
             throw new Error(`Failed to delete story: ${response.status}`);
         }
 
-        showMessage(`Story "${storyTitle}" deleted`, 'success');
+        showMessage(`Historia "${storyTitle}" eliminada`, 'success');
         await loadStories();
 
     } catch (error) {
-        console.error('Error deleting story:', error);
-        showMessage('Failed to delete story', 'error');
+        console.error('Error al eliminar la historia:', error);
+        showMessage('Error al eliminar la historia', 'error');
     }
 }
 
@@ -756,7 +756,7 @@ function startNFCAssignment(storyId) {
     }
 
     assigningStoryId = storyId;
-    showMessage('Tap NFC card to assign...', 'info');
+    showMessage('Toca la tarjeta NFC para asignar...', 'info');
 
     // Open SSE connection
     nfcEventSource = new EventSource('/api/nfc/read');
@@ -771,13 +771,13 @@ function startNFCAssignment(storyId) {
     });
 
     nfcEventSource.addEventListener('error', (error) => {
-        console.error('NFC connection error:', error);
-        showMessage('NFC connection error. Please try again.', 'error');
+        console.error('Error de conexión NFC:', error);
+        showMessage('Error de conexión NFC. Intenta de nuevo.', 'error');
         closeNFCConnection();
     });
 
     nfcEventSource.onerror = () => {
-        showMessage('NFC connection error. Please try again.', 'error');
+        showMessage('Error de conexión NFC. Intenta de nuevo.', 'error');
         closeNFCConnection();
     };
 }
@@ -802,17 +802,17 @@ async function handleNFCTap(uid) {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.detail || 'Failed to assign NFC card');
+            throw new Error(error.detail || 'Error al asignar la tarjeta NFC');
         }
 
         const story = await response.json();
-        showMessage(`NFC card assigned to "${story.title}"`, 'success');
+        showMessage(`Tarjeta NFC asignada a "${story.title}"`, 'success');
         closeNFCConnection();
         await loadStories();
 
     } catch (error) {
-        console.error('Error assigning NFC:', error);
-        showMessage(error.message || 'Failed to assign NFC card', 'error');
+        console.error('Error al asignar NFC:', error);
+        showMessage(error.message || 'Error al asignar la tarjeta NFC', 'error');
         closeNFCConnection();
     }
 }
@@ -875,14 +875,14 @@ function updateStatusIcon(icon, hwState, label) {
     if (!icon) return;
 
     let statusClass = 'status-icon';
-    let statusText = 'Unknown';
+    let statusText = 'Desconocido';
 
     if (!hwState) {
         statusClass += ' disconnected';
-        statusText = 'Not available';
+        statusText = 'No disponible';
     } else if (hwState.status === 'ok') {
         statusClass += ' connected';
-        statusText = hwState.is_mock ? 'Connected (simulated)' : 'Connected';
+        statusText = hwState.is_mock ? 'Conectado (simulado)' : 'Conectado';
         if (hwState.is_mock) {
             statusClass += ' mock';
         }
@@ -891,7 +891,7 @@ function updateStatusIcon(icon, hwState, label) {
         statusText = hwState.error_message || 'Error';
     } else {
         statusClass += ' disconnected';
-        statusText = 'Not connected';
+        statusText = 'No conectado';
     }
 
     icon.className = statusClass;
