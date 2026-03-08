@@ -152,6 +152,66 @@ html, body {
     transition: box-shadow var(--duration-fast), transform var(--duration-fast);
 }
 
+/* Empty state */
+.empty-state {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.empty-state.hidden {
+    display: none;
+}
+
+.empty-character {
+    /* Gentle breathing animation */
+}
+
+.empty-character .robot-body {
+    animation: robot-breathe 3s ease-in-out infinite;
+    transform-origin: center bottom;
+}
+
+@keyframes robot-breathe {
+    0%, 100% { transform: scaleY(1); }
+    50% { transform: scaleY(1.03); }
+}
+
+/* Floating Z's animation */
+.empty-character .zzz {
+    opacity: 0;
+}
+
+.empty-character .zzz-1 {
+    animation: float-zzz 2.5s ease-in-out infinite;
+}
+
+.empty-character .zzz-2 {
+    animation: float-zzz 2.5s ease-in-out infinite 0.4s;
+}
+
+.empty-character .zzz-3 {
+    animation: float-zzz 2.5s ease-in-out infinite 0.8s;
+}
+
+@keyframes float-zzz {
+    0%, 100% {
+        opacity: 0;
+        transform: translateY(0);
+    }
+    20%, 80% {
+        opacity: 1;
+    }
+    50% {
+        transform: translateY(-10px);
+    }
+}
+
 /* Playback screen */
 .screen-playing {
     --story-color: #ff6b6b;

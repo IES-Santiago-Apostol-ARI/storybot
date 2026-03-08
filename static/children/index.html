@@ -12,6 +12,28 @@
         <!-- Idle screen - story grid -->
         <div class="page" data-page="idle">
             <div class="screen-idle" data-screen="idle">
+                <!-- Empty state - shown when no stories -->
+                <div class="empty-state hidden" id="empty-state">
+                    <svg class="empty-character" viewBox="0 0 120 140" width="180" height="210">
+                        <!-- Sleeping robot body -->
+                        <rect class="robot-body" x="30" y="50" width="60" height="70" rx="15" fill="var(--color-primary)"/>
+                        <!-- Robot head -->
+                        <rect class="robot-head" x="35" y="20" width="50" height="35" rx="10" fill="var(--color-primary)"/>
+                        <!-- Antenna -->
+                        <line x1="60" y1="5" x2="60" y2="20" stroke="var(--color-secondary)" stroke-width="3" stroke-linecap="round"/>
+                        <circle cx="60" cy="5" r="4" fill="var(--color-secondary)"/>
+                        <!-- Closed eyes (sleeping) -->
+                        <path class="eye-left" d="M45 35 Q50 40 55 35" fill="none" stroke="#1a1a2e" stroke-width="2" stroke-linecap="round"/>
+                        <path class="eye-right" d="M65 35 Q70 40 75 35" fill="none" stroke="#1a1a2e" stroke-width="2" stroke-linecap="round"/>
+                        <!-- Sleeping Z's -->
+                        <text class="zzz zzz-1" x="95" y="25" fill="var(--color-secondary)" font-size="14" font-weight="bold">z</text>
+                        <text class="zzz zzz-2" x="100" y="15" fill="var(--color-secondary)" font-size="12" font-weight="bold">z</text>
+                        <text class="zzz zzz-3" x="105" y="8" fill="var(--color-secondary)" font-size="10" font-weight="bold">z</text>
+                        <!-- Robot feet -->
+                        <rect x="35" y="120" width="20" height="10" rx="5" fill="var(--color-secondary)"/>
+                        <rect x="65" y="120" width="20" height="10" rx="5" fill="var(--color-secondary)"/>
+                    </svg>
+                </div>
                 <div class="story-grid"></div>
             </div>
         </div>
