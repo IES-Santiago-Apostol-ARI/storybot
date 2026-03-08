@@ -8,49 +8,57 @@
     <link rel="stylesheet" href="/children/styles.css">
 </head>
 <body oncontextmenu="return false;">
-    <!-- Idle screen - story grid -->
-    <div class="screen-idle" data-screen="idle">
-        <div class="story-grid"></div>
+    <div class="page-container">
+        <!-- Idle screen - story grid -->
+        <div class="page" data-page="idle">
+            <div class="screen-idle" data-screen="idle">
+                <div class="story-grid"></div>
+            </div>
+        </div>
+
+        <!-- Playing screen - playback with cover image -->
+        <div class="page" data-page="playing">
+            <div class="screen-playing hidden" data-screen="playing">
+                <div class="particles-container">
+                    <div class="particle"></div>
+                    <div class="particle"></div>
+                    <div class="particle"></div>
+                    <div class="particle"></div>
+                    <div class="particle"></div>
+                    <div class="particle"></div>
+                    <div class="particle"></div>
+                    <div class="particle"></div>
+                    <div class="particle"></div>
+                    <div class="particle"></div>
+                </div>
+                <div class="playback-container">
+                    <img class="cover-image" src="" alt="" style="display: none;">
+                    <div class="cover-emoji"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Thank you screen -->
+        <div class="page" data-page="thankyou">
+            <div class="screen-thankyou hidden" data-screen="thankyou">
+                <div class="thankyou-stars">
+                    <div class="star" style="--delay: 0s; top: 10%; left: 15%;">&#10022;</div>
+                    <div class="star" style="--delay: 0.2s; top: 20%; left: 80%;">&#10022;</div>
+                    <div class="star" style="--delay: 0.4s; top: 40%; left: 10%;">&#10022;</div>
+                    <div class="star" style="--delay: 0.6s; top: 60%; left: 85%;">&#10022;</div>
+                    <div class="star" style="--delay: 0.8s; top: 80%; left: 25%;">&#10022;</div>
+                    <div class="star" style="--delay: 1s; top: 15%; left: 60%;">&#10022;</div>
+                    <div class="star" style="--delay: 0.3s; top: 70%; left: 70%;">&#10022;</div>
+                    <div class="star" style="--delay: 0.7s; top: 30%; left: 40%;">&#10022;</div>
+                </div>
+                <div class="thankyou-content">
+                    <div class="thankyou-emoji">&#127775;</div>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <!-- Playing screen - playback with cover image -->
-    <div class="screen-playing hidden" data-screen="playing">
-        <div class="particles-container">
-            <div class="particle"></div>
-            <div class="particle"></div>
-            <div class="particle"></div>
-            <div class="particle"></div>
-            <div class="particle"></div>
-            <div class="particle"></div>
-            <div class="particle"></div>
-            <div class="particle"></div>
-            <div class="particle"></div>
-            <div class="particle"></div>
-        </div>
-        <div class="playback-container">
-            <img class="cover-image" src="" alt="" style="display: none;">
-            <div class="cover-emoji"></div>
-        </div>
-    </div>
-
-    <!-- Thank you screen -->
-    <div class="screen-thankyou hidden" data-screen="thankyou">
-        <div class="thankyou-stars">
-            <div class="star" style="--delay: 0s; top: 10%; left: 15%;">&#10022;</div>
-            <div class="star" style="--delay: 0.2s; top: 20%; left: 80%;">&#10022;</div>
-            <div class="star" style="--delay: 0.4s; top: 40%; left: 10%;">&#10022;</div>
-            <div class="star" style="--delay: 0.6s; top: 60%; left: 85%;">&#10022;</div>
-            <div class="star" style="--delay: 0.8s; top: 80%; left: 25%;">&#10022;</div>
-            <div class="star" style="--delay: 1s; top: 15%; left: 60%;">&#10022;</div>
-            <div class="star" style="--delay: 0.3s; top: 70%; left: 70%;">&#10022;</div>
-            <div class="star" style="--delay: 0.7s; top: 30%; left: 40%;">&#10022;</div>
-        </div>
-        <div class="thankyou-content">
-            <div class="thankyou-emoji">&#127775;</div>
-        </div>
-    </div>
-
-    <!-- Hidden audio element -->
+    <!-- Hidden audio element - keep outside page container -->
     <audio id="story-audio" preload="auto"></audio>
 
     <script src="/children/script.js"></script>
