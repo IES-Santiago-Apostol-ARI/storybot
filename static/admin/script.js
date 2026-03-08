@@ -5,6 +5,14 @@ let stories = [];
 let assigningStoryId = null;
 let nfcEventSource = null;
 
+// Hardware status elements
+const nfcStatusIcon = document.getElementById('nfc-status');
+const ledStatusIcon = document.getElementById('led-status');
+
+// Polling interval (5 seconds)
+const STATUS_POLL_INTERVAL = 5000;
+let statusPollId = null;
+
 // DOM Elements
 const uploadForm = document.getElementById('upload-form');
 const storyListContainer = document.getElementById('story-list');
@@ -281,16 +289,113 @@ function closeNFCConnection() {
 }
 
 /**
+ * Update hardware status icons based on API response
+ */
+async function updateHardwareStatus() {
+    try {
+        const response = await fetch('/api/system/status');
+        if (!response.ok) throw new Error('Status fetch failed');
+
+        const data = await response.json();
+
+        // Update NFC status
+        updateStatusIcon(
+            nfcStatusIcon,
+            data.hardware?.nfc,
+            'NFC Reader'
+        );
+
+        // Update LED status
+        updateStatusIcon(
+            ledStatusIcon,
+            data.hardware?.led,
+            'LED Strip'
+        );
+    } catch (error) {
+        console.error('Failed to fetch hardware status:', error);
+        // Mark both as unknown/error
+        if (nfcStatusIcon) {
+            nfcStatusIcon.className = 'status-icon disconnected';
+            nfcStatusIcon.title = 'NFC Reader: Connection error';
+        }
+        if (ledStatusIcon) {
+            ledStatusIcon.className = 'status-icon disconnected';
+            ledStatusIcon.title = 'LED Strip: Connection error';
+        }
+    }
+}
+
+/**
+ * Update a single status icon
+ * @param {HTMLElement} icon - The icon element
+ * @param {Object} hwState - Hardware state object from API
+ * @param {string} label - Human-readable label
+ */
+function updateStatusIcon(icon, hwState, label) {
+    if (!icon) return;
+
+    let statusClass = 'status-icon';
+    let statusText = 'Unknown';
+
+    if (!hwState) {
+        statusClass += ' disconnected';
+        statusText = 'Not available';
+    } else if (hwState.status === 'ok') {
+        statusClass += ' connected';
+        statusText = hwState.is_mock ? 'Connected (simulated)' : 'Connected';
+        if (hwState.is_mock) {
+            statusClass += ' mock';
+        }
+    } else if (hwState.status === 'error') {
+        statusClass += ' disconnected';
+        statusText = hwState.error_message || 'Error';
+    } else {
+        statusClass += ' disconnected';
+        statusText = 'Not connected';
+    }
+
+    icon.className = statusClass;
+    icon.title = `${label}: ${statusText}`;
+}
+
+/**
+ * Start polling for hardware status
+ */
+function startStatusPolling() {
+    // Set initial checking state
+    if (nfcStatusIcon) nfcStatusIcon.className = 'status-icon checking';
+    if (ledStatusIcon) ledStatusIcon.className = 'status-icon checking';
+
+    // Initial fetch
+    updateHardwareStatus();
+
+    // Start polling
+    statusPollId = setInterval(updateHardwareStatus, STATUS_POLL_INTERVAL);
+}
+
+/**
+ * Stop polling (for cleanup)
+ */
+function stopStatusPolling() {
+    if (statusPollId) {
+        clearInterval(statusPollId);
+        statusPollId = null;
+    }
+}
+
+/**
  * Clean up on page unload
  */
 function cleanup() {
     closeNFCConnection();
+    stopStatusPolling();  // NEW: Stop polling on page unload
 }
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', () => {
     loadStories();
     uploadForm.addEventListener('submit', uploadStory);
+    startStatusPolling();  // NEW: Start hardware status polling
 });
 
 window.addEventListener('beforeunload', cleanup);
