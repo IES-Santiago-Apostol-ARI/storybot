@@ -56,6 +56,14 @@
                 <div class="playback-container">
                     <img class="cover-image" src="" alt="" style="display: none;">
                     <div class="cover-emoji"></div>
+                    <!-- Pause icon overlay - shown when audio is paused -->
+                    <div class="pause-overlay hidden">
+                        <svg viewBox="0 0 100 100" width="120" height="120">
+                            <circle cx="50" cy="50" r="45" fill="rgba(255,255,255,0.9)"/>
+                            <rect x="32" y="30" width="12" height="40" rx="4" fill="#374151"/>
+                            <rect x="56" y="30" width="12" height="40" rx="4" fill="#374151"/>
+                        </svg>
+                    </div>
                 </div>
                 <!-- Progress character - moves across bottom during playback -->
                 <div class="progress-track">

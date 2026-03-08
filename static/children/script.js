@@ -11,6 +11,8 @@ let currentStory = null;
 let nfcEventSource = null;
 let ledPulseInterval = null;
 let progressAnimationId = null;
+let isPaused = false;
+let pausedLEDState = null; // { color, brightness, direction }
 const audioElement = document.getElementById('story-audio');
 
 // UI Sound system
@@ -128,9 +130,29 @@ function transitionTo(newState, story = null) {
             targetScreen.classList.remove('hidden');
         }
 
+        // Add playing class to screen-playing when in PLAYING state
+        if (newState === STATES.PLAYING) {
+            const playingScreen = document.querySelector('.screen-playing');
+            if (playingScreen) {
+                playingScreen.classList.add('playing');
+            }
+        } else {
+            const playingScreen = document.querySelector('.screen-playing');
+            if (playingScreen) {
+                playingScreen.classList.remove('playing');
+            }
+        }
+
         // State-specific logic
         switch (newState) {
             case STATES.IDLE:
+                // Reset pause state
+                isPaused = false;
+                pausedLEDState = null;
+                document.querySelector('.pause-overlay')?.classList.add('hidden');
+                document.querySelector('.pause-overlay')?.classList.remove('visible', 'resuming');
+                document.querySelector('.screen-playing')?.classList.remove('paused');
+
                 stopLEDPulse();
                 turnOffLED();
                 stopProgressTracking();
@@ -142,6 +164,13 @@ function transitionTo(newState, story = null) {
                 startProgressTracking();
                 break;
             case STATES.THANKYOU:
+                // Reset pause state
+                isPaused = false;
+                pausedLEDState = null;
+                document.querySelector('.pause-overlay')?.classList.add('hidden');
+                document.querySelector('.pause-overlay')?.classList.remove('visible', 'resuming');
+                document.querySelector('.screen-playing')?.classList.remove('paused');
+
                 fadeLEDToIdle();
                 stopProgressTracking();
                 setTimeout(() => transitionTo(STATES.IDLE), 4000);
@@ -365,6 +394,103 @@ function fadeLEDToIdle() {
     }, 200);
 }
 
+// Pause/Resume functions
+function togglePause() {
+    if (currentState !== STATES.PLAYING) return;
+
+    playUISound('tap'); // Sound feedback for both pause and resume
+
+    if (isPaused) {
+        resumePlayback();
+    } else {
+        pausePlayback();
+    }
+    isPaused = !isPaused;
+}
+
+function pausePlayback() {
+    // Pause audio immediately (no fade per user decision)
+    audioElement.pause();
+
+    // Show pause icon
+    const pauseOverlay = document.querySelector('.pause-overlay');
+    pauseOverlay.classList.remove('hidden', 'resuming');
+    pauseOverlay.classList.add('visible');
+
+    // Freeze animations via CSS class
+    document.querySelector('.screen-playing').classList.add('paused');
+
+    // Pause LED: stop pulse, hold at 0.6 brightness
+    pauseLED();
+}
+
+function resumePlayback() {
+    // Check if audio ended while paused
+    if (audioElement.ended) {
+        isPaused = false;
+        transitionTo(STATES.THANKYOU);
+        return;
+    }
+
+    // Resume audio
+    audioElement.play();
+
+    // Bounce-then-fade the pause icon
+    const pauseOverlay = document.querySelector('.pause-overlay');
+    pauseOverlay.classList.remove('visible');
+    pauseOverlay.classList.add('resuming');
+
+    // After animation, hide completely
+    setTimeout(() => {
+        pauseOverlay.classList.remove('resuming');
+        pauseOverlay.classList.add('hidden');
+    }, 400);
+
+    // Unfreeze animations
+    document.querySelector('.screen-playing').classList.remove('paused');
+
+    // Resume LED with smooth ramp
+    resumeLED();
+}
+
+function pauseLED() {
+    if (ledPulseInterval && currentStory) {
+        // Store current state for smooth resume
+        pausedLEDState = { color: currentStory.led_color };
+        stopLEDPulse();
+        setLEDColor(currentStory.led_color, 0.6); // Hold at medium brightness
+    }
+}
+
+function resumeLED() {
+    if (pausedLEDState && currentStory) {
+        // Ramp from 0.6 to 1.0 over 300ms, then restart normal pulse
+        rampLEDBrightness(0.6, 1.0, currentStory.led_color, 300, () => {
+            startLEDPulse(currentStory.led_color);
+        });
+        pausedLEDState = null;
+    }
+}
+
+function rampLEDBrightness(from, to, color, duration, callback) {
+    const steps = 10;
+    const stepDuration = duration / steps;
+    const stepChange = (to - from) / steps;
+    let current = from;
+    let step = 0;
+
+    const rampInterval = setInterval(() => {
+        current += stepChange;
+        step++;
+        setLEDColor(color, current);
+
+        if (step >= steps) {
+            clearInterval(rampInterval);
+            if (callback) callback();
+        }
+    }, stepDuration);
+}
+
 // Progress tracking
 function startProgressTracking() {
     const character = document.getElementById('progress-character');
@@ -474,6 +600,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     loadStories();
     startNFCListener();
+
+    // Add pause/resume tap handler to playback container
+    document.querySelector('.playback-container').addEventListener('click', togglePause);
 
     // Unlock audio on first user interaction (touch/click)
     const unlockEvents = ['click', 'touchstart', 'keydown'];
