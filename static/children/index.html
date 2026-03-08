@@ -35,6 +35,25 @@
                     <img class="cover-image" src="" alt="" style="display: none;">
                     <div class="cover-emoji"></div>
                 </div>
+                <!-- Progress character - moves across bottom during playback -->
+                <div class="progress-track">
+                  <svg class="progress-character" id="progress-character" viewBox="0 0 60 60" width="60" height="60">
+                    <!-- Walking robot (simpler, forward-facing version) -->
+                    <rect class="robot-body" x="15" y="15" width="30" height="35" rx="8" fill="var(--color-primary)"/>
+                    <!-- Head -->
+                    <rect class="robot-head" x="18" y="5" width="24" height="15" rx="5" fill="var(--color-primary)"/>
+                    <!-- Antenna -->
+                    <circle cx="30" cy="3" r="3" fill="var(--color-secondary)"/>
+                    <!-- Happy eyes -->
+                    <circle cx="24" cy="12" r="3" fill="#1a1a2e"/>
+                    <circle cx="36" cy="12" r="3" fill="#1a1a2e"/>
+                    <!-- Smile -->
+                    <path d="M24 18 Q30 23 36 18" fill="none" stroke="#1a1a2e" stroke-width="2" stroke-linecap="round"/>
+                    <!-- Legs (will animate) -->
+                    <rect class="leg-left" x="18" y="50" width="8" height="8" rx="3" fill="var(--color-secondary)"/>
+                    <rect class="leg-right" x="34" y="50" width="8" height="8" rx="3" fill="var(--color-secondary)"/>
+                  </svg>
+                </div>
             </div>
         </div>
 
