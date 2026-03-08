@@ -13,6 +13,80 @@ let ledPulseInterval = null;
 let progressAnimationId = null;
 const audioElement = document.getElementById('story-audio');
 
+// UI Sound system
+let uiAudioContext = null;
+const soundBuffers = {};
+const UI_SOUND_VOLUME = 0.3; // Keep sounds quiet
+
+/**
+ * Initialize UI audio context and preload sounds
+ * Must be called after user gesture due to autoplay policy
+ */
+async function initUISounds() {
+    if (uiAudioContext) return; // Already initialized
+
+    try {
+        uiAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+        // Resume if suspended (browser autoplay policy)
+        if (uiAudioContext.state === 'suspended') {
+            await uiAudioContext.resume();
+        }
+
+        // Preload sound files
+        await Promise.all([
+            loadSound('tap', '/children/assets/tap.mp3'),
+            loadSound('chime', '/children/assets/chime.mp3')
+        ]);
+
+        console.log('UI sounds initialized');
+    } catch (err) {
+        console.warn('UI sound initialization failed:', err);
+    }
+}
+
+/**
+ * Load a sound file into the buffer
+ */
+async function loadSound(name, url) {
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Failed to fetch ${url}`);
+        const arrayBuffer = await response.arrayBuffer();
+        soundBuffers[name] = await uiAudioContext.decodeAudioData(arrayBuffer);
+    } catch (err) {
+        console.warn(`Failed to load sound ${name}:`, err);
+    }
+}
+
+/**
+ * Play a UI sound effect
+ * @param {string} name - Sound name ('tap' or 'chime')
+ * @param {number} volume - Volume multiplier (0-1), defaults to UI_SOUND_VOLUME
+ */
+function playUISound(name, volume = UI_SOUND_VOLUME) {
+    if (!uiAudioContext || !soundBuffers[name]) return;
+
+    try {
+        // Resume context if suspended
+        if (uiAudioContext.state === 'suspended') {
+            uiAudioContext.resume();
+        }
+
+        const source = uiAudioContext.createBufferSource();
+        const gainNode = uiAudioContext.createGain();
+
+        source.buffer = soundBuffers[name];
+        gainNode.gain.value = volume;
+
+        source.connect(gainNode);
+        gainNode.connect(uiAudioContext.destination);
+        source.start(0);
+    } catch (err) {
+        console.warn(`Failed to play sound ${name}:`, err);
+    }
+}
+
 function transitionTo(newState, story = null) {
     const previousState = currentState;
     currentState = newState;
@@ -31,6 +105,11 @@ function transitionTo(newState, story = null) {
 
     // After a brief delay, hide the turned page and show new one
     setTimeout(() => {
+        // Hide all screens first
+        document.querySelectorAll('[data-screen]').forEach(screen => {
+            screen.classList.add('hidden');
+        });
+
         pages.forEach(page => {
             page.classList.remove('page-turning-out', 'page-visible');
             page.classList.add('page-hidden');
@@ -41,6 +120,12 @@ function transitionTo(newState, story = null) {
         if (newPage) {
             newPage.classList.remove('page-hidden');
             newPage.classList.add('page-visible');
+        }
+
+        // Show the target screen (remove hidden class)
+        const targetScreen = document.querySelector(`[data-screen="${newState}"]`);
+        if (targetScreen) {
+            targetScreen.classList.remove('hidden');
         }
 
         // State-specific logic
@@ -109,6 +194,9 @@ function renderStoryGrid() {
 function playStory(story) {
     if (currentState !== STATES.IDLE) return;
 
+    // Play tap sound immediately for feedback
+    playUISound('tap');
+
     // Ensure audio is unlocked before playing
     unlockAudio();
 
@@ -174,6 +262,10 @@ function playAudio(story) {
 // Audio ended event handler
 function handleAudioEnded() {
     console.log('Audio ended, transitioning to thank you');
+
+    // Play chime sound for completion
+    playUISound('chime');
+
     transitionTo(STATES.THANKYOU);
 }
 
@@ -360,6 +452,9 @@ function unlockAudio() {
             audioUnlocked = true;
             silentAudio.pause();
             silentAudio.src = '';
+
+            // Initialize UI sounds now that we have user gesture
+            initUISounds();
         }).catch(err => {
             console.warn('Audio unlock failed:', err);
         });

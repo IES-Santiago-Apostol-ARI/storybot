@@ -90,3 +90,8 @@ if children_static_dir.exists():
 admin_static_dir = Path("static/admin")
 if admin_static_dir.exists():
     app.mount("/admin", StaticFiles(directory=str(admin_static_dir), html=True), name="admin")
+
+# Mount shared theme directory
+shared_static_dir = Path("static/shared")
+if shared_static_dir.exists():
+    app.mount("/shared", StaticFiles(directory=str(shared_static_dir)), name="shared")

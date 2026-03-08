@@ -49,13 +49,7 @@
   height: 100%;
 }
 
-/* Override hidden behavior - let page handle visibility via transform */
-.page .hidden {
-  /* Don't use display:none, let page transform handle it */
-  opacity: 1;
-  display: block;
-}
-
+/* Page hidden state - screens inside hidden pages are visible for 3D flip */
 .page.page-hidden .screen-idle,
 .page.page-hidden .screen-playing,
 .page.page-hidden .screen-thankyou {
@@ -90,7 +84,9 @@ html, body {
     height: 100%;
 }
 
-.screen-idle {
+.screen-idle,
+.screen-playing,
+.screen-thankyou {
     display: block;
 }
 
