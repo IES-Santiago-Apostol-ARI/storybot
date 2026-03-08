@@ -194,9 +194,62 @@ input[type="color"] {
     opacity: 0.85;
 }
 
+/* Secondary button (for Cancel, Clear Cover) */
+.btn-secondary {
+    background-color: #6b7280;
+    color: white;
+    padding: 0.5rem 1rem;
+    font-size: 14px;
+    width: auto;
+}
+
+.btn-secondary:hover {
+    opacity: 0.85;
+}
+
+/* Small button variant */
+.btn-small {
+    padding: 0.25rem 0.75rem;
+    font-size: 12px;
+}
+
+/* Cover actions row */
+.cover-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-top: var(--space-xs);
+}
+
+.current-file-name {
+    font-size: 12px;
+    color: var(--color-text-muted);
+    font-style: italic;
+}
+
+/* Form button row for side-by-side buttons */
+.form-buttons {
+    display: flex;
+    gap: var(--space-sm);
+    margin-top: var(--space-md);
+}
+
+.form-buttons .btn-primary {
+    flex: 1;
+}
+
+.form-buttons .btn-secondary {
+    flex: 0 0 auto;
+}
+
 .btn:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+}
+
+/* Hidden utility class */
+.hidden {
+    display: none !important;
 }
 
 /* Story cards */

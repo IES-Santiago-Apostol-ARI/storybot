@@ -5,6 +5,12 @@ let stories = [];
 let assigningStoryId = null;
 let nfcEventSource = null;
 
+// Edit mode state
+let formMode = 'upload'; // 'upload' | 'edit'
+let editingStoryId = null;
+let originalStoryData = null; // For dirty checking
+let removeCoverFlag = false;
+
 // Hardware status elements
 const nfcStatusIcon = document.getElementById('nfc-status');
 const ledStatusIcon = document.getElementById('led-status');
@@ -17,6 +23,10 @@ let statusPollId = null;
 const uploadForm = document.getElementById('upload-form');
 const storyListContainer = document.getElementById('story-list');
 const statusMessage = document.getElementById('status-message');
+const cancelEditBtn = document.getElementById('cancel-edit');
+const clearCoverBtn = document.getElementById('clear-cover');
+const coverActionsDiv = document.getElementById('cover-actions');
+const currentCoverName = document.getElementById('current-cover-name');
 
 // Emoji Picker State
 let emojiPickerOpen = false;
@@ -314,6 +324,192 @@ function switchCategory(category) {
 }
 
 /**
+ * Enter edit mode for a story
+ * @param {Object} story - Story object to edit
+ */
+function enterEditMode(story) {
+    formMode = 'edit';
+    editingStoryId = story.id;
+    originalStoryData = { ...story };
+    removeCoverFlag = false;
+
+    // Pre-fill form fields
+    document.getElementById('title').value = story.title;
+    document.getElementById('emoji').value = story.emoji;
+    document.getElementById('led_color').value = story.led_color;
+
+    // Clear file inputs (they can't be pre-filled)
+    document.getElementById('audio').value = '';
+    document.getElementById('cover').value = '';
+
+    // Show cover actions if story has cover
+    if (story.cover_image) {
+        coverActionsDiv.classList.remove('hidden');
+        currentCoverName.textContent = `Current: ${story.cover_image}`;
+    } else {
+        coverActionsDiv.classList.add('hidden');
+        currentCoverName.textContent = '';
+    }
+
+    updateFormUI();
+    scrollToForm();
+}
+
+/**
+ * Exit edit mode and reset form
+ * @param {boolean} skipConfirm - Skip unsaved changes confirmation
+ */
+function exitEditMode(skipConfirm = false) {
+    if (!skipConfirm && hasUnsavedChanges()) {
+        if (!confirm('You have unsaved changes. Discard them?')) {
+            return;
+        }
+    }
+
+    formMode = 'upload';
+    editingStoryId = null;
+    originalStoryData = null;
+    removeCoverFlag = false;
+
+    uploadForm.reset();
+    coverActionsDiv.classList.add('hidden');
+    currentCoverName.textContent = '';
+
+    updateFormUI();
+}
+
+/**
+ * Update form UI based on current mode
+ */
+function updateFormUI() {
+    const headerEl = document.querySelector('.upload-section h2');
+    const submitBtn = uploadForm.querySelector('button[type="submit"]');
+    const audioInput = document.getElementById('audio');
+
+    if (formMode === 'edit') {
+        headerEl.textContent = 'Edit Story';
+        submitBtn.textContent = 'Save Changes';
+        cancelEditBtn.classList.remove('hidden');
+        audioInput.required = false;
+    } else {
+        headerEl.textContent = 'Upload New Story';
+        submitBtn.textContent = 'Upload Story';
+        cancelEditBtn.classList.add('hidden');
+        audioInput.required = true;
+    }
+}
+
+/**
+ * Check if form has unsaved changes compared to original story
+ * @returns {boolean}
+ */
+function hasUnsavedChanges() {
+    if (formMode !== 'edit' || !originalStoryData) return false;
+
+    const titleChanged = document.getElementById('title').value !== originalStoryData.title;
+    const emojiChanged = document.getElementById('emoji').value !== originalStoryData.emoji;
+    const colorChanged = document.getElementById('led_color').value !== originalStoryData.led_color;
+    const audioSelected = document.getElementById('audio').files.length > 0;
+    const coverSelected = document.getElementById('cover').files.length > 0;
+
+    return titleChanged || emojiChanged || colorChanged || audioSelected || coverSelected || removeCoverFlag;
+}
+
+/**
+ * Smooth scroll to upload form
+ */
+function scrollToForm() {
+    document.querySelector('.upload-section').scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+    });
+}
+
+/**
+ * Smooth scroll to a story card
+ * @param {string} storyId - Story ID
+ */
+function scrollToCard(storyId) {
+    const card = document.querySelector(`[data-story-id="${storyId}"]`);
+    if (card) {
+        card.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center'
+        });
+    }
+}
+
+/**
+ * Mark cover for removal
+ */
+function clearCover() {
+    removeCoverFlag = true;
+    document.getElementById('cover').value = '';
+    currentCoverName.textContent = 'Cover will be removed on save';
+    currentCoverName.style.color = 'var(--color-danger)';
+}
+
+/**
+ * Update an existing story
+ * @param {Event} event - Form submit event
+ */
+async function updateStory(event) {
+    event.preventDefault();
+
+    const formData = new FormData(uploadForm);
+    formData.append('remove_cover', removeCoverFlag);
+
+    // Remove audio field from FormData if no file selected
+    // This prevents sending an empty file which causes validation errors
+    const audioInput = document.getElementById('audio');
+    if (audioInput.files.length === 0) {
+        formData.delete('audio');
+    }
+
+    // Remove cover field from FormData if no file selected
+    const coverInput = document.getElementById('cover');
+    if (coverInput.files.length === 0) {
+        formData.delete('cover');
+    }
+
+    const submitButton = uploadForm.querySelector('button[type="submit"]');
+
+    try {
+        submitButton.disabled = true;
+        submitButton.textContent = 'Saving...';
+        hideMessage();
+
+        const response = await fetch(`/api/stories/${editingStoryId}`, {
+            method: 'PUT',
+            body: formData
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to update story');
+        }
+
+        const story = await response.json();
+        showMessage(`Story "${story.title}" updated successfully!`, 'success');
+
+        // Exit edit mode and reload list
+        exitEditMode(true); // Skip confirm since we just saved
+        await loadStories();
+
+        // Scroll to updated card
+        setTimeout(() => scrollToCard(story.id), 100);
+
+    } catch (error) {
+        console.error('Error updating story:', error);
+        showMessage(error.message || 'Failed to update story', 'error');
+        // Keep form populated for retry (don't reset)
+    } finally {
+        submitButton.disabled = false;
+        submitButton.textContent = 'Save Changes';
+    }
+}
+
+/**
  * Initialize emoji picker event handlers
  */
 function initEmojiPicker() {
@@ -442,10 +638,19 @@ function createStoryCard(story) {
     const actions = document.createElement('div');
     actions.className = 'story-actions';
 
+    // Edit button (first in action row)
+    const editButton = document.createElement('button');
+    editButton.className = 'btn btn-primary';
+    editButton.textContent = 'Edit';
+    editButton.style.cssText = 'padding: 0.5rem 0.75rem; font-size: 14px;';
+    editButton.onclick = () => enterEditMode(story);
+    actions.appendChild(editButton);
+
     // Assign/Unassign NFC button
     const nfcButton = document.createElement('button');
     nfcButton.className = story.nfc_uid ? 'btn btn-success' : 'btn btn-warning';
     nfcButton.textContent = story.nfc_uid ? 'Reassign NFC' : 'Assign NFC';
+    nfcButton.style.cssText = 'padding: 0.5rem 0.75rem; font-size: 14px;';
     nfcButton.onclick = () => startNFCAssignment(story.id);
     actions.appendChild(nfcButton);
 
@@ -453,6 +658,7 @@ function createStoryCard(story) {
     const deleteButton = document.createElement('button');
     deleteButton.className = 'btn btn-danger';
     deleteButton.textContent = 'Delete';
+    deleteButton.style.cssText = 'padding: 0.5rem 0.75rem; font-size: 14px;';
     deleteButton.onclick = () => deleteStory(story.id, story.title);
     actions.appendChild(deleteButton);
 
@@ -469,6 +675,11 @@ function createStoryCard(story) {
  */
 async function uploadStory(event) {
     event.preventDefault();
+
+    // Delegate to updateStory if in edit mode
+    if (formMode === 'edit') {
+        return updateStory(event);
+    }
 
     const formData = new FormData(uploadForm);
     const submitButton = uploadForm.querySelector('button[type="submit"]');
@@ -726,6 +937,18 @@ document.addEventListener('DOMContentLoaded', () => {
     uploadForm.addEventListener('submit', uploadStory);
     startStatusPolling();  // NEW: Start hardware status polling
     initEmojiPicker();     // Initialize emoji picker
+
+    // Edit mode event listeners
+    cancelEditBtn.addEventListener('click', () => exitEditMode());
+    clearCoverBtn.addEventListener('click', clearCover);
 });
 
 window.addEventListener('beforeunload', cleanup);
+
+// Warn about unsaved changes on page navigation
+window.addEventListener('beforeunload', (event) => {
+    if (hasUnsavedChanges()) {
+        event.preventDefault();
+        event.returnValue = '';
+    }
+});

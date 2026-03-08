@@ -233,3 +233,138 @@ class TestStoryManagerNFC:
         index = json.loads(story_manager.INDEX_FILE.read_text())
         assert "old-nfc-uid" not in index["nfc_to_story"]
         assert index["nfc_to_story"]["new-nfc-uid"] == "test-story-1"
+
+
+class TestStoryManagerUpdate:
+    """Test StoryManager.update_story()."""
+
+    def test_update_story_title(self, story_manager: StoryManager, story_create_data: dict):
+        """Test that update_story updates title."""
+        # Create story
+        story_manager.create_story(**story_create_data)
+
+        # Update title
+        result = story_manager.update_story("test-story-1", title="Updated Title")
+
+        # Verify returns Story with new title
+        assert result is not None
+        assert result.id == "test-story-1"
+        assert result.title == "Updated Title"
+
+        # Verify story was updated
+        story = story_manager.get_story("test-story-1")
+        assert story.title == "Updated Title"
+
+    def test_update_story_emoji_and_led_color(
+        self, story_manager: StoryManager, story_create_data: dict
+    ):
+        """Test that update_story updates emoji and led_color."""
+        # Create story
+        story_manager.create_story(**story_create_data)
+
+        # Update emoji and led_color
+        result = story_manager.update_story(
+            "test-story-1", emoji="🎉", led_color="#00FF00"
+        )
+
+        # Verify returns Story with new values
+        assert result is not None
+        assert result.emoji == "🎉"
+        assert result.led_color == "#00FF00"
+
+    def test_update_story_invalid_id_returns_none(
+        self, story_manager: StoryManager, story_create_data: dict
+    ):
+        """Test that update_story returns None for invalid story_id."""
+        # Create story
+        story_manager.create_story(**story_create_data)
+
+        # Try to update non-existent story
+        result = story_manager.update_story("non-existent", title="New Title")
+        assert result is None
+
+    def test_update_story_with_new_audio_file(
+        self, story_manager: StoryManager, story_create_data: dict
+    ):
+        """Test that update_story can update audio_file."""
+        # Create story
+        story_manager.create_story(**story_create_data)
+
+        # Update audio file
+        result = story_manager.update_story("test-story-1", audio_file="new_audio.wav")
+
+        # Verify audio_file updated
+        assert result is not None
+        assert result.audio_file == "new_audio.wav"
+
+        story = story_manager.get_story("test-story-1")
+        assert story.audio_file == "new_audio.wav"
+
+    def test_update_story_with_new_cover_image(
+        self, story_manager: StoryManager, story_create_data: dict
+    ):
+        """Test that update_story can update cover_image."""
+        # Create story
+        story_manager.create_story(**story_create_data)
+
+        # Update cover image
+        result = story_manager.update_story("test-story-1", cover_image="new_cover.jpg")
+
+        # Verify cover_image updated
+        assert result is not None
+        assert result.cover_image == "new_cover.jpg"
+
+    def test_update_story_remove_cover_clears_cover_image(
+        self, story_manager: StoryManager, story_create_data: dict
+    ):
+        """Test that update_story with remove_cover=True clears cover_image."""
+        # Create story with cover
+        story_create_data["cover_image"] = "cover.jpg"
+        story_manager.create_story(**story_create_data)
+
+        # Verify cover exists
+        story = story_manager.get_story("test-story-1")
+        assert story.cover_image == "cover.jpg"
+
+        # Remove cover
+        result = story_manager.update_story("test-story-1", remove_cover=True)
+
+        # Verify cover_image is None
+        assert result is not None
+        assert result.cover_image is None
+
+        story = story_manager.get_story("test-story-1")
+        assert story.cover_image is None
+
+    def test_update_story_preserves_nfc_uid(
+        self, story_manager: StoryManager, story_create_data: dict
+    ):
+        """Test that update_story preserves nfc_uid."""
+        # Create story with NFC
+        story_manager.create_story(**story_create_data)
+        story_manager.assign_nfc("test-story-1", "04:A3:B5:C7:D9")
+
+        # Update title
+        result = story_manager.update_story("test-story-1", title="Updated Title")
+
+        # Verify NFC UID is preserved
+        assert result is not None
+        assert result.nfc_uid == "04:A3:B5:C7:D9"
+
+        story = story_manager.get_story("test-story-1")
+        assert story.nfc_uid == "04:A3:B5:C7:D9"
+
+    def test_update_story_preserves_created_at(
+        self, story_manager: StoryManager, story_create_data: dict
+    ):
+        """Test that update_story preserves created_at timestamp."""
+        # Create story
+        created = story_manager.create_story(**story_create_data)
+        original_timestamp = created.created_at
+
+        # Update title
+        result = story_manager.update_story("test-story-1", title="Updated Title")
+
+        # Verify created_at is preserved
+        assert result is not None
+        assert result.created_at == original_timestamp

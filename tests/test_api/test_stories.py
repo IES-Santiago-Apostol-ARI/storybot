@@ -367,3 +367,191 @@ class TestNFCAssignment:
         story = response.json()
         assert story["id"] == story2_id
         assert story["title"] == "Story 2"
+
+
+class TestPutStory:
+    """Test PUT /api/stories/{id} endpoint."""
+
+    def test_put_story_with_valid_data_returns_200(self, client: TestClient):
+        """Test PUT /api/stories/{id} with valid data returns 200 with updated Story."""
+        # First create a story
+        files = {
+            "audio": ("audio.mp3", BytesIO(b"fake audio"), "audio/mpeg")
+        }
+        data = {
+            "title": "Original Title",
+            "emoji": "📚",
+            "led_color": "#FF5733",
+        }
+        create_response = client.post("/api/stories", files=files, data=data)
+        story_id = create_response.json()["id"]
+
+        # Update story
+        update_data = {
+            "title": "Updated Title",
+            "emoji": "🎉",
+            "led_color": "#00FF00",
+        }
+        response = client.put(f"/api/stories/{story_id}", data=update_data)
+
+        assert response.status_code == 200
+        story = response.json()
+        assert story["id"] == story_id
+        assert story["title"] == "Updated Title"
+        assert story["emoji"] == "🎉"
+        assert story["led_color"] == "#00FF00"
+        assert story["audio_file"] == "audio.mp3"
+
+    def test_put_story_with_invalid_id_returns_404(self, client: TestClient):
+        """Test PUT /api/stories/{id} with invalid story_id returns 404."""
+        data = {
+            "title": "Updated Title",
+            "emoji": "🎉",
+            "led_color": "#00FF00",
+        }
+        response = client.put("/api/stories/non-existent-id", data=data)
+
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+    def test_put_story_with_new_audio_file_replaces_audio(self, client: TestClient, tmp_path):
+        """Test PUT with new audio file replaces old audio."""
+        # First create a story
+        files = {
+            "audio": ("audio.mp3", BytesIO(b"original audio"), "audio/mpeg")
+        }
+        data = {
+            "title": "Test Story",
+            "emoji": "📚",
+            "led_color": "#FF5733",
+        }
+        create_response = client.post("/api/stories", files=files, data=data)
+        story_id = create_response.json()["id"]
+
+        # Update with new audio
+        new_files = {
+            "audio": ("audio.wav", BytesIO(b"new audio"), "audio/wav")
+        }
+        update_data = {
+            "title": "Test Story",
+            "emoji": "📚",
+            "led_color": "#FF5733",
+        }
+        response = client.put(f"/api/stories/{story_id}", files=new_files, data=update_data)
+
+        assert response.status_code == 200
+        story = response.json()
+        assert story["audio_file"] == "audio.wav"
+
+    def test_put_story_with_new_cover_file_replaces_cover(self, client: TestClient, tmp_path):
+        """Test PUT with new cover file replaces old cover."""
+        # First create a story with cover
+        files = {
+            "audio": ("audio.mp3", BytesIO(b"fake audio"), "audio/mpeg"),
+            "cover": ("cover.jpg", BytesIO(b"original cover"), "image/jpeg"),
+        }
+        data = {
+            "title": "Test Story",
+            "emoji": "📚",
+            "led_color": "#FF5733",
+        }
+        create_response = client.post("/api/stories", files=files, data=data)
+        story_id = create_response.json()["id"]
+
+        # Update with new cover
+        new_files = {
+            "cover": ("cover.png", BytesIO(b"new cover"), "image/png"),
+        }
+        update_data = {
+            "title": "Test Story",
+            "emoji": "📚",
+            "led_color": "#FF5733",
+        }
+        response = client.put(f"/api/stories/{story_id}", files=new_files, data=update_data)
+
+        assert response.status_code == 200
+        story = response.json()
+        assert story["cover_image"] == "cover.png"
+
+    def test_put_story_with_remove_cover_clears_cover(self, client: TestClient, tmp_path):
+        """Test PUT with remove_cover=true clears cover_image."""
+        # First create a story with cover
+        files = {
+            "audio": ("audio.mp3", BytesIO(b"fake audio"), "audio/mpeg"),
+            "cover": ("cover.jpg", BytesIO(b"fake cover"), "image/jpeg"),
+        }
+        data = {
+            "title": "Test Story",
+            "emoji": "📚",
+            "led_color": "#FF5733",
+        }
+        create_response = client.post("/api/stories", files=files, data=data)
+        story_id = create_response.json()["id"]
+
+        # Update with remove_cover=true
+        update_data = {
+            "title": "Test Story",
+            "emoji": "📚",
+            "led_color": "#FF5733",
+            "remove_cover": "true",
+        }
+        response = client.put(f"/api/stories/{story_id}", data=update_data)
+
+        assert response.status_code == 200
+        story = response.json()
+        assert story["cover_image"] is None
+
+    def test_put_story_without_audio_preserves_existing_audio(self, client: TestClient):
+        """Test PUT without audio file preserves existing audio."""
+        # First create a story
+        files = {
+            "audio": ("audio.mp3", BytesIO(b"fake audio"), "audio/mpeg")
+        }
+        data = {
+            "title": "Test Story",
+            "emoji": "📚",
+            "led_color": "#FF5733",
+        }
+        create_response = client.post("/api/stories", files=files, data=data)
+        story_id = create_response.json()["id"]
+        original_audio = create_response.json()["audio_file"]
+
+        # Update without providing audio
+        update_data = {
+            "title": "Updated Title",
+            "emoji": "📚",
+            "led_color": "#FF5733",
+        }
+        response = client.put(f"/api/stories/{story_id}", data=update_data)
+
+        assert response.status_code == 200
+        story = response.json()
+        assert story["audio_file"] == original_audio
+
+    def test_put_story_without_cover_preserves_existing_cover(self, client: TestClient):
+        """Test PUT without cover file preserves existing cover."""
+        # First create a story with cover
+        files = {
+            "audio": ("audio.mp3", BytesIO(b"fake audio"), "audio/mpeg"),
+            "cover": ("cover.jpg", BytesIO(b"fake cover"), "image/jpeg"),
+        }
+        data = {
+            "title": "Test Story",
+            "emoji": "📚",
+            "led_color": "#FF5733",
+        }
+        create_response = client.post("/api/stories", files=files, data=data)
+        story_id = create_response.json()["id"]
+        original_cover = create_response.json()["cover_image"]
+
+        # Update without providing cover
+        update_data = {
+            "title": "Updated Title",
+            "emoji": "📚",
+            "led_color": "#FF5733",
+        }
+        response = client.put(f"/api/stories/{story_id}", data=update_data)
+
+        assert response.status_code == 200
+        story = response.json()
+        assert story["cover_image"] == original_cover

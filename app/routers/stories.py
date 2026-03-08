@@ -141,6 +141,105 @@ async def create_story(
     return story
 
 
+@router.put("/api/stories/{story_id}", response_model=Story)
+async def update_story(
+    story_id: str,
+    title: str = Form(...),
+    emoji: str = Form(...),
+    led_color: str = Form(...),
+    audio: UploadFile | None = File(None),
+    cover: UploadFile | None = File(None),
+    remove_cover: bool = Form(False),
+    story_manager: StoryManager = Depends(get_story_manager),
+) -> Story:
+    """Update a story's metadata and/or files.
+
+    Args:
+        story_id: Story ID to update
+        title: Story title
+        emoji: Story emoji icon
+        led_color: LED color in hex format
+        audio: Optional new audio file upload
+        cover: Optional new cover image upload
+        remove_cover: If True, remove the cover image
+        story_manager: StoryManager instance
+
+    Returns:
+        Updated Story object
+
+    Raises:
+        HTTPException: If story not found or audio file is invalid
+    """
+    # Verify story exists first
+    existing_story = story_manager.get_story(story_id)
+    if not existing_story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Story '{story_id}' not found",
+        )
+
+    story_dir = Path("content/stories") / story_id
+
+    # Handle audio file replacement
+    audio_file = existing_story.audio_file
+    if audio:
+        # Validate audio content type
+        if audio.content_type not in VALID_AUDIO_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid audio type. Must be one of: {VALID_AUDIO_TYPES}",
+            )
+
+        # Save new audio file
+        audio_ext = Path(audio.filename).suffix or ".mp3"
+        new_audio_path = story_dir / f"audio{audio_ext}"
+        with new_audio_path.open("wb") as f:
+            shutil.copyfileobj(audio.file, f)
+        audio_file = f"audio{audio_ext}"
+
+        # Delete old audio file if extension changed
+        old_audio_path = story_dir / existing_story.audio_file
+        if old_audio_path.exists() and old_audio_path != new_audio_path:
+            old_audio_path.unlink()
+
+    # Handle cover image replacement/removal
+    cover_image = existing_story.cover_image
+    if cover:
+        # Save new cover file
+        cover_ext = Path(cover.filename).suffix or ".jpg"
+        new_cover_path = story_dir / f"cover{cover_ext}"
+        with new_cover_path.open("wb") as f:
+            shutil.copyfileobj(cover.file, f)
+        cover_image = f"cover{cover_ext}"
+
+        # Delete old cover file if exists
+        if existing_story.cover_image:
+            old_cover_path = story_dir / existing_story.cover_image
+            if old_cover_path.exists():
+                old_cover_path.unlink()
+    elif remove_cover:
+        # Delete cover file if exists
+        if existing_story.cover_image:
+            old_cover_path = story_dir / existing_story.cover_image
+            if old_cover_path.exists():
+                old_cover_path.unlink()
+        cover_image = None
+
+    # Update story in manager
+    # Pass remove_cover flag to manager
+    story = story_manager.update_story(
+        story_id=story_id,
+        title=title,
+        emoji=emoji,
+        led_color=led_color,
+        audio_file=audio_file,
+        cover_image=cover_image,
+        remove_cover=remove_cover,
+    )
+
+    return story
+
+
 @router.get("/api/stories", response_model=StoryList)
 async def list_stories(
     story_manager: StoryManager = Depends(get_story_manager),

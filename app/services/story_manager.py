@@ -186,3 +186,58 @@ class StoryManager:
             if story_id and story_id in index["stories"]:
                 return Story(**index["stories"][story_id])
             return None
+
+    def update_story(
+        self,
+        story_id: str,
+        title: str | None = None,
+        emoji: str | None = None,
+        led_color: str | None = None,
+        audio_file: str | None = None,
+        cover_image: str | None = None,
+        remove_cover: bool = False,
+    ) -> Story | None:
+        """Update a story's metadata and/or files.
+
+        Args:
+            story_id: Story ID to update
+            title: New title (optional)
+            emoji: New emoji (optional)
+            led_color: New LED color (optional)
+            audio_file: New audio filename (optional)
+            cover_image: New cover filename (optional)
+            remove_cover: If True, clear cover_image field
+
+        Returns:
+            Updated Story or None if story_id not found
+        """
+        with self._lock:
+            index = self._load_index()
+
+            # Check story exists
+            if story_id not in index["stories"]:
+                return None
+
+            story_data = index["stories"][story_id]
+
+            # Update only provided fields (if not None)
+            if title is not None:
+                story_data["title"] = title
+            if emoji is not None:
+                story_data["emoji"] = emoji
+            if led_color is not None:
+                story_data["led_color"] = led_color
+            if audio_file is not None:
+                story_data["audio_file"] = audio_file
+            if cover_image is not None:
+                story_data["cover_image"] = cover_image
+
+            # Handle remove_cover flag
+            if remove_cover:
+                story_data["cover_image"] = None
+
+            # Preserve nfc_uid and created_at (do not modify)
+            # nfc_uid is already in story_data, created_at is already there
+
+            self._save_index(index)
+            return Story(**story_data)

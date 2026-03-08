@@ -34,7 +34,7 @@
 
         <section class="upload-section">
             <h2>Upload New Story</h2>
-            <form id="upload-form" enctype="multipart/form-data">
+            <form id="upload-form" enctype="multipart/form-data" data-mode="upload">
                 <div class="form-group">
                     <label for="title">Title *</label>
                     <input
@@ -111,9 +111,16 @@
                         name="cover"
                         accept="image/*"
                     >
+                    <div class="cover-actions hidden" id="cover-actions">
+                        <button type="button" id="clear-cover" class="btn btn-secondary btn-small">Remove Cover</button>
+                        <span id="current-cover-name" class="current-file-name"></span>
+                    </div>
                 </div>
 
-                <button type="submit" class="btn btn-primary">Upload Story</button>
+                <div class="form-buttons">
+                    <button type="submit" class="btn btn-primary">Upload Story</button>
+                    <button type="button" id="cancel-edit" class="btn btn-secondary hidden">Cancel</button>
+                </div>
             </form>
         </section>
 
