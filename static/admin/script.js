@@ -18,6 +18,335 @@ const uploadForm = document.getElementById('upload-form');
 const storyListContainer = document.getElementById('story-list');
 const statusMessage = document.getElementById('status-message');
 
+// Emoji Picker State
+let emojiPickerOpen = false;
+let activeCategory = 'Animals';
+
+// Emoji Categories Data
+const emojiCategories = {
+    Animals: ['🐶', '🐱', '🐭', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐵', '🐔', '🐧', '🐦', '🦆'],
+    Food: ['🍎', '🍊', '🍋', '🍇', '🍓', '🫐', '🍑', '🍒', '🥕', '🥦', '🍞', '🥐', '🧀', '🍕', '🍰', '🍪', '🥛', '🍩'],
+    Weather: ['☀️', '🌤️', '⛅', '🌧️', '❄️', '🌈', '☁️', '🌪️', '🔥', '🌊', '🌙', '⭐', '✨', '🌟', '🌈', '🌦️', '🌨️', '🌩️'],
+    Activities: ['🎨', '🎭', '🎪', '🎰', '🎲', '🎯', '🎳', '🎵', '🎶', '🎤', '🏃', '🚴', '🏊', '🎪', '🎬', '🎮', '🎯', '🏆'],
+    Emotions: ['😊', '😄', '😂', '🥰', '😢', '😠', '😴', '🤔', '😮', '🤗', '😇', '😎', '🥳', '🤩', '😌', '🥲', '😏', '😋'],
+    Objects: ['🎁', '🎈', '🎀', '🎊', '🎉', '📚', '✏️', '🎓', '🏠', '🚗', '✈️', '🚀', '⏰', '💡', '🔔', '📷', '🎩', '🧸']
+};
+
+// Emoji Keywords for Search
+const emojiKeywords = {
+    '🐶': ['dog', 'puppy', 'pet'],
+    '🐱': ['cat', 'kitten', 'pet'],
+    '🐭': ['mouse', 'pet'],
+    '🐰': ['rabbit', 'bunny', 'pet'],
+    '🦊': ['fox'],
+    '🐻': ['bear'],
+    '🐼': ['panda'],
+    '🐨': ['koala'],
+    '🐯': ['tiger'],
+    '🦁': ['lion'],
+    '🐮': ['cow'],
+    '🐷': ['pig'],
+    '🐸': ['frog'],
+    '🐵': ['monkey'],
+    '🐔': ['chicken', 'hen'],
+    '🐧': ['penguin'],
+    '🐦': ['bird'],
+    '🦆': ['duck'],
+    '🍎': ['apple', 'fruit', 'red'],
+    '🍊': ['orange', 'fruit'],
+    '🍋': ['lemon', 'fruit'],
+    '🍇': ['grape', 'fruit'],
+    '🍓': ['strawberry', 'fruit'],
+    '🫐': ['blueberry', 'fruit'],
+    '🍑': ['peach', 'fruit'],
+    '🍒': ['cherry', 'fruit'],
+    '🥕': ['carrot', 'vegetable'],
+    '🥦': ['broccoli', 'vegetable'],
+    '🍞': ['bread'],
+    '🥐': ['croissant'],
+    '🧀': ['cheese'],
+    '🍕': ['pizza'],
+    '🍰': ['cake', 'dessert'],
+    '🍪': ['cookie', 'dessert'],
+    '🥛': ['milk', 'drink'],
+    '🍩': ['donut', 'dessert'],
+    '☀️': ['sun', 'sunny', 'day'],
+    '🌤️': ['sun behind cloud'],
+    '⛅': ['cloud', 'cloudy'],
+    '🌧️': ['rain', 'rainy'],
+    '❄️': ['snow', 'snowflake', 'cold'],
+    '🌈': ['rainbow'],
+    '☁️': ['cloud'],
+    '🌪️': ['tornado', 'wind'],
+    '🔥': ['fire', 'hot'],
+    '🌊': ['wave', 'water', 'sea'],
+    '🌙': ['moon', 'night'],
+    '⭐': ['star'],
+    '✨': ['sparkles', 'sparkle'],
+    '🌟': ['glowing star'],
+    '🌦️': ['sun rain'],
+    '🌨️': ['snow cloud'],
+    '🌩️': ['lightning', 'thunder'],
+    '🎨': ['art', 'paint', 'palette'],
+    '🎭': ['theater', 'mask', 'drama'],
+    '🎪': ['circus', 'tent'],
+    '🎰': ['slot machine'],
+    '🎲': ['dice', 'game'],
+    '🎯': ['target', 'bullseye'],
+    '🎳': ['bowling'],
+    '🎵': ['music note'],
+    '🎶': ['music notes'],
+    '🎤': ['microphone', 'sing'],
+    '🏃': ['run', 'running', 'run'],
+    '🚴': ['bicycle', 'bike'],
+    '🏊': ['swim', 'swimming'],
+    '🎬': ['movie', 'film', 'camera'],
+    '🎮': ['game', 'video game'],
+    '🏆': ['trophy', 'winner'],
+    '😊': ['smile', 'happy'],
+    '😄': ['laugh', 'laughing', 'happy'],
+    '😂': ['laugh crying', 'funny', 'lol'],
+    '🥰': ['love', 'heart eyes', 'love'],
+    '😢': ['sad', 'cry', 'tear'],
+    '😠': ['angry', 'mad'],
+    '😴': ['sleep', 'sleeping', 'zzz'],
+    '🤔': ['think', 'thinking'],
+    '😮': ['wow', 'surprised', 'surprise'],
+    '🤗': ['hug', 'hugging'],
+    '😇': ['angel', 'good'],
+    '😎': ['cool', 'sunglasses'],
+    '🥳': ['party', 'celebrate'],
+    '🤩': ['star eyes', 'excited'],
+    '😌': ['relaxed', 'calm'],
+    '🥲': ['tear smile'],
+    '😏': ['smirk'],
+    '😋': ['yum', 'delicious', 'tasty'],
+    '🎁': ['gift', 'present', 'birthday'],
+    '🎈': ['balloon', 'birthday', 'party'],
+    '🎀': ['ribbon', 'bow'],
+    '🎊': ['confetti', 'party'],
+    '🎉': ['party', 'celebrate'],
+    '📚': ['book', 'read', 'library'],
+    '✏️': ['pencil', 'write'],
+    '🎓': ['graduation', 'school'],
+    '🏠': ['house', 'home'],
+    '🚗': ['car', 'vehicle'],
+    '✈️': ['airplane', 'fly', 'travel'],
+    '🚀': ['rocket', 'space', 'star'],
+    '⏰': ['alarm clock', 'time'],
+    '💡': ['light bulb', 'idea', 'light'],
+    '🔔': ['bell', 'ring', 'notification'],
+    '📷': ['camera', 'photo'],
+    '🎩': ['top hat', 'hat'],
+    '🧸': ['teddy bear', 'bear', 'toy']
+};
+
+/**
+ * Open emoji picker
+ */
+function openEmojiPicker() {
+    const picker = document.getElementById('emoji-picker');
+    if (picker) {
+        picker.classList.remove('hidden');
+        emojiPickerOpen = true;
+        renderEmojiGrid(activeCategory);
+        // Focus search input
+        const searchInput = picker.querySelector('.emoji-search');
+        if (searchInput) {
+            searchInput.value = '';
+            searchInput.focus();
+        }
+    }
+}
+
+/**
+ * Close emoji picker
+ */
+function closeEmojiPicker() {
+    const picker = document.getElementById('emoji-picker');
+    if (picker) {
+        picker.classList.add('hidden');
+        emojiPickerOpen = false;
+    }
+}
+
+/**
+ * Toggle emoji picker
+ */
+function toggleEmojiPicker() {
+    if (emojiPickerOpen) {
+        closeEmojiPicker();
+    } else {
+        openEmojiPicker();
+    }
+}
+
+/**
+ * Render emoji grid with emojis from a category
+ * @param {string} category - Category name
+ */
+function renderEmojiGrid(category) {
+    const grid = document.querySelector('.emoji-grid');
+    if (!grid) return;
+
+    const emojis = emojiCategories[category] || [];
+    grid.innerHTML = '';
+
+    emojis.forEach(emoji => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'emoji-item';
+        button.textContent = emoji;
+        button.onclick = () => selectEmoji(emoji);
+        grid.appendChild(button);
+    });
+}
+
+/**
+ * Filter emojis by search term
+ * @param {string} searchTerm - Search term
+ */
+function filterEmojis(searchTerm) {
+    const grid = document.querySelector('.emoji-grid');
+    if (!grid) return;
+
+    const term = searchTerm.toLowerCase().trim();
+
+    if (!term) {
+        renderEmojiGrid(activeCategory);
+        return;
+    }
+
+    const matchingEmojis = [];
+    const matchedCategories = new Set();
+
+    // Search in category names
+    Object.keys(emojiCategories).forEach(category => {
+        if (category.toLowerCase().includes(term)) {
+            emojiCategories[category].forEach(emoji => {
+                matchingEmojis.push(emoji);
+                matchedCategories.add(category);
+            });
+        }
+    });
+
+    // Search in keywords
+    Object.keys(emojiKeywords).forEach(emoji => {
+        const keywords = emojiKeywords[emoji];
+        for (const keyword of keywords) {
+            if (keyword.includes(term)) {
+                matchingEmojis.push(emoji);
+                break;
+            }
+        }
+    });
+
+    // Remove duplicates and limit
+    const uniqueEmojis = [...new Set(matchingEmojis)].slice(0, 48);
+
+    grid.innerHTML = '';
+    uniqueEmojis.forEach(emoji => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'emoji-item';
+        button.textContent = emoji;
+        button.onclick = () => selectEmoji(emoji);
+        grid.appendChild(button);
+    });
+}
+
+/**
+ * Select an emoji and insert into input field
+ * @param {string} emoji - Emoji character
+ */
+function selectEmoji(emoji) {
+    const input = document.getElementById('emoji');
+    if (input) {
+        insertAtCursor(input, emoji);
+        closeEmojiPicker();
+        input.focus();
+    }
+}
+
+/**
+ * Insert text at cursor position in input field
+ * @param {HTMLInputElement} field - Input field
+ * @param {string} value - Text to insert
+ */
+function insertAtCursor(field, value) {
+    if (field.selectionStart || field.selectionStart === '0') {
+        const startPos = field.selectionStart;
+        const endPos = field.selectionEnd;
+        field.value = field.value.substring(0, startPos)
+            + value
+            + field.value.substring(endPos, field.value.length);
+        // Move cursor after inserted emoji
+        field.selectionStart = startPos + value.length;
+        field.selectionEnd = startPos + value.length;
+    } else {
+        field.value += value;
+    }
+}
+
+/**
+ * Switch active category
+ * @param {string} category - Category name
+ */
+function switchCategory(category) {
+    activeCategory = category;
+
+    // Update tab states
+    const tabs = document.querySelectorAll('.emoji-category-tab');
+    tabs.forEach(tab => {
+        if (tab.dataset.category === category) {
+            tab.classList.add('active');
+        } else {
+            tab.classList.remove('active');
+        }
+    });
+
+    // Clear search and render grid
+    const searchInput = document.querySelector('.emoji-search');
+    if (searchInput) {
+        searchInput.value = '';
+    }
+    renderEmojiGrid(category);
+}
+
+/**
+ * Initialize emoji picker event handlers
+ */
+function initEmojiPicker() {
+    // Trigger button click
+    const triggerBtn = document.querySelector('.emoji-trigger-btn');
+    if (triggerBtn) {
+        triggerBtn.onclick = toggleEmojiPicker;
+    }
+
+    // Click outside to close
+    document.addEventListener('click', (event) => {
+        const picker = document.getElementById('emoji-picker');
+        const wrapper = document.querySelector('.emoji-input-wrapper');
+        if (picker && !picker.contains(event.target) && !wrapper.contains(event.target)) {
+            closeEmojiPicker();
+        }
+    });
+
+    // Category tab clicks
+    const tabs = document.querySelectorAll('.emoji-category-tab');
+    tabs.forEach(tab => {
+        tab.onclick = () => switchCategory(tab.dataset.category);
+    });
+
+    // Search input
+    const searchInput = document.querySelector('.emoji-search');
+    if (searchInput) {
+        searchInput.addEventListener('input', (event) => {
+            filterEmojis(event.target.value);
+        });
+    }
+}
+
 /**
  * Show status message to user
  * @param {string} text - Message text
@@ -396,6 +725,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadStories();
     uploadForm.addEventListener('submit', uploadStory);
     startStatusPolling();  // NEW: Start hardware status polling
+    initEmojiPicker();     // Initialize emoji picker
 });
 
 window.addEventListener('beforeunload', cleanup);
