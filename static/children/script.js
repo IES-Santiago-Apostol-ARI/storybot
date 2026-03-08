@@ -10,33 +10,59 @@ let stories = [];
 let currentStory = null;
 let nfcEventSource = null;
 let ledPulseInterval = null;
+let progressAnimationId = null;
 const audioElement = document.getElementById('story-audio');
 
 function transitionTo(newState, story = null) {
+    const previousState = currentState;
     currentState = newState;
     currentStory = story;
 
-    // Hide all screens
-    document.querySelectorAll('[data-screen]').forEach(el => el.classList.add('hidden'));
+    // Get all pages
+    const pages = document.querySelectorAll('.page');
 
-    switch (newState) {
-        case STATES.IDLE:
-            stopLEDPulse();
-            turnOffLED();
-            document.querySelector('[data-screen="idle"]').classList.remove('hidden');
-            break;
-        case STATES.PLAYING:
-            startLEDPulse(story.led_color);
-            showPlaybackScreen(story);
-            document.querySelector('[data-screen="playing"]').classList.remove('hidden');
-            playAudio(story);
-            break;
-        case STATES.THANKYOU:
-            fadeLEDToIdle();
-            document.querySelector('[data-screen="thankyou"]').classList.remove('hidden');
-            setTimeout(() => transitionTo(STATES.IDLE), 4000);
-            break;
-    }
+    // First, set turning-out on current visible page
+    pages.forEach(page => {
+        if (page.classList.contains('page-visible')) {
+            page.classList.remove('page-visible');
+            page.classList.add('page-turning-out');
+        }
+    });
+
+    // After a brief delay, hide the turned page and show new one
+    setTimeout(() => {
+        pages.forEach(page => {
+            page.classList.remove('page-turning-out', 'page-visible');
+            page.classList.add('page-hidden');
+        });
+
+        // Show the new page
+        const newPage = document.querySelector(`[data-page="${newState}"]`);
+        if (newPage) {
+            newPage.classList.remove('page-hidden');
+            newPage.classList.add('page-visible');
+        }
+
+        // State-specific logic
+        switch (newState) {
+            case STATES.IDLE:
+                stopLEDPulse();
+                turnOffLED();
+                stopProgressTracking();
+                break;
+            case STATES.PLAYING:
+                startLEDPulse(story.led_color);
+                showPlaybackScreen(story);
+                playAudio(story);
+                startProgressTracking();
+                break;
+            case STATES.THANKYOU:
+                fadeLEDToIdle();
+                stopProgressTracking();
+                setTimeout(() => transitionTo(STATES.IDLE), 4000);
+                break;
+        }
+    }, 100); // Small delay for the page-turning-out animation to start
 }
 
 // Story grid rendering
@@ -233,6 +259,50 @@ function fadeLEDToIdle() {
     }, 200);
 }
 
+// Progress tracking
+function startProgressTracking() {
+    const character = document.getElementById('progress-character');
+    if (!character) return;
+
+    function updateProgress() {
+        if (audioElement.duration > 0) {
+            const progress = audioElement.currentTime / audioElement.duration;
+            // Move from 20px to (window.innerWidth - 80px)
+            const maxX = window.innerWidth - 80;
+            const x = 20 + (progress * (maxX - 20));
+            character.style.left = x + 'px';
+        }
+        if (!audioElement.paused && !audioElement.ended) {
+            progressAnimationId = requestAnimationFrame(updateProgress);
+        }
+    }
+
+    // Reset position
+    character.style.left = '20px';
+
+    // Start tracking when audio plays
+    audioElement.addEventListener('play', function onPlay() {
+        progressAnimationId = requestAnimationFrame(updateProgress);
+    }, { once: true });
+
+    // Also start immediately if already playing
+    if (!audioElement.paused) {
+        progressAnimationId = requestAnimationFrame(updateProgress);
+    }
+}
+
+function stopProgressTracking() {
+    if (progressAnimationId) {
+        cancelAnimationFrame(progressAnimationId);
+        progressAnimationId = null;
+    }
+    // Reset character position
+    const character = document.getElementById('progress-character');
+    if (character) {
+        character.style.left = '20px';
+    }
+}
+
 // NFC listener
 function startNFCListener() {
     nfcEventSource = new EventSource('/api/nfc/read');
@@ -284,6 +354,15 @@ function unlockAudio() {
 
 // Initialization
 document.addEventListener('DOMContentLoaded', () => {
+    // Initialize page states
+    document.querySelectorAll('.page').forEach(page => {
+        if (page.dataset.page === 'idle') {
+            page.classList.add('page-visible');
+        } else {
+            page.classList.add('page-hidden');
+        }
+    });
+
     loadStories();
     startNFCListener();
 
