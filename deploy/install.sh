@@ -2,9 +2,9 @@
 #
 # StoryBot Jetson Installation Script
 #
-# This script sets up a complete StoryBot deployment on NVIDIA Jetson.
-# It creates the user, installs dependencies, configures services,
-# and sets up hardware permissions.
+# This script sets up a complete StoryBot deployment on NVIDIA Jetson Orin Nano Super.
+# It assumes the project is already cloned at /home/ari/storybot and the script
+# is invoked from that directory.
 #
 # Usage:
 #   sudo bash deploy/install.sh [--dev]
@@ -20,8 +20,8 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-INSTALL_DIR="/opt/storybot"
-SERVICE_USER="storybot"
+INSTALL_USER="ari"
+INSTALL_DIR="/home/ari/storybot"
 DEV_MODE=false
 
 # Parse arguments
@@ -42,7 +42,7 @@ echo "================================================"
 echo "StoryBot Installation Script"
 echo "================================================"
 echo "Target directory: $INSTALL_DIR"
-echo "Service user: $SERVICE_USER"
+echo "Service user: $INSTALL_USER"
 echo "Dev mode: $DEV_MODE"
 echo ""
 
@@ -53,106 +53,69 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-# Detect platform
+# Detect platform - Jetson only
 ARCH=$(uname -m)
-echo "Detected architecture: $ARCH"
-
 if [[ "$ARCH" != "aarch64" ]]; then
-    echo -e "${YELLOW}WARNING: This script is designed for Jetson (aarch64)${NC}"
-    echo "Current architecture is $ARCH"
-    read -p "Continue anyway? (y/N) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 1
-    fi
+    echo -e "${RED}ERROR: This script is for Jetson (aarch64) only.${NC}"
+    echo "Detected architecture: $ARCH"
+    exit 1
 fi
 
-# Step 1: Create service user
+# Step 1: Install system dependencies
 echo ""
-echo "Step 1: Creating service user..."
-if id "$SERVICE_USER" &>/dev/null; then
-    echo "User $SERVICE_USER already exists"
-else
-    useradd -r -s /bin/bash -d "$INSTALL_DIR" "$SERVICE_USER"
-    echo -e "${GREEN}Created user $SERVICE_USER${NC}"
-fi
+echo "Step 1: Installing system dependencies..."
+apt-get update
+apt-get install -y nginx unclutter
+echo -e "${GREEN}System dependencies installed${NC}"
 
-# Step 2: Create installation directory
+# Step 2: Install Python dependencies
 echo ""
-echo "Step 2: Setting up installation directory..."
-mkdir -p "$INSTALL_DIR"
-chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
-echo -e "${GREEN}Created $INSTALL_DIR${NC}"
-
-# Step 3: Copy project files
-echo ""
-echo "Step 3: Copying project files..."
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-if [[ -d "$SCRIPT_DIR/.git" ]]; then
-    echo "Copying from git repository..."
-    cp -r "$SCRIPT_DIR"/* "$INSTALL_DIR/"
-    cp -r "$SCRIPT_DIR"/.[!.]* "$INSTALL_DIR/" 2>/dev/null || true
-else
-    echo "Copying from directory (not a git repo)..."
-    cp -r "$SCRIPT_DIR"/* "$INSTALL_DIR/"
-fi
-chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
-echo -e "${GREEN}Project files copied${NC}"
-
-# Step 4: Install Python dependencies
-echo ""
-echo "Step 4: Installing Python dependencies..."
+echo "Step 2: Installing Python dependencies..."
 cd "$INSTALL_DIR"
 
 # Check for uv
-if ! command -v uv &>/dev/null; then
+if ! sudo -u "$INSTALL_USER" command -v uv &>/dev/null; then
     echo "Installing uv package manager..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="$HOME/.local/bin:$PATH"
+    sudo -u "$INSTALL_USER" bash -c 'curl -LsSf https://astral.sh/uv/install.sh | sh'
 fi
 
 # Create virtualenv
 echo "Creating virtual environment..."
-sudo -u "$SERVICE_USER" uv venv "$INSTALL_DIR/.venv"
+sudo -u "$INSTALL_USER" /home/ari/.local/bin/uv venv "$INSTALL_DIR/.venv"
 
-# Install dependencies (without jetson extras on non-jetson platforms)
-if [[ "$ARCH" == "aarch64" ]]; then
-    echo "Installing dependencies for Jetson..."
-    sudo -u "$SERVICE_USER" "$INSTALL_DIR/.venv/bin/pip" install -e "$INSTALL_DIR"
-else
-    echo "Installing dependencies with dev extras..."
-    sudo -u "$SERVICE_USER" uv sync --extra dev
-fi
-echo -e "${GREEN}Dependencies installed${NC}"
+# Install dependencies (no jetson extras - CUDA comes from system apt on Jetson)
+echo "Installing Python packages..."
+sudo -u "$INSTALL_USER" /home/ari/.local/bin/uv sync
+echo -e "${GREEN}Python dependencies installed${NC}"
 
-# Step 5: Download models
+# Step 3: Download TTS models
 if [[ "$DEV_MODE" == false ]]; then
     echo ""
-    echo "Step 5: Downloading TTS models..."
-    sudo -u "$SERVICE_USER" bash "$INSTALL_DIR/deploy/download-models.sh" "$INSTALL_DIR/models/piper"
+    echo "Step 3: Downloading TTS models..."
+    sudo -u "$INSTALL_USER" bash "$INSTALL_DIR/deploy/download-models.sh" "/home/ari/.local/share/piper"
     echo -e "${GREEN}Models downloaded${NC}"
 else
     echo ""
-    echo "Step 5: Skipping model downloads (dev mode)..."
+    echo "Step 3: Skipping model downloads (dev mode)..."
 fi
 
-# Step 6: Create content directories
+# Step 4: Create content directories
 echo ""
-echo "Step 6: Creating content directories..."
-sudo -u "$SERVICE_USER" mkdir -p "$INSTALL_DIR/content/stories"
-sudo -u "$SERVICE_USER" mkdir -p "$INSTALL_DIR/content/interactive"
-sudo -u "$SERVICE_USER" mkdir -p "$INSTALL_DIR/content/images"
+echo "Step 4: Creating content directories..."
+sudo -u "$INSTALL_USER" mkdir -p "$INSTALL_DIR/content/stories"
+sudo -u "$INSTALL_USER" mkdir -p "$INSTALL_DIR/content/interactive"
+sudo -u "$INSTALL_USER" mkdir -p "$INSTALL_DIR/content/images"
 echo -e "${GREEN}Content directories created${NC}"
 
-# Step 7: Configure hardware permissions
+# Step 5: Configure hardware permissions
 echo ""
-echo "Step 7: Configuring hardware permissions..."
+echo "Step 5: Configuring hardware permissions..."
 
 # Add user to required groups
-usermod -aG audio "$SERVICE_USER"
-usermod -aG dialout "$SERVICE_USER"
-usermod -aG plugdev "$SERVICE_USER" || true
-echo -e "${GREEN}Added $SERVICE_USER to audio, dialout, plugdev groups${NC}"
+usermod -aG audio "$INSTALL_USER"
+usermod -aG dialout "$INSTALL_USER"
+usermod -aG plugdev "$INSTALL_USER" || true
+echo -e "${GREEN}Added $INSTALL_USER to audio, dialout, plugdev groups${NC}"
 
 # Create udev rules for NFC reader
 cat > /etc/udev/rules.d/99-storybot-nfc.rules << 'EOF'
@@ -172,66 +135,140 @@ echo -e "${GREEN}Created udev rules for printer${NC}"
 udevadm control --reload-rules
 udevadm trigger
 
-# Step 8: Install systemd services
+# Step 6: Install systemd service
 echo ""
-echo "Step 8: Installing systemd services..."
+echo "Step 6: Installing systemd service..."
 cp "$INSTALL_DIR/deploy/storybot.service" /etc/systemd/system/
-cp "$INSTALL_DIR/deploy/storybot-kiosk.service" /etc/systemd/system/
 systemctl daemon-reload
-echo -e "${GREEN}Systemd services installed${NC}"
-
-# Step 9: Enable services
-echo ""
-echo "Step 9: Enabling services..."
 systemctl enable storybot.service
-systemctl enable storybot-kiosk.service
-echo -e "${GREEN}Services enabled${NC}"
+echo -e "${GREEN}Systemd service installed${NC}"
 
-# Step 10: Create .env file if not exists
+# Step 7: Configure Nginx reverse proxy
 echo ""
-echo "Step 10: Creating environment configuration..."
-if [[ ! -f "$INSTALL_DIR/.env" ]]; then
-    cat > "$INSTALL_DIR/.env" << 'EOF'
-# StoryBot Environment Configuration
+echo "Step 7: Configuring Nginx reverse proxy..."
+cp "$INSTALL_DIR/deploy/storybot-nginx.conf" /etc/nginx/sites-available/storybot
+ln -sf /etc/nginx/sites-available/storybot /etc/nginx/sites-enabled/storybot
+rm -f /etc/nginx/sites-enabled/default
+nginx -t
+systemctl enable nginx
+systemctl restart nginx
+echo -e "${GREEN}Nginx configured${NC}"
 
-# Hardware
-NFC_READER_TYPE=acr122u
-PRINTER_MODEL=QL-800
-LED_ENABLED=false
+# Step 8: Configure GDM3 autologin
+echo ""
+echo "Step 8: Configuring GDM3 autologin..."
+cat > /etc/gdm3/custom.conf << 'GDMEOF'
+[daemon]
+AutomaticLoginEnable=true
+AutomaticLogin=ari
 
-# Audio
-TTS_VOICE=es_ES-sharvard-medium
-AUDIO_OUTPUT=auto
+[security]
 
-# Server
-HOST=0.0.0.0
-PORT=8000
-EOF
-    chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/.env"
-    echo -e "${GREEN}Created .env file${NC}"
-else
-    echo ".env file already exists, skipping..."
-fi
+[xdmcp]
 
-# Done!
+[chooser]
+
+[debug]
+GDMEOF
+echo -e "${GREEN}GDM3 autologin configured${NC}"
+
+# Step 9: Configure GNOME autostart (Firefox kiosk + unclutter)
+echo ""
+echo "Step 9: Configuring kiosk autostart..."
+sudo -u "$INSTALL_USER" mkdir -p /home/ari/.config/autostart
+
+cat > /home/ari/.config/autostart/storybot-kiosk.desktop << 'KIOSKEOF'
+[Desktop Entry]
+Type=Application
+Name=StoryBot Kiosk
+Comment=Launch Firefox kiosk for StoryBot
+Exec=bash -c "unclutter -idle 0.5 & sleep 5 && firefox --kiosk http://localhost/"
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+KIOSKEOF
+chown "$INSTALL_USER:$INSTALL_USER" /home/ari/.config/autostart/storybot-kiosk.desktop
+echo -e "${GREEN}Kiosk autostart configured${NC}"
+
+# Step 10: Configure screen-never-blocks
+echo ""
+echo "Step 10: Configuring screen settings..."
+cat > /home/ari/.config/autostart/storybot-screen-setup.desktop << 'SCREENEOF'
+[Desktop Entry]
+Type=Application
+Name=StoryBot Screen Setup
+Comment=Disable screen blanking (runs once)
+Exec=bash -c "gsettings set org.gnome.desktop.session idle-delay 0 && gsettings set org.gnome.desktop.screensaver lock-enabled false && rm -f ~/.config/autostart/storybot-screen-setup.desktop"
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+SCREENEOF
+chown "$INSTALL_USER:$INSTALL_USER" /home/ari/.config/autostart/storybot-screen-setup.desktop
+echo -e "${GREEN}Screen settings configured${NC}"
+
+# Step 11: Fix file ownership
+echo ""
+echo "Step 11: Fixing file ownership..."
+chown -R "$INSTALL_USER:$INSTALL_USER" "$INSTALL_DIR"
+chown -R "$INSTALL_USER:$INSTALL_USER" /home/ari/.config/autostart
+echo -e "${GREEN}File ownership fixed${NC}"
+
+# Step 12: Print TP-Link WiFi setup instructions
+echo ""
+echo "================================================"
+echo "WiFi Access Point Setup (MANUAL)"
+echo "================================================"
+echo ""
+echo "The TP-Link TL-WR802N must be configured manually:"
+echo ""
+echo "1. Connect the TP-Link to the Jetson via Ethernet"
+echo "2. Connect to the TP-Link's default WiFi (see device label)"
+echo "3. Open browser to http://192.168.0.1 (login: admin/admin)"
+echo "4. Wireless Settings:"
+echo "   - SSID: StoryBot"
+echo "5. Wireless Security:"
+echo "   - WPA/WPA2-Personal"
+echo "   - Set a secure password"
+echo "6. Network > LAN:"
+echo "   - IP Address: 192.168.12.1"
+echo "   - Subnet: 255.255.255.0"
+echo "7. DHCP Settings:"
+echo "   - Enable DHCP Server"
+echo "   - IP Pool: 192.168.12.100 - 192.168.12.200"
+echo "8. Reboot the AP"
+echo ""
+echo "After TP-Link setup, configure the Jetson's Ethernet with static IP:"
+echo "  sudo nmcli connection modify \"Wired connection 1\" \\"
+echo "    ipv4.method manual \\"
+echo "    ipv4.addresses 192.168.12.1/24"
+echo ""
+echo "Teachers access the admin panel at: http://192.168.12.1/admin"
+echo ""
+
+# Completion summary
 echo ""
 echo "================================================"
 echo -e "${GREEN}Installation Complete!${NC}"
 echo "================================================"
 echo ""
-echo "Next steps:"
-echo "  1. Reboot the system: sudo reboot"
-echo "  2. StoryBot will start automatically on boot"
+echo "Installed:"
+echo "  - Python dependencies (uv sync)"
+echo "  - Piper TTS models at /home/ari/.local/share/piper"
+echo "  - Nginx reverse proxy (port 80 -> 8000)"
+echo "  - GDM3 autologin for user ari"
+echo "  - Firefox kiosk autostart"
+echo "  - Screen-never-blocks (activates on first login)"
+echo "  - Cursor hiding (unclutter)"
 echo ""
-echo "To manually start services:"
+echo "To start StoryBot:"
 echo "  sudo systemctl start storybot"
-echo "  sudo systemctl start storybot-kiosk"
 echo ""
-echo "To check service status:"
+echo "To check status:"
 echo "  sudo systemctl status storybot"
 echo "  sudo journalctl -u storybot -f"
 echo ""
-echo "To stop services:"
-echo "  sudo systemctl stop storybot-kiosk"
-echo "  sudo systemctl stop storybot"
+echo "After reboot:"
+echo "  - StoryBot service starts automatically (systemd)"
+echo "  - Firefox opens in kiosk mode (GNOME autostart)"
+echo "  - Screen stays on, cursor hides automatically"
 echo ""
