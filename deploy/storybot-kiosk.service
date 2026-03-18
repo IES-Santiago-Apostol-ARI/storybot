@@ -1,3 +1,7 @@
+# DEPRECATED: This systemd service is superseded by the GNOME autostart file
+# at /home/ari/.config/autostart/storybot-kiosk.desktop
+# The autostart approach handles DISPLAY and XAUTHORITY automatically.
+# This file is kept for reference only and is NOT installed by install.sh.
 [Unit]
 Description=StoryBot Chromium Kiosk
 After=graphical.target storybot.service

@@ -7,7 +7,7 @@
 #
 set -e
 
-MODELS_DIR="${1:-models/piper}"
+MODELS_DIR="${1:-${HOME}/.local/share/piper}"
 mkdir -p "$MODELS_DIR"
 
 # Spanish voice (es_ES-sharvard-medium)
@@ -25,14 +25,8 @@ echo ""
 if [ -f "$MODELS_DIR/$VOICE.onnx" ] && [ -f "$MODELS_DIR/$VOICE.onnx.json" ]; then
     echo "Model files already exist:"
     ls -lh "$MODELS_DIR/$VOICE".*
-    echo ""
-    read -p "Re-download? (y/N) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "Skipping download."
-        exit 0
-    fi
-    rm -f "$MODELS_DIR/$VOICE".*
+    echo "Skipping download. Pass a different directory or remove files to re-download."
+    exit 0
 fi
 
 echo "Downloading model files from HuggingFace..."

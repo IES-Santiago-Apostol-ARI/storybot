@@ -4,11 +4,11 @@ After=network.target
 
 [Service]
 Type=simple
-User=storybot
-Group=storybot
-WorkingDirectory=/opt/storybot
-Environment="PATH=/opt/storybot/.venv/bin"
-ExecStart=/opt/storybot/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+User=ari
+Group=ari
+WorkingDirectory=/home/ari/storybot
+Environment="PATH=/home/ari/storybot/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/home/ari/storybot/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 Restart=on-failure
 RestartSec=5
 
