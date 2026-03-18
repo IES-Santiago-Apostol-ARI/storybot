@@ -1,0 +1,13 @@
+[Unit]
+Description=Power-cycle ACR122U NFC reader before pcscd
+Before=pcscd.service pcscd.socket
+After=systemd-udev-settle.service
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/storybot-reset-nfc.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

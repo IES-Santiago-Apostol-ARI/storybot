@@ -65,8 +65,23 @@ fi
 echo ""
 echo "Step 1: Installing system dependencies..."
 apt-get update
-apt-get install -y nginx unclutter
+apt-get install -y nginx unclutter pcscd pcsc-tools libccid libpcsclite-dev swig uhubctl
 echo -e "${GREEN}System dependencies installed${NC}"
+
+# Enable pcscd socket (PC/SC daemon for NFC reader)
+systemctl enable --now pcscd.socket
+systemctl enable --now pcscd
+echo -e "${GREEN}pcscd enabled${NC}"
+
+# Blacklist kernel NFC modules that conflict with pcscd/CCID access to ACR122U
+cat > /etc/modprobe.d/storybot-nfc.conf << 'EOF'
+# Prevent Linux NFC kernel drivers from grabbing the ACR122U before pcscd can claim it
+blacklist pn533_usb
+blacklist pn533
+blacklist nfc
+EOF
+modprobe -r pn533_usb pn533 nfc 2>/dev/null || true
+echo -e "${GREEN}Kernel NFC modules blacklisted${NC}"
 
 # Step 2: Install Python dependencies
 echo ""
@@ -121,12 +136,7 @@ usermod -aG dialout "$INSTALL_USER"
 usermod -aG plugdev "$INSTALL_USER" || true
 echo -e "${GREEN}Added $INSTALL_USER to audio, dialout, plugdev groups${NC}"
 
-# Create udev rules for NFC reader
-cat > /etc/udev/rules.d/99-storybot-nfc.rules << 'EOF'
-# ACS ACR122U NFC Reader
-SUBSYSTEM=="usb", ATTR{idVendor}=="072f", ATTR{idProduct}=="2200", MODE="0660", GROUP="plugdev", TAG+="systemd"
-EOF
-echo -e "${GREEN}Created udev rules for NFC reader${NC}"
+# No custom udev rule needed for ACR122U — pcscd manages it via CCID
 
 # Create udev rules for Brother printer
 cat > /etc/udev/rules.d/99-storybot-printer.rules << 'EOF'
@@ -144,8 +154,12 @@ udevadm settle
 echo ""
 echo "Step 6: Installing systemd service..."
 cp "$INSTALL_DIR/deploy/storybot.service" /etc/systemd/system/
+cp "$INSTALL_DIR/deploy/storybot-nfc-reset.service" /etc/systemd/system/
+cp "$INSTALL_DIR/deploy/storybot-reset-nfc.sh" /usr/local/bin/storybot-reset-nfc.sh
+chmod +x /usr/local/bin/storybot-reset-nfc.sh
 systemctl daemon-reload
 systemctl enable storybot.service
+systemctl enable storybot-nfc-reset.service
 echo -e "${GREEN}Systemd service installed${NC}"
 
 # Step 7: Configure Nginx reverse proxy

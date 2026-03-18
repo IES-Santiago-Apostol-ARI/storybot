@@ -223,6 +223,9 @@ function renderStoryGrid() {
 function playStory(story) {
     if (currentState !== STATES.IDLE) return;
 
+    // Immediately mark as playing to prevent duplicate NFC events
+    currentState = STATES.PLAYING;
+
     // Play tap sound immediately for feedback
     playUISound('tap');
 

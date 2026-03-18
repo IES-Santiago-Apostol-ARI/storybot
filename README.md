@@ -241,12 +241,16 @@ sudo bash deploy/install.sh
 
 El script de instalación realiza:
 - Crea entorno virtual Python con uv e instala dependencias
+- Instala y habilita `pcscd` (daemon PC/SC para lector NFC ACR122U)
+- Desactiva módulos kernel conflictivos (`pn533_usb`, `pn533`, `nfc`) que impiden que pcscd acceda al ACR122U
 - Descarga modelos Piper TTS (voz española)
-- Configura servicio systemd para FastAPI (`storybot.service`)
+- Configura servicio systemd para FastAPI (`storybot.service`, con dependencia en `pcscd`)
 - Instala Nginx como proxy inverso (puerto 80 -> 8000)
 - Configura autologin GDM3 para usuario `ari`
 - Crea autostart GNOME para Firefox en modo kiosk
 - Imprime instrucciones para configurar el AP WiFi TP-Link
+
+> **Nota NFC:** El lector ACR122U usa la pila PC/SC estándar vía `pyscard` + `pcscd`. No se usa `nfcpy` (la propia documentación de nfcpy desaconseja el ACR122U por sus limitaciones de acceso directo al PN532).
 
 Para iniciar manualmente después de la instalación:
 

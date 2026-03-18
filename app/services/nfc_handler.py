@@ -1,10 +1,21 @@
-"""NFC reader service with real and mock implementations."""
+"""NFC reader service using pyscard (PC/SC) with real and mock implementations.
+
+The ACR122U is a CCID-compliant reader — pyscard via pcscd is the correct
+stack for it on Linux. nfcpy's own docs warn against ACR122U because the
+USB-CCID layer prevents full direct access to the PN532 chip.
+
+pcscd manages the device lifecycle at the daemon level, so the firmware hang
+that affected nfcpy (red LED, beeping after close) does not occur here.
+"""
 
 import threading
 import time
 from collections.abc import Callable
 
 from app.services.base import HardwareService
+
+DEBOUNCE_SECONDS = 0.4
+RETRY_INTERVAL_SECONDS = 5.0
 
 
 class NFCService(HardwareService):
@@ -34,15 +45,19 @@ class NFCService(HardwareService):
 
 
 class RealNFCService(NFCService):
-    """Real NFC service using nfcpy."""
+    """Real NFC service using pyscard + pcscd."""
 
     def __init__(self) -> None:
         """Initialize real NFC service."""
         self._polling = False
-        self._poll_thread: threading.Thread | None = None
         self._callbacks: list[Callable[[str], None]] = []
         self._lock = threading.Lock()
+        self._monitor = None
+        self._observer = None
+        self._last_uid_time: dict[str, float] = {}
         self._available = self._check_availability()
+        self._shutdown_event = threading.Event()
+        self._retry_thread: threading.Thread | None = None
 
     @property
     def is_mock(self) -> bool:
@@ -50,117 +65,97 @@ class RealNFCService(NFCService):
         return False
 
     def _check_availability(self) -> bool:
-        """Check if NFC hardware is available."""
+        """Check if pyscard is importable and pcscd has at least one reader."""
         try:
-            import nfc
+            from smartcard.System import readers
 
-            return True
-        except (ImportError, OSError):
+            return bool(readers())
+        except Exception:
             return False
 
-    async def start_polling(self, callback: Callable[[str], None]) -> None:
-        """Register callback and start polling thread if not already running."""
-        if not self._available:
-            raise RuntimeError("NFC hardware not available")
+    def _get_uid(self, card) -> str | None:
+        """Connect to card and read UID via APDU FF CA 00 00 00.
 
-        with self._lock:
-            if callback not in self._callbacks:
-                self._callbacks.append(callback)
+        card.reader is the reader name string in pyscard; look up the actual
+        reader object from readers() to create a connection.
+        """
+        try:
+            from smartcard.System import readers
 
-            thread_dead = self._poll_thread is None or not self._poll_thread.is_alive()
-            if not self._polling or thread_dead:
-                self._polling = True
-                self._poll_thread = threading.Thread(
-                    target=self._poll_loop, daemon=True, name="NFCPoller"
-                )
-                self._poll_thread.start()
+            reader_name = str(card.reader)
+            matching = [r for r in readers() if str(r) == reader_name]
+            if not matching:
+                return None
+            conn = matching[0].createConnection()
+            conn.connect()
+            data, sw1, sw2 = conn.transmit([0xFF, 0xCA, 0x00, 0x00, 0x00])
+            conn.disconnect()
+            if (sw1, sw2) == (0x90, 0x00) and data:
+                return ":".join(f"{b:02X}" for b in data)
+        except Exception:
+            pass
+        return None
 
-    def _reset_usb_device(self) -> None:
-        """Reset USB device to clear bad state from unclean shutdown."""
+    def _make_observer(self):
+        """Create a CardObserver that fires our callbacks on card insertion."""
+        import logging
+
+        from smartcard.CardMonitoring import CardObserver
+
+        logger = logging.getLogger(__name__)
+        service = self
+
+        class _Observer(CardObserver):
+            def update(self, observable, handlers):
+                addedcards, _ = handlers
+                for card in addedcards:
+                    uid = service._get_uid(card)
+                    if uid:
+                        now = time.monotonic()
+                        if now - service._last_uid_time.get(uid, 0.0) < DEBOUNCE_SECONDS:
+                            logger.debug("NFC debounced: %s", uid)
+                            continue
+                        service._last_uid_time[uid] = now
+                        logger.info("NFC card detected: %s", uid)
+                        with service._lock:
+                            callbacks = list(service._callbacks)
+                        for cb in callbacks:
+                            cb(uid)
+
+        return _Observer()
+
+    def _start_monitor(self) -> None:
+        """Start CardMonitor background thread."""
+        from smartcard.CardMonitoring import CardMonitor
+
+        self._observer = self._make_observer()
+        self._monitor = CardMonitor()
+        self._monitor.addObserver(self._observer)
+        self._polling = True
+
+    def _retry_loop(self) -> None:
+        """Background thread: re-check availability until reader found or shutdown."""
         import logging
 
         logger = logging.getLogger(__name__)
-        try:
-            import usb.core
-            import usb.util
+        while not self._shutdown_event.wait(RETRY_INTERVAL_SECONDS):
+            if self._check_availability():
+                logger.info("NFC reader detected after replug — starting monitor")
+                self._available = True
+                if not self._polling:
+                    self._start_monitor()
+                break
 
-            dev = usb.core.find(idVendor=0x072F, idProduct=0x2200)
-            if dev:
-                dev.reset()
-                usb.util.dispose_resources(dev)
-                time.sleep(1.5)
-                logger.info("NFC USB reset completed successfully")
-            else:
-                logger.warning("NFC USB reset: device 072f:2200 not found")
-        except ImportError:
-            logger.warning("NFC USB reset skipped: pyusb not installed")
-        except Exception as e:
-            logger.warning("NFC USB reset failed: %s", e)
-
-    def _poll_loop(self) -> None:
-        """Background thread polling loop. Retries on device open failure."""
-        import nfc
-
-        # Reset the USB device before the first open attempt. The ACR122U
-        # retains state across reboots (stays bus-powered), so a software reset
-        # here is equivalent to the manual unplug/replug workaround.
-        self._reset_usb_device()
-
-        last_uid: str | None = None
-        last_uid_time: float = 0.0
-        DEBOUNCE_SECONDS = 0.4
-
-        def on_connect(tag) -> bool:
-            nonlocal last_uid, last_uid_time
-            if hasattr(tag, "identifier"):
-                uid = ":".join([f"{b:02X}" for b in tag.identifier])
-                now = time.monotonic()
-                if uid == last_uid and (now - last_uid_time) < DEBOUNCE_SECONDS:
-                    return False  # Same card still in range, suppress
-                last_uid = uid
-                last_uid_time = now
-                with self._lock:
-                    callbacks = list(self._callbacks)
-                for cb in callbacks:
-                    cb(uid)
-            return False  # Don't stay connected; resume polling immediately
-
-        while self._polling:
-            try:
-                clf = nfc.ContactlessFrontend("usb")
-            except OSError as e:
-                import errno as errno_mod
-                if e.errno == errno_mod.EIO:
-                    # Device in bad state (e.g. unclean shutdown) — reset and retry
-                    self._reset_usb_device()
-                else:
-                    # Device not ready yet (boot timing) — wait and retry
-                    time.sleep(2.0)
-                continue
-            except Exception:
-                time.sleep(2.0)
-                continue
-
-            try:
-                while self._polling:
-                    clf.connect(
-                        rdwr={"on-connect": on_connect},
-                        terminate=lambda: not self._polling,
-                    )
-            except Exception:
-                pass
-            finally:
-                try:
-                    clf.close()
-                except Exception:
-                    pass
-
-            if self._polling:
-                # Brief pause before reopening device (e.g. after USB disconnect)
-                time.sleep(1.0)
+    async def start_polling(self, callback: Callable[[str], None]) -> None:
+        """Register callback. Starts monitor if available; defers until reader appears."""
+        with self._lock:
+            if callback not in self._callbacks:
+                self._callbacks.append(callback)
+        if self._available and not self._polling:
+            self._start_monitor()
 
     async def stop_polling(self, callback: Callable[[str], None] | None = None) -> None:
-        """Unregister callback. Thread keeps running until shutdown() is called."""
+        """Unregister callback. Monitor keeps running until shutdown()."""
         with self._lock:
             if callback is not None and callback in self._callbacks:
                 self._callbacks.remove(callback)
@@ -177,9 +172,8 @@ class RealNFCService(NFCService):
                 "name": "nfc",
                 "is_mock": self.is_mock,
                 "status": "not_connected",
-                "error_message": "NFC hardware not available",
+                "error_message": "NFC reader not detected. After reboot, unplug and replug the ACR122U — the app will recover automatically.",
             }
-
         status_val = "ok" if self._polling else "idle"
         return {
             "name": "nfc",
@@ -189,23 +183,36 @@ class RealNFCService(NFCService):
         }
 
     async def initialize(self) -> None:
-        """Initialize NFC service and start poll thread."""
+        """Initialize NFC service and start CardMonitor."""
+        import logging
+
         self._available = self._check_availability()
         if self._available:
-            self._polling = True
-            self._poll_thread = threading.Thread(
-                target=self._poll_loop, daemon=True, name="NFCPoller"
+            self._start_monitor()
+        else:
+            logging.getLogger(__name__).warning(
+                "NFC reader not available at startup — retrying every %.0fs. "
+                "After reboot, unplug and replug the ACR122U.",
+                RETRY_INTERVAL_SECONDS,
             )
-            self._poll_thread.start()
+            self._retry_thread = threading.Thread(
+                target=self._retry_loop, daemon=True, name="nfc-retry"
+            )
+            self._retry_thread.start()
 
     async def shutdown(self) -> None:
-        """Shutdown NFC service - stop polling thread."""
+        """Shutdown NFC service — stop CardMonitor."""
+        self._shutdown_event.set()
+        self._polling = False
         with self._lock:
             self._callbacks.clear()
-            self._polling = False
-        if self._poll_thread:
-            self._poll_thread.join(timeout=5.0)
-            self._poll_thread = None
+        if self._monitor is not None and self._observer is not None:
+            try:
+                self._monitor.deleteObserver(self._observer)
+            except Exception:
+                pass
+        self._monitor = None
+        self._observer = None
 
 
 class MockNFCService(NFCService):
@@ -267,10 +274,12 @@ def create_nfc_service() -> NFCService:
     """Create appropriate NFC service based on hardware availability.
 
     Returns:
-        RealNFCService if NFC hardware available, else MockNFCService.
+        RealNFCService if pyscard is installed (handles reader unavailability
+        with auto-retry), else MockNFCService when pyscard is absent entirely.
     """
-    # Try real first
-    real_service = RealNFCService()
-    if real_service._available:
-        return real_service
-    return MockNFCService()
+    try:
+        import smartcard  # noqa: F401
+
+        return RealNFCService()
+    except ImportError:
+        return MockNFCService()

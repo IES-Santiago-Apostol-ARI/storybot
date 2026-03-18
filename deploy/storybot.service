@@ -1,7 +1,8 @@
 [Unit]
 Description=StoryBot FastAPI Server
-After=network-online.target systemd-udev-settle.service
-Wants=network-online.target systemd-udev-settle.service
+After=network-online.target systemd-udev-settle.service storybot-nfc-reset.service pcscd.service
+Wants=network-online.target systemd-udev-settle.service storybot-nfc-reset.service
+Requires=pcscd.service
 
 [Service]
 Type=simple
