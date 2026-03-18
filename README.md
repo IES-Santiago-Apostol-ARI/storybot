@@ -27,47 +27,104 @@
 
 ### Requisitos previos
 
-- Tarjeta microSD de al menos 64GB (UHS-1 recomendado)
-- Equipo con Ubuntu (para actualizar firmware) o lector de tarjetas SD
+- SSD NVMe M.2 500GB instalado en la Jetson
+- PC host con Linux (Ubuntu recomendado) y conexión USB
+- Cable USB-C (Jetson) a USB-A (PC host)
+- Jumper o cable para cortocircuitar pines FC REC y GND (header de 14 pines)
+- Cuenta gratuita de [NVIDIA Developer](https://developer.nvidia.com/)
 - Acceso a internet para descargar JetPack
 
-### Actualización del firmware
+### Flasheo inicial vía USB al SSD NVMe (JetPack 6.2.2 / L4T R36.5)
 
-El Jetson Orin Nano Developer Kit viene con un firmware antiguo de fábrica que **no es compatible** con JetPack 6.x. Debes actualizar al firmware más reciente antes de usar la tarjeta SD con JetPack 6.x.
+Este método flashea el firmware y el sistema operativo directamente al SSD NVMe sin necesidad de tarjeta microSD.
 
-#### Opción 1: Actualizar firmware desde otra Jetson (recomendado)
+#### 1. Poner la Jetson en modo Force Recovery
 
-1. Descarga la imagen de JetPack 5.1.3 desde la [página de JetPack](https://developer.nvidia.com/embedded/jetpack)
-2. Flashea la imagen en una tarjeta microSD usando [Etcher](https://etcher.balena.io/)
-3. Inserta la tarjeta SD en la ranura del Jetson
-4. Enciende el Jetson y espera a que arranque
-5. Descarga el script de actualización desde https://www.jetson-ai-lab.com/initial_setup_jon.html
-6. Ejecuta el script para actualizar el firmware a la versión compatible con JetPack 6.x
+1. Apaga la Jetson y desconéctala de la corriente.
+2. Asegúrate de que el SSD NVMe de 500 GB está instalado en la ranura M.2.
+3. Localiza el header de 14 pines en la carrier board.
+4. Cortocircuita los pines **FC REC** y **GND** (pines 2 y 3) con un jumper o cable.
+5. Conecta el cable USB-C de la Jetson al puerto USB-A del PC host.
+6. Conecta la fuente de alimentación a la Jetson para encenderla.
+7. Deja el jumper conectado hasta que el flasheo comience.
 
-#### Opción 2: Actualizar firmware con NVIDIA SDK Manager
+#### 2. Verificar que el host detecta la Jetson
 
-1. Descarga e instala [NVIDIA SDK Manager](https://developer.nvidia.com/nvidia-sdk-manager) en un PC con Ubuntu
-2. Conecta el Jetson al PC mediante USB-C en modo recuperación
-3. Ejecuta SDK Manager y selecciona JetPack 6.x
-4. Flashea el firmware actualizado
+En tu PC host, ejecuta:
 
-### Instalar JetPack 6.x
+```bash
+lsusb
+```
 
-1. Descarga la imagen de JetPack 6.x desde la [página oficial de NVIDIA](https://developer.nvidia.com/embedded/jetpack)
-2. Formatea la tarjeta microSD usando [SD Memory Card Formatter](https://www.sdcard.org/downloads/formatter_4/)
-3. Escribe la imagen en la tarjeta microSD usando [Etcher](https://etcher.balena.io/)
-4. Inserta la tarjeta microSD en la ranura del Jetson
-5. Enciende el Jetson
+Deberías ver un dispositivo de NVIDIA (algo como `NVIDIA Corp. APX`). Si no aparece, revisa el cable USB-C y que el jumper esté bien colocado.
 
-### Configuración inicial
+#### 3. Descargar JetPack 6.2.2 (L4T R36.5)
 
-1. Conecta el teclado, ratón y monitor
-2. Enciende el Jetson con la fuente de alimentación incluida
-3. Sigue los pasos del asistente de configuración:
-   - Acepta los términos de NVIDIA
-   - Selecciona idioma, teclado y zona horaria
-   - Crea usuario y contraseña
-4. Conecta a la red WiFi o Ethernet
+Descarga estos dos ficheros desde la [página de Jetson Linux R36.5](https://developer.nvidia.com/embedded/jetson-linux-r365) (necesitas iniciar sesión con tu cuenta NVIDIA Developer):
+
+1. **L4T Driver Package (BSP)** — `Jetson_Linux_R36.5.0_aarch64.tbz2`
+2. **Sample Root Filesystem** — `Tegra_Linux_Sample-Root-Filesystem_R36.5.0_aarch64.tbz2`
+
+#### 4. Preparar y flashear
+
+En el PC host, ejecuta los siguientes comandos:
+
+```bash
+# Extraer el BSP
+tar xf Jetson_Linux_R36.5.0_aarch64.tbz2
+
+# Extraer el sistema de ficheros raíz dentro del directorio rootfs del BSP
+cd Linux_for_Tegra/rootfs/
+sudo tar xpf ../../Tegra_Linux_Sample-Root-Filesystem_R36.5.0_aarch64.tbz2
+cd ..
+
+# Aplicar los binarios de NVIDIA al rootfs
+sudo ./apply_binaries.sh
+
+# Instalar prerequisitos del flasheo
+sudo tools/l4t_flash_prerequisites.sh
+
+# Flashear al SSD NVMe (la Jetson debe estar en modo recovery)
+sudo ./tools/kernel_flash/l4t_initrd_flash.sh \
+  --external-device nvme0n1p1 \
+  -p "-c ./bootloader/generic/cfg/flash_t234_qspi.xml" \
+  -c ./tools/kernel_flash/flash_l4t_t234_nvme.xml \
+  --showlogs --network usb0 \
+  jetson-orin-nano-devkit external
+```
+
+El proceso tarda unos minutos. Al finalizar verás el mensaje:
+
+```
+Flash is successful
+Reboot device
+```
+
+#### 5. Primer arranque
+
+1. **Retira el jumper** entre los pines FC REC y GND.
+2. **Desconecta el cable USB-C** del PC host.
+3. **Conecta** un monitor (HDMI/DisplayPort), teclado y ratón USB.
+4. **Reinicia la Jetson** — desconecta la alimentación, espera unos segundos y vuelve a conectarla.
+
+La Jetson arrancará desde el SSD NVMe y mostrará el asistente de configuración inicial de Ubuntu (**oem-config**), donde configurarás idioma, usuario, contraseña, zona horaria, etc.
+
+> **Si la pantalla permanece en negro** más de un par de minutos, presiona **Escape** durante el arranque para acceder al menú UEFI y verifica que el NVMe está primero en el orden de arranque.
+
+#### 6. Verificar la instalación
+
+Una vez dentro del escritorio, verifica que JetPack está instalado:
+
+```bash
+cat /etc/nv_tegra_release
+```
+
+E instala los componentes completos de JetPack (CUDA, cuDNN, TensorRT, etc.):
+
+```bash
+sudo apt update
+sudo apt install nvidia-jetpack
+```
 
 ### Activar modo MAXN SUPER
 
@@ -76,17 +133,6 @@ Para obtener el máximo rendimiento:
 1. Haz clic en el icono de NVIDIA en la barra superior de Ubuntu
 2. Selecciona **Power Mode**
 3. Elige **MAXN SUPER** para habilitar el rendimiento máximo
-
-### Instalar SSD NVMe (recomendado)
-
-Para mejorar los tiempos de carga de modelos de IA:
-
-1. Apaga el Jetson y desconecta la alimentación
-2. Instala el SSD NVMe M.2 en la ranura correspondiente
-3. Enciende el Jetson
-4. Configura el SSD como dispositivo de arranque principal
-
-Consulta la [guía oficial de NVIDIA](https://developer.nvidia.com/embedded/learn/get-started-jetson-orin-nano-devkit) para instrucciones detalladas.
 
 ## Modelo de IA
 
