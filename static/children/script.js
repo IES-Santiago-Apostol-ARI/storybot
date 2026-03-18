@@ -540,10 +540,16 @@ function startNFCListener() {
     nfcEventSource = new EventSource('/api/nfc/read');
 
     nfcEventSource.addEventListener('card', async (event) => {
-        if (currentState !== STATES.IDLE) return; // Ignore during playback
-
         try {
             const { uid } = JSON.parse(event.data);
+
+            if (currentState === STATES.PLAYING && currentStory?.nfc_uid === uid) {
+                togglePause();
+                return;
+            }
+
+            if (currentState !== STATES.IDLE) return;
+
             const response = await fetch(`/api/stories/nfc/${encodeURIComponent(uid)}`);
             if (response.ok) {
                 const story = await response.json();

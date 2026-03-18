@@ -59,13 +59,11 @@ async def read_nfc_cards(
 
         # Create queue for card events
         queue: asyncio.Queue[str] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
 
         def card_callback(uid: str) -> None:
-            """Callback when card tapped."""
-            try:
-                queue.put_nowait(uid)
-            except asyncio.QueueFull:
-                pass  # Drop events if queue full
+            """Callback when card tapped (called from background thread)."""
+            loop.call_soon_threadsafe(queue.put_nowait, uid)
 
         # Start polling
         await nfc_service.start_polling(card_callback)
@@ -79,8 +77,8 @@ async def read_nfc_cards(
                     "data": json.dumps({"uid": uid}),
                 }
         finally:
-            # Stop polling on disconnect
-            await nfc_service.stop_polling()
+            # Unregister this client's callback; stops polling if last subscriber
+            await nfc_service.stop_polling(card_callback)
 
     return SSEStarletteResponse(event_stream(), media_type="text/event-stream")
 
