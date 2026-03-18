@@ -180,6 +180,34 @@ uv sync --extra dev
 uv sync --extra jetson
 ```
 
+### Despliegue en Jetson
+
+Para desplegar StoryBot en un Jetson Orin Nano Super:
+
+```bash
+# Clonar el repositorio
+git clone <repo-url> /home/ari/storybot
+cd /home/ari/storybot
+
+# Ejecutar el script de instalación
+sudo bash deploy/install.sh
+```
+
+El script de instalación realiza:
+- Crea entorno virtual Python con uv e instala dependencias
+- Descarga modelos Piper TTS (voz española)
+- Configura servicio systemd para FastAPI (`storybot.service`)
+- Instala Nginx como proxy inverso (puerto 80 -> 8000)
+- Configura autologin GDM3 para usuario `ari`
+- Crea autostart GNOME para Firefox en modo kiosk
+- Imprime instrucciones para configurar el AP WiFi TP-Link
+
+Para iniciar manualmente después de la instalación:
+
+```bash
+sudo systemctl start storybot
+```
+
 ### Configuración
 
 Crea un archivo `.env` con las variables de configuración necesarias.
@@ -198,7 +226,7 @@ Accede desde la pantalla táctil del robot: `http://localhost/`
 
 ### Panel de administración
 
-Accede desde un dispositivo móvil conectado a la red WiFi: `http://192.168.0.1:8000/admin`
+Accede desde un dispositivo móvil conectado a la red WiFi: `http://192.168.12.1/admin`
 
 ## Pruebas
 
