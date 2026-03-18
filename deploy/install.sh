@@ -74,14 +74,18 @@ echo "Step 2: Installing Python dependencies..."
 cd "$INSTALL_DIR"
 
 # Check for uv
-if ! sudo -u "$INSTALL_USER" command -v uv &>/dev/null; then
+if ! sudo -u "$INSTALL_USER" bash -c 'command -v uv' &>/dev/null; then
     echo "Installing uv package manager..."
     sudo -u "$INSTALL_USER" bash -c 'curl -LsSf https://astral.sh/uv/install.sh | sh'
 fi
 
-# Create virtualenv
+# Create virtualenv (idempotent - skips if exists)
 echo "Creating virtual environment..."
-sudo -u "$INSTALL_USER" /home/ari/.local/bin/uv venv "$INSTALL_DIR/.venv"
+if [[ ! -d "$INSTALL_DIR/.venv" ]]; then
+    sudo -u "$INSTALL_USER" /home/ari/.local/bin/uv venv "$INSTALL_DIR/.venv"
+else
+    echo "Virtual environment already exists, skipping..."
+fi
 
 # Install dependencies (no jetson extras - CUDA comes from system apt on Jetson)
 echo "Installing Python packages..."
@@ -120,7 +124,7 @@ echo -e "${GREEN}Added $INSTALL_USER to audio, dialout, plugdev groups${NC}"
 # Create udev rules for NFC reader
 cat > /etc/udev/rules.d/99-storybot-nfc.rules << 'EOF'
 # ACS ACR122U NFC Reader
-SUBSYSTEM=="usb", ATTR{idVendor}=="072f", ATTR{idVendor}=="2200", MODE="0666", GROUP="plugdev"
+SUBSYSTEM=="usb", ATTR{idVendor}=="072f", ATTR{idProduct}=="2200", MODE="0666", GROUP="plugdev"
 EOF
 echo -e "${GREEN}Created udev rules for NFC reader${NC}"
 
