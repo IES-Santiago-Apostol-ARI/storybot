@@ -608,7 +608,13 @@ document.addEventListener('DOMContentLoaded', () => {
     startNFCListener();
 
     // Add pause/resume tap handler to playback container
-    document.querySelector('.playback-container').addEventListener('click', togglePause);
+    // Add both click (mouse) and touchstart (touchscreen kiosk) handlers
+    const playbackContainer = document.querySelector('.playback-container');
+    playbackContainer.addEventListener('click', togglePause);
+    playbackContainer.addEventListener('touchstart', (e) => {
+        e.preventDefault(); // Prevent the 300ms delayed click from also firing
+        togglePause();
+    }, { passive: false });
 
     // Unlock audio on first user interaction (touch/click)
     const unlockEvents = ['click', 'touchstart', 'keydown'];

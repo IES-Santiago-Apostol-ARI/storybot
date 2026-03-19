@@ -124,7 +124,7 @@ echo -e "${GREEN}Added $INSTALL_USER to audio, dialout, plugdev groups${NC}"
 # Create udev rules for NFC reader
 cat > /etc/udev/rules.d/99-storybot-nfc.rules << 'EOF'
 # ACS ACR122U NFC Reader
-SUBSYSTEM=="usb", ATTR{idVendor}=="072f", ATTR{idProduct}=="2200", MODE="0666", GROUP="plugdev"
+SUBSYSTEM=="usb", ATTR{idVendor}=="072f", ATTR{idProduct}=="2200", MODE="0660", GROUP="plugdev", TAG+="systemd"
 EOF
 echo -e "${GREEN}Created udev rules for NFC reader${NC}"
 
@@ -138,6 +138,7 @@ echo -e "${GREEN}Created udev rules for printer${NC}"
 # Reload udev rules
 udevadm control --reload-rules
 udevadm trigger
+udevadm settle
 
 # Step 6: Install systemd service
 echo ""

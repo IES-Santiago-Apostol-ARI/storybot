@@ -1,6 +1,7 @@
 [Unit]
 Description=StoryBot FastAPI Server
-After=network.target
+After=network-online.target systemd-udev-settle.service
+Wants=network-online.target systemd-udev-settle.service
 
 [Service]
 Type=simple
@@ -8,9 +9,13 @@ User=ari
 Group=ari
 WorkingDirectory=/home/ari/storybot
 Environment="PATH=/home/ari/storybot/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+ExecStartPre=/usr/bin/udevadm settle
+ExecStartPre=/bin/sleep 4
 ExecStart=/home/ari/storybot/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
-Restart=on-failure
+Restart=always
 RestartSec=5
+TimeoutStartSec=30
 
 [Install]
 WantedBy=multi-user.target

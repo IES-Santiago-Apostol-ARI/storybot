@@ -13,6 +13,7 @@ dependencies = [
     "ollama>=0.1.0",
     "simpleaudio>=1.0.4",
     "nfcpy>=1.0.4",
+    "pyusb>=1.2.1",
     "brother-ql>=0.9.0",
     "pyserial>=3.5",
     "pillow>=10.2.0",

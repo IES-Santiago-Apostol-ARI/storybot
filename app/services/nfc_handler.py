@@ -77,6 +77,9 @@ class RealNFCService(NFCService):
 
     def _reset_usb_device(self) -> None:
         """Reset USB device to clear bad state from unclean shutdown."""
+        import logging
+
+        logger = logging.getLogger(__name__)
         try:
             import usb.core
             import usb.util
@@ -86,8 +89,13 @@ class RealNFCService(NFCService):
                 dev.reset()
                 usb.util.dispose_resources(dev)
                 time.sleep(1.5)
-        except Exception:
-            pass
+                logger.info("NFC USB reset completed successfully")
+            else:
+                logger.warning("NFC USB reset: device 072f:2200 not found")
+        except ImportError:
+            logger.warning("NFC USB reset skipped: pyusb not installed")
+        except Exception as e:
+            logger.warning("NFC USB reset failed: %s", e)
 
     def _poll_loop(self) -> None:
         """Background thread polling loop. Retries on device open failure."""
@@ -100,7 +108,7 @@ class RealNFCService(NFCService):
 
         last_uid: str | None = None
         last_uid_time: float = 0.0
-        DEBOUNCE_SECONDS = 2.0
+        DEBOUNCE_SECONDS = 0.4
 
         def on_connect(tag) -> bool:
             nonlocal last_uid, last_uid_time
