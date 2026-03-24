@@ -1,7 +1,7 @@
 """Tests for NFC handler service."""
 
 import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -136,7 +136,7 @@ class TestRealNFCService:
         assert status["name"] == "nfc"
         assert status["is_mock"] is False
         assert status["status"] == "not_connected"
-        assert "not available" in status["error_message"]
+        assert "not detected" in status["error_message"]
 
     @pytest.mark.asyncio
     async def test_real_nfc_service_get_status_available_idle(self, real_nfc_service):
@@ -156,11 +156,15 @@ class TestRealNFCService:
 
     @pytest.mark.asyncio
     async def test_real_nfc_service_start_polling_without_hardware(self, real_nfc_service):
-        """Test start_polling raises error without hardware."""
+        """Test start_polling registers callback silently without hardware."""
         # Force _available to False to test this code path
         real_nfc_service._available = False
-        with pytest.raises(RuntimeError, match="not available"):
-            await real_nfc_service.start_polling(lambda uid: None)
+
+        def callback(uid: str) -> None:
+            pass
+
+        await real_nfc_service.start_polling(callback)
+        assert callback in real_nfc_service._callbacks
 
     @pytest.mark.asyncio
     async def test_real_nfc_service_start_polling_already_polling(self, real_nfc_service):
@@ -174,14 +178,14 @@ class TestRealNFCService:
 
     @pytest.mark.asyncio
     async def test_real_nfc_service_stop_polling(self, real_nfc_service):
-        """Test stop_polling clears state."""
-        real_nfc_service._polling = True
-        real_nfc_service._callback = lambda uid: None
+        """Test stop_polling removes the callback from the list."""
 
-        await real_nfc_service.stop_polling()
+        def cb(uid: str) -> None:
+            pass
 
-        assert real_nfc_service._polling is False
-        assert real_nfc_service._callback is None
+        real_nfc_service._callbacks = [cb]
+        await real_nfc_service.stop_polling(cb)
+        assert cb not in real_nfc_service._callbacks
 
     @pytest.mark.asyncio
     async def test_real_nfc_service_initialize(self, real_nfc_service):
@@ -198,26 +202,24 @@ class TestRealNFCService:
 
     @pytest.mark.asyncio
     async def test_real_nfc_service_stop_polling_with_thread(self, real_nfc_service):
-        """Test stop_polling joins the poll thread."""
-        import threading
+        """Test stop_polling removes only the specified callback, preserving others."""
 
-        # Create a mock thread that's already done
-        mock_thread = MagicMock(spec=threading.Thread)
-        real_nfc_service._poll_thread = mock_thread
-        real_nfc_service._polling = True
-        real_nfc_service._callback = lambda uid: None
+        def cb1(uid: str) -> None:
+            pass
 
-        await real_nfc_service.stop_polling()
+        def cb2(uid: str) -> None:
+            pass
 
-        assert real_nfc_service._polling is False
-        assert real_nfc_service._callback is None
-        assert real_nfc_service._poll_thread is None
-        mock_thread.join.assert_called_once_with(timeout=2.0)
+        real_nfc_service._callbacks = [cb1, cb2]
+
+        await real_nfc_service.stop_polling(cb1)
+
+        assert cb1 not in real_nfc_service._callbacks
+        assert cb2 in real_nfc_service._callbacks
 
     @pytest.mark.asyncio
     async def test_real_nfc_service_start_polling_creates_thread(self, real_nfc_service):
-        """Test start_polling creates background thread when available."""
-        # Service has hardware available (nfcpy is installed)
+        """Test start_polling registers callback and starts CardMonitor."""
         assert real_nfc_service._available is True
 
         callback_called = []
@@ -225,16 +227,15 @@ class TestRealNFCService:
         def test_callback(uid: str):
             callback_called.append(uid)
 
-        # Start polling - this will actually create a thread
+        # Start polling - registers callback and starts CardMonitor
         await real_nfc_service.start_polling(test_callback)
 
-        # Verify state was set
+        # Verify callback registered and monitor started
         assert real_nfc_service._polling is True
-        assert real_nfc_service._callback is test_callback
-        assert real_nfc_service._poll_thread is not None
+        assert test_callback in real_nfc_service._callbacks
 
-        # Clean up - stop the thread
-        await real_nfc_service.stop_polling()
+        # Clean up - shutdown stops the CardMonitor
+        await real_nfc_service.shutdown()
         assert real_nfc_service._polling is False
 
     @pytest.mark.asyncio

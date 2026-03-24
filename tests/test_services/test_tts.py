@@ -97,10 +97,10 @@ class TestTTSEngine:
 
     @pytest.mark.asyncio
     async def test_tts_engine_initialize_calls_load_model(self, tts_engine):
-        """Test that initialize() attempts to load default model."""
-        await tts_engine.initialize()
-        # Model won't be loaded (piper not installed), method should complete without error
-        assert tts_engine.is_loaded is False
+        """Test that initialize() calls load_model()."""
+        with patch.object(tts_engine, "load_model", return_value=False) as mock_load:
+            await tts_engine.initialize()
+            mock_load.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_tts_engine_shutdown_clears_state(self, tts_engine):
@@ -188,10 +188,13 @@ class TestTTSEngine:
         model_name = "test-model"
         (tmp_path / f"{model_name}.onnx").write_bytes(b"fake")
 
-        # Mock voice with synthesize_stream_raw
+        # piper 1.4.1 API: voice.synthesize(text) → Iterable[AudioChunk]
+        mock_chunk1 = MagicMock()
+        mock_chunk1.audio_int16_bytes = b"audio"
+        mock_chunk2 = MagicMock()
+        mock_chunk2.audio_int16_bytes = b"data"
         mock_voice = MagicMock()
-        mock_voice.config.sample_rate = 22050
-        mock_voice.synthesize_stream_raw.return_value = [b"audio", b"data"]
+        mock_voice.synthesize.return_value = [mock_chunk1, mock_chunk2]
 
         # Create mock piper module
         mock_piper_module = MagicMock()
@@ -202,7 +205,7 @@ class TestTTSEngine:
 
         result = engine.synthesize("Hola mundo")
         assert result == b"audiodata"
-        mock_voice.synthesize_stream_raw.assert_called_once()
+        mock_voice.synthesize.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_tts_engine_synthesize_to_file_with_loaded_model(self, tmp_path):
@@ -215,9 +218,16 @@ class TestTTSEngine:
         model_name = "test-model"
         (tmp_path / f"{model_name}.onnx").write_bytes(b"fake")
 
-        # Mock voice
+        # Mock voice using piper 1.4.1 API: voice.synthesize_wav(text, wav_file)
+        # synthesize_wav must set up the wave file so it can close cleanly
+        def fake_synthesize_wav(text, wav_file):
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(22050)
+            wav_file.writeframes(b"")
+
         mock_voice = MagicMock()
-        mock_voice.config.sample_rate = 22050
+        mock_voice.synthesize_wav.side_effect = fake_synthesize_wav
 
         # Create mock piper module
         mock_piper_module = MagicMock()
@@ -229,9 +239,9 @@ class TestTTSEngine:
         output_file = tmp_path / "output" / "test.wav"
         await engine.synthesize_to_file("Hola", output_file)
 
-        # Verify parent directory was created
+        # Verify parent directory was created and synthesize_wav was called
         assert output_file.parent.exists()
-        mock_voice.synthesize_to_file.assert_called_once()
+        mock_voice.synthesize_wav.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_tts_engine_load_model_exception(self, tmp_path):
