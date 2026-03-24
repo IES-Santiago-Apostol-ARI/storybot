@@ -93,19 +93,9 @@ class TTSEngine(HardwareService):
                 "Download models from: https://github.com/rhasspy/piper/releases"
             )
 
-        # Use a default sample rate if not available
-        # Note: sample_rate extracted but not directly used - Piper handles internally
-        sample_rate = getattr(self._voice.config, "sample_rate", 22050)
-        synthesize_args = {"speaker": 0} if hasattr(self._voice, "speaker_ids") else {}
-
-        # Generate audio
         audio_bytes = b""
-        for audio_chunk in self._voice.synthesize_stream_raw(
-            text, **synthesize_args, sentence_silence=0.0
-        ):
-            audio_bytes += audio_chunk
-
-        # Return WAV bytes (simplified - real impl would add WAV header)
+        for chunk in self._voice.synthesize(text):
+            audio_bytes += chunk.audio_int16_bytes
         return audio_bytes
 
     async def synthesize_to_file(self, text: str, output_path: Path) -> None:
@@ -124,18 +114,13 @@ class TTSEngine(HardwareService):
                 "Download models from: https://github.com/rhasspy/piper/releases"
             )
 
+        import wave
+
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Use a default sample rate if not available
-        # Note: sample_rate extracted but not directly used - Piper handles internally
-        sample_rate = getattr(self._voice.config, "sample_rate", 22050)
-        synthesize_args = {"speaker": 0} if hasattr(self._voice, "speaker_ids") else {}
-
-        # Write directly to file
-        self._voice.synthesize_to_file(
-            str(output_path), text, **synthesize_args, sentence_silence=0.0
-        )
+        with wave.open(str(output_path), "wb") as wav_file:
+            self._voice.synthesize_wav(text, wav_file)
 
     async def get_status(self) -> dict:
         """Get TTS engine status.
