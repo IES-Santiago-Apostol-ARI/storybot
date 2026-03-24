@@ -112,7 +112,8 @@ class RealNFCService(NFCService):
                     uid = service._get_uid(card)
                     if uid:
                         now = time.monotonic()
-                        if now - service._last_uid_time.get(uid, 0.0) < DEBOUNCE_SECONDS:
+                        elapsed = now - service._last_uid_time.get(uid, 0.0)
+                        if elapsed < DEBOUNCE_SECONDS:
                             logger.debug("NFC debounced: %s", uid)
                             continue
                         service._last_uid_time[uid] = now
@@ -147,7 +148,10 @@ class RealNFCService(NFCService):
                 break
 
     async def start_polling(self, callback: Callable[[str], None]) -> None:
-        """Register callback. Starts monitor if available; defers until reader appears."""
+        """Register callback.
+
+        Starts monitor if available; defers until reader appears.
+        """
         with self._lock:
             if callback not in self._callbacks:
                 self._callbacks.append(callback)
@@ -172,7 +176,10 @@ class RealNFCService(NFCService):
                 "name": "nfc",
                 "is_mock": self.is_mock,
                 "status": "not_connected",
-                "error_message": "NFC reader not detected. After reboot, unplug and replug the ACR122U — the app will recover automatically.",
+                "error_message": (
+                    "NFC reader not detected. After reboot, unplug and replug"
+                    " the ACR122U — the app will recover automatically."
+                ),
             }
         status_val = "ok" if self._polling else "idle"
         return {
