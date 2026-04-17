@@ -555,3 +555,29 @@ class TestPutStory:
         assert response.status_code == 200
         story = response.json()
         assert story["cover_image"] == original_cover
+
+    def test_put_story_with_invalid_audio_type_returns_400(self, client: TestClient):
+        """Test PUT /api/stories/{id} with invalid audio type returns 400."""
+        files = {
+            "audio": ("audio.mp3", BytesIO(b"fake audio"), "audio/mpeg")
+        }
+        data = {
+            "title": "Test Story",
+            "emoji": "📚",
+            "led_color": "#FF5733",
+        }
+        create_response = client.post("/api/stories", files=files, data=data)
+        story_id = create_response.json()["id"]
+
+        new_files = {
+            "audio": ("document.pdf", BytesIO(b"fake pdf"), "application/pdf")
+        }
+        update_data = {
+            "title": "Test Story",
+            "emoji": "📚",
+            "led_color": "#FF5733",
+        }
+        response = client.put(f"/api/stories/{story_id}", files=new_files, data=update_data)
+
+        assert response.status_code == 400
+        assert "audio" in response.json()["detail"].lower()
