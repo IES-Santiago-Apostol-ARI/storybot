@@ -138,7 +138,7 @@ Para obtener el máximo rendimiento:
 
 - **LLM**: Qwen 2.5 3B Instruct via Ollama (~2GB RAM)
 - **TTS**: Piper TTS con voces en español (~400MB RAM)
-- **Imágenes**: Stable Diffusion 1.5 + LCM LoRA (~2.8GB RAM)
+- **Imágenes**: Stable Diffusion 1.5 + LCM LoRA (~2.8GB RAM) — *planificado*
 
 ## Arquitectura de Software
 
@@ -156,13 +156,13 @@ Para obtener el máximo rendimiento:
 └────────────────┬────────────────────────┘
                  │
 ┌────────────────▼────────────────────────┐
-│         Gestor de Modelos             │
-│  Ollama (LLM) │ Piper TTS │ SD 1.5    │
+│         HardwareManager                │
+│  NFC │ LEDs │ TTS (Piper) │ Audio      │
 └────────────────┬────────────────────────┘
                  │
 ┌────────────────▼────────────────────────┐
-│         Capa de Hardware              │
-│  NFC │ Brother QL │ LEDs │ Audio       │
+│         StoryManager                   │
+│  CRUD cuentos │ Mapeo NFC │ Storage    │
 └────────────────────────────────────────┘
 ```
 
@@ -308,16 +308,21 @@ uv run ruff format .
 | Endpoint | Método | Descripción |
 |----------|--------|-------------|
 | `/api/stories` | GET | Listar todos los cuentos |
-| `/api/stories` | POST | Subir nuevo cuento |
+| `/api/stories` | POST | Crear nuevo cuento (audio + metadatos) |
 | `/api/stories/{id}` | GET | Obtener cuento por ID |
+| `/api/stories/{id}` | PUT | Actualizar cuento (audio/cover/metadatos) |
 | `/api/stories/{id}` | DELETE | Eliminar cuento |
-| `/api/generate/story` | POST | Generar cuento con IA (SSE) |
-| `/api/generate/status/{task_id}` | GET | Progreso de generación (SSE) |
-| `/api/nfc/read` | GET | Leer tarjeta NFC (SSE) |
-| `/api/nfc/write` | POST | Escribir UID en tarjeta NFC |
-| `/api/printer/print` | POST | Imprimir pegatina |
-| `/api/system/status` | GET | Estado del sistema |
-| `/api/system/led` | POST | Controlar LEDs RGB |
+| `/api/stories/{id}/nfc` | POST | Asignar tarjeta NFC a un cuento |
+| `/api/stories/nfc/{uid}` | GET | Buscar cuento por UID de tarjeta NFC |
+| `/api/nfc/read` | GET | Stream de eventos NFC (SSE) |
+| `/api/nfc/status` | GET | Estado del servicio NFC |
+| `/api/system/status` | GET | Estado del sistema y hardware |
+| `/api/system/rescan` | POST | Re-escanear hardware |
+| `/api/system/led` | POST | Controlar LEDs RGB (color + brillo) |
+| `/api/system/led/off` | POST | Apagar LEDs |
+| `/api/generate/story` | POST | Generar cuento con IA (SSE) — *planificado* |
+| `/api/generate/status/{task_id}` | GET | Progreso de generación (SSE) — *planificado* |
+| `/api/printer/print` | POST | Imprimir pegatina — *planificado* |
 
 ## Desarrollo
 
@@ -328,32 +333,76 @@ storybot/
 ├── app/
 │   ├── main.py              # Punto de entrada FastAPI
 │   ├── config.py            # Configuración
+│   ├── dependencies.py      # Inyección de dependencias FastAPI
 │   ├── routers/             # Endpoints API
-│   │   ├── stories.py       # CRUD de cuentos
-│   │   ├── admin.py         # Panel admin
-│   │   ├── generate.py      # Generación IA
-│   │   ├── nfc.py           # Manejo NFC
-│   │   ├── printer.py       # Impresora
-│   │   └── system.py        # Estado y LEDs
+│   │   ├── stories.py       # CRUD de cuentos + asignación NFC
+│   │   ├── nfc.py           # Lectura NFC (SSE) + estado
+│   │   ├── system.py        # Estado hardware + LEDs
+│   │   ├── generate.py      # Generación IA — *planificado*
+│   │   └── printer.py       # Impresora — *planificado*
 │   ├── services/            # Lógica de negocio
-│   │   ├── model_manager.py # Carga de modelos
-│   │   ├── story_generator.py
-│   │   ├── tts_engine.py
-│   │   ├── image_generator.py
-│   │   ├── nfc_handler.py
-│   │   ├── printer_handler.py
-│   │   ├── led_controller.py
-│   │   ├── audio_player.py
-│   │   └── content_manager.py
+│   │   ├── base.py          # Clase base para servicios hardware
+│   │   ├── hardware_manager.py  # Detección y gestión de hardware
+│   │   ├── story_manager.py # CRUD cuentos + mapeo NFC
+│   │   ├── tts_engine.py    # Piper TTS
+│   │   ├── nfc_handler.py   # Lector NFC ACR122U
+│   │   ├── led_controller.py # LEDs RGB
+│   │   ├── audio_player.py  # Reproducción de audio
+│   │   ├── model_manager.py # Carga de modelos — *planificado*
+│   │   ├── story_generator.py # Generación IA — *planificado*
+│   │   ├── image_generator.py # Stable Diffusion — *planificado*
+│   │   ├── printer_handler.py # Brother QL-800 — *planificado*
+│   │   └── content_manager.py  # Gestión multimedia — *planificado*
 │   └── models/              # Esquemas Pydantic
+│       ├── story.py         # Story, StoryCreate, StoryList, NFCAssignRequest
+│       └── system.py        # SystemStatus, HardwareState
 ├── static/
-│   ├── children/            # Interfaz niños
-│   └── admin/               # Panel docentes
+│   ├── children/            # Interfaz niños (kiosk)
+│   │   ├── index.html
+│   │   ├── script.js
+│   │   ├── styles.css
+│   │   └── assets/          # Sonidos (chime.mp3, tap.mp3)
+│   ├── admin/               # Panel docentes
+│   │   ├── index.html
+│   │   ├── script.js
+│   │   └── styles.css
+│   └── shared/              # Recursos compartidos
+│       └── theme.css
 ├── content/                 # Contenido almacenado
-│   ├── stories/
-│   ├── interactive/
-│   └── images/
-└── tests/                   # Suite de pruebas
+│   ├── stories/             # Cuentos con audio y cover
+│   ├── interactive/         # Cuentos interactivos — *planificado*
+│   └── images/              # Imágenes generadas — *planificado*
+├── deploy/                  # Scripts y configs de despliegue
+│   ├── install.sh           # Instalación completa en Jetson
+│   ├── download-models.sh   # Descarga modelos Piper TTS
+│   ├── setup-wifi-ap.sh     # Configuración AP WiFi
+│   ├── storybot.service     # Servicio systemd FastAPI
+│   ├── storybot-kiosk.service # Servicio systemd kiosk
+│   ├── storybot-nfc-reset.service # Reset NFC al arranque
+│   ├── storybot-reset-nfc.sh # Script reset módulos NFC kernel
+│   ├── bluetooth-audio.service # Servicio Bluetooth audio
+│   └── storybot-nginx.conf  # Configuración Nginx proxy
+├── tests/                   # Suite de pruebas
+│   ├── conftest.py
+│   ├── test_basic.py
+│   ├── test_api/            # Tests de endpoints
+│   │   ├── test_nfc.py
+│   │   ├── test_stories.py
+│   │   └── test_system.py
+│   └── test_services/       # Tests de servicios
+│       ├── test_audio.py
+│       ├── test_config.py
+│       ├── test_hardware_manager.py
+│       ├── test_led.py
+│       ├── test_nfc.py
+│       ├── test_story_manager.py
+│       └── test_tts.py
+├── docs/                    # Documentación
+│   ├── plan_robot_cuentacuentos.md
+│   └── guia_profesoras_robot_cuentacuentos.docx
+├── pyproject.toml
+├── uv.lock
+└── CLAUDE.md
 ```
 
 ## Licencia
