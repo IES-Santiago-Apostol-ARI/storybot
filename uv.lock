@@ -2896,6 +2896,11 @@ jetson = [
     { name = "xformers" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "requests" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "accelerate", marker = "extra == 'jetson'", specifier = ">=0.25.0" },
@@ -2949,6 +2954,9 @@ requires-dist = [
     { name = "xformers", marker = "extra == 'jetson'", specifier = ">=0.0.23" },
 ]
 provides-extras = ["jetson", "dev"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "requests", specifier = ">=2.32.5" }]
 
 [[package]]
 name = "sympy"

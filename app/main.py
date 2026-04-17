@@ -2,10 +2,27 @@
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
+
+
+class NoCacheStaticFiles(StaticFiles):
+    """StaticFiles wrapper that adds Cache-Control headers for media files."""
+
+    async def get_response(self, path: str, scope) -> Response:
+        """Get response with Cache-Control headers for audio files."""
+        response = await super().get_response(path, scope)
+
+        # Add no-cache headers for audio and image files
+        if path.endswith(('.mp3', '.wav', '.m4a', '.ogg', '.jpg', '.jpeg', '.png', '.webp')):
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+
+        return response
 
 from app.config import ConfigManager
 from app.routers.nfc import router as nfc_router
@@ -76,10 +93,10 @@ app.include_router(system_router, prefix="/api/system", tags=["system"])
 app.include_router(nfc_router)
 app.include_router(stories_router)
 
-# Mount static files for story content
+# Mount static files for story content (with no-cache for audio)
 stories_static_dir = Path("content/stories")
 if stories_static_dir.exists():
-    app.mount("/static/stories", StaticFiles(directory=str(stories_static_dir)), name="stories")
+    app.mount("/static/stories", NoCacheStaticFiles(directory=str(stories_static_dir)), name="stories")
 
 # Mount children's kiosk interface
 children_static_dir = Path("static/children")

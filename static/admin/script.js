@@ -462,8 +462,13 @@ async function updateStory(event) {
     // Remove audio field from FormData if no file selected
     // This prevents sending an empty file which causes validation errors
     const audioInput = document.getElementById('audio');
+    console.log('DEBUG: audioInput.files.length:', audioInput.files.length);
+    console.log('DEBUG: audioInput.files:', audioInput.files);
     if (audioInput.files.length === 0) {
         formData.delete('audio');
+        console.log('DEBUG: audio field deleted from FormData');
+    } else {
+        console.log('DEBUG: audio file selected:', audioInput.files[0].name, 'size:', audioInput.files[0].size);
     }
 
     // Remove cover field from FormData if no file selected

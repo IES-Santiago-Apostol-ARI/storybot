@@ -66,6 +66,12 @@ echo ""
 echo "Step 1: Installing system dependencies..."
 apt-get update
 apt-get install -y nginx unclutter pcscd pcsc-tools libccid libpcsclite-dev swig uhubctl
+# audio bluetooth:
+apt-get -y  install pipewire pipewire-pulse wireplumber libspa-0.2-bluetooth bluez bluez-tools
+systemctl --user mask pulseaudio
+pulseaudio -k
+systemctl --user --now enable pipewire pipewire-pulse wireplumber
+
 echo -e "${GREEN}System dependencies installed${NC}"
 
 # Enable pcscd socket (PC/SC daemon for NFC reader)

@@ -1,0 +1,12 @@
+
+[Unit]
+Description=Auto connect Bluetooth speaker
+After=bluetooth.target pipewire.service
+
+[Service]
+Type=oneshot
+ExecStart=%h/bt-auto-connect.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target

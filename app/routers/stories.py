@@ -182,6 +182,7 @@ async def update_story(
 
     # Handle audio file replacement
     audio_file = existing_story.audio_file
+    print(f"DEBUG: audio={audio}, filename={audio.filename if audio else None}, content_type={audio.content_type if audio else None}")
     if audio:
         # Validate audio content type
         if audio.content_type not in VALID_AUDIO_TYPES:
@@ -193,9 +194,11 @@ async def update_story(
         # Save new audio file
         audio_ext = Path(audio.filename).suffix or ".mp3"
         new_audio_path = story_dir / f"audio{audio_ext}"
+        print(f"DEBUG: Saving audio to {new_audio_path}")
         with new_audio_path.open("wb") as f:
             shutil.copyfileobj(audio.file, f)
         audio_file = f"audio{audio_ext}"
+        print(f"DEBUG: Audio saved, file size: {new_audio_path.stat().st_size}")
 
         # Delete old audio file if extension changed
         old_audio_path = story_dir / existing_story.audio_file
@@ -212,10 +215,10 @@ async def update_story(
             shutil.copyfileobj(cover.file, f)
         cover_image = f"cover{cover_ext}"
 
-        # Delete old cover file if exists
+        # Delete old cover file if extension changed
         if existing_story.cover_image:
             old_cover_path = story_dir / existing_story.cover_image
-            if old_cover_path.exists():
+            if old_cover_path.exists() and old_cover_path != new_cover_path:
                 old_cover_path.unlink()
     elif remove_cover:
         # Delete cover file if exists
