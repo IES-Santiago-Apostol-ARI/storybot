@@ -131,6 +131,69 @@
             </div>
         </section>
 
+        <section class="cards-section">
+            <h2>Tarjetas de Parámetros</h2>
+            <div class="cards-actions">
+                <button type="button" class="btn btn-primary" id="register-parameter-btn" onclick="startCardRegistration('parameter')">Registrar Parámetro</button>
+                <button type="button" class="btn btn-secondary" id="register-go-btn" onclick="startCardRegistration('go')">Registrar Go</button>
+            </div>
+            <div id="card-list" class="card-list">
+                <p class="loading">Cargando tarjetas...</p>
+            </div>
+        </section>
+
+        <!-- Card registration overlay -->
+        <div id="card-registration-overlay" class="card-registration-overlay hidden">
+            <div class="card-registration-form">
+                <h3 id="card-reg-title">Registrar Tarjeta</h3>
+                <div id="card-reg-nfc-status">Toca la tarjeta NFC...</div>
+                <div id="card-reg-fields" class="hidden">
+                    <div class="form-group">
+                        <label for="card-category">Categoría</label>
+                        <input type="text" id="card-category" placeholder="Ej: personaje, lugar, emoción">
+                    </div>
+                    <div class="form-group">
+                        <label for="card-value">Valor</label>
+                        <input type="text" id="card-value" placeholder="Ej: dragón, bosque, feliz">
+                    </div>
+                    <div class="form-group">
+                        <label for="card-emoji-param">Emoji</label>
+                        <div class="emoji-input-wrapper">
+                            <input type="text" id="card-emoji-param" placeholder="Toca el botón para elegir">
+                            <button type="button" class="emoji-trigger-btn" aria-label="Abrir selector de emojis" id="card-emoji-trigger">
+                                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm-4-8c.79 0 1.5-.71 1.5-1.5S8.79 9 8 9s-1.5.71-1.5 1.5S7.21 12 8 12zm8 0c.79 0 1.5-.71 1.5-1.5S16.79 9 16 9s-1.5.71-1.5 1.5S15.21 12 16 12zm-7.25 4.25c0 .41.34.75.75.75h13c.41 0 .75-.34.75-.75v-.5c0-2.52-2.02-4.5-4.5-4.5h-1.5c-2.52 0-4.5 1.98-4.5 4.5v.5z"/>
+                                </svg>
+                            </button>
+                            <div id="card-emoji-picker" class="emoji-picker hidden">
+                                <input type="text" class="emoji-search" placeholder="Buscar emojis...">
+                                <div class="emoji-categories">
+                                    <button type="button" class="emoji-category-tab active" data-category="Animales">Animales</button>
+                                    <button type="button" class="emoji-category-tab" data-category="Comida">Comida</button>
+                                    <button type="button" class="emoji-category-tab" data-category="Clima">Clima</button>
+                                    <button type="button" class="emoji-category-tab" data-category="Actividades">Actividades</button>
+                                    <button type="button" class="emoji-category-tab" data-category="Emociones">Emociones</button>
+                                    <button type="button" class="emoji-category-tab" data-category="Objetos">Objetos</button>
+                                </div>
+                                <div class="emoji-grid"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="card-label">Etiqueta</label>
+                        <input type="text" id="card-label" placeholder="Ej: Dragón, Bosque Encantado">
+                    </div>
+                </div>
+                <div id="card-reg-go-confirm" class="hidden">
+                    <p>Tarjeta NFC capturada. Confirma para registrar como tarjeta Go.</p>
+                </div>
+                <div class="form-buttons">
+                    <button type="button" class="btn btn-primary hidden" id="card-reg-submit" onclick="submitCardRegistration()">Registrar</button>
+                    <button type="button" class="btn btn-secondary" onclick="cancelCardRegistration()">Cancelar</button>
+                </div>
+            </div>
+        </div>
+
         <div id="status-message" class="status-message hidden"></div>
 
         <div class="children-mode-link">

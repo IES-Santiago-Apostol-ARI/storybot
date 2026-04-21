@@ -11,6 +11,10 @@ let editingStoryId = null;
 let originalStoryData = null; // For dirty checking
 let removeCoverFlag = false;
 
+// Card registration state
+let cardRegMode = null; // 'parameter' | 'go' | null
+let capturedCardUID = null;
+
 // Hardware status elements
 const nfcStatusIcon = document.getElementById('nfc-status');
 const ledStatusIcon = document.getElementById('led-status');
@@ -936,12 +940,326 @@ function cleanup() {
     stopStatusPolling();  // NEW: Stop polling on page unload
 }
 
+/**
+ * Load all registered cards from API
+ */
+async function loadCards() {
+    const cardListEl = document.getElementById('card-list');
+    try {
+        const response = await fetch('/api/cards');
+        if (!response.ok) throw new Error(`Failed to load cards: ${response.status}`);
+        const data = await response.json();
+        renderCardList(data.cards);
+    } catch (error) {
+        console.error('Error loading cards:', error);
+        cardListEl.innerHTML = '<p class="empty-state">Error al cargar tarjetas.</p>';
+    }
+}
+
+/**
+ * Render the card list to DOM
+ */
+function renderCardList(cards) {
+    const cardListEl = document.getElementById('card-list');
+
+    if (!cards || cards.length === 0) {
+        cardListEl.innerHTML = '<p class="empty-state">Aún no hay tarjetas registradas.</p>';
+        return;
+    }
+
+    cardListEl.innerHTML = '';
+    cards.forEach(card => {
+        const item = document.createElement('div');
+        item.className = 'card-item' + (card.type === 'go' ? ' card-item--go' : '');
+
+        if (card.type === 'parameter') {
+            const emoji = document.createElement('div');
+            emoji.className = 'card-item-emoji';
+            emoji.textContent = card.emoji || '🏷️';
+
+            const info = document.createElement('div');
+            info.className = 'card-item-info';
+
+            const title = document.createElement('h4');
+            title.className = 'card-item-title';
+            title.textContent = card.label || card.value;
+
+            const detail = document.createElement('p');
+            detail.className = 'card-item-detail';
+            detail.textContent = `${card.category}: ${card.value}`;
+
+            info.appendChild(title);
+            info.appendChild(detail);
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'btn btn-danger';
+            deleteBtn.textContent = 'Eliminar';
+            deleteBtn.style.cssText = 'padding: 0.4rem 0.75rem; font-size: 13px;';
+            deleteBtn.onclick = () => deleteCard(card.uid);
+
+            item.appendChild(emoji);
+            item.appendChild(info);
+            item.appendChild(deleteBtn);
+        } else if (card.type === 'go') {
+            const emoji = document.createElement('div');
+            emoji.className = 'card-item-emoji';
+            emoji.textContent = '🚀';
+
+            const info = document.createElement('div');
+            info.className = 'card-item-info';
+
+            const title = document.createElement('h4');
+            title.className = 'card-item-title';
+            title.textContent = 'Tarjeta Go';
+
+            const detail = document.createElement('p');
+            detail.className = 'card-item-detail';
+            detail.textContent = `UID: ${card.uid}`;
+
+            info.appendChild(title);
+            info.appendChild(detail);
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'btn btn-danger';
+            deleteBtn.textContent = 'Eliminar';
+            deleteBtn.style.cssText = 'padding: 0.4rem 0.75rem; font-size: 13px;';
+            deleteBtn.onclick = () => deleteCard(card.uid);
+
+            item.appendChild(emoji);
+            item.appendChild(info);
+            item.appendChild(deleteBtn);
+        }
+
+        cardListEl.appendChild(item);
+    });
+}
+
+/**
+ * Start card registration flow
+ * @param {string} type - 'parameter' or 'go'
+ */
+function startCardRegistration(type) {
+    cardRegMode = type;
+    capturedCardUID = null;
+
+    const overlay = document.getElementById('card-registration-overlay');
+    const titleEl = document.getElementById('card-reg-title');
+    const nfcStatus = document.getElementById('card-reg-nfc-status');
+    const fields = document.getElementById('card-reg-fields');
+    const goConfirm = document.getElementById('card-reg-go-confirm');
+    const submitBtn = document.getElementById('card-reg-submit');
+
+    overlay.classList.remove('hidden');
+    titleEl.textContent = type === 'parameter' ? 'Registrar Parámetro' : 'Registrar Go';
+    nfcStatus.classList.remove('hidden');
+    nfcStatus.textContent = 'Toca la tarjeta NFC...';
+    fields.classList.add('hidden');
+    goConfirm.classList.add('hidden');
+    submitBtn.classList.add('hidden');
+
+    // Clear form fields
+    document.getElementById('card-category').value = '';
+    document.getElementById('card-value').value = '';
+    document.getElementById('card-emoji-param').value = '';
+    document.getElementById('card-label').value = '';
+
+    // Close any existing NFC connection
+    if (nfcEventSource) {
+        nfcEventSource.close();
+        nfcEventSource = null;
+    }
+
+    // Open NFC SSE for card capture
+    nfcEventSource = new EventSource('/api/nfc/read');
+
+    nfcEventSource.addEventListener('card', (event) => {
+        try {
+            const { uid } = JSON.parse(event.data);
+            if (!capturedCardUID) {
+                capturedCardUID = uid;
+                nfcStatus.textContent = `Tarjeta capturada: ${uid}`;
+                nfcStatus.classList.add('hidden');
+
+                if (type === 'parameter') {
+                    fields.classList.remove('hidden');
+                    submitBtn.classList.remove('hidden');
+                } else {
+                    goConfirm.classList.remove('hidden');
+                    submitBtn.classList.remove('hidden');
+                }
+
+                // Close NFC after capture
+                nfcEventSource.close();
+                nfcEventSource = null;
+            }
+        } catch (error) {
+            console.error('Error parsing NFC card event:', error);
+        }
+    });
+
+    nfcEventSource.onerror = () => {
+        nfcStatus.textContent = 'Error de conexión NFC. Intenta de nuevo.';
+        nfcStatus.style.color = 'var(--color-danger)';
+    };
+}
+
+/**
+ * Submit card registration
+ */
+async function submitCardRegistration() {
+    if (!capturedCardUID || !cardRegMode) return;
+
+    const payload = {
+        uid: capturedCardUID,
+        type: cardRegMode,
+    };
+
+    if (cardRegMode === 'parameter') {
+        payload.category = document.getElementById('card-category').value.trim();
+        payload.value = document.getElementById('card-value').value.trim();
+        payload.emoji = document.getElementById('card-emoji-param').value.trim();
+        payload.label = document.getElementById('card-label').value.trim();
+
+        if (!payload.category || !payload.value || !payload.emoji || !payload.label) {
+            showMessage('Todos los campos son obligatorios para tarjetas de parámetro.', 'error');
+            return;
+        }
+    }
+
+    try {
+        const response = await fetch('/api/cards', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Error al registrar la tarjeta');
+        }
+
+        showMessage('Tarjeta registrada correctamente.', 'success');
+        cancelCardRegistration();
+        await loadCards();
+    } catch (error) {
+        console.error('Error registering card:', error);
+        showMessage(error.message || 'Error al registrar la tarjeta', 'error');
+    }
+}
+
+/**
+ * Cancel card registration and close overlay
+ */
+function cancelCardRegistration() {
+    cardRegMode = null;
+    capturedCardUID = null;
+
+    document.getElementById('card-registration-overlay').classList.add('hidden');
+
+    if (nfcEventSource) {
+        nfcEventSource.close();
+        nfcEventSource = null;
+    }
+}
+
+/**
+ * Delete a registered card
+ * @param {string} uid - Card UID to delete
+ */
+async function deleteCard(uid) {
+    if (!confirm('¿Estás seguro de que quieres eliminar esta tarjeta?')) return;
+
+    try {
+        const response = await fetch(`/api/cards/${encodeURIComponent(uid)}`, {
+            method: 'DELETE',
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Error al eliminar la tarjeta');
+        }
+
+        showMessage('Tarjeta eliminada.', 'success');
+        await loadCards();
+    } catch (error) {
+        console.error('Error deleting card:', error);
+        showMessage(error.message || 'Error al eliminar la tarjeta', 'error');
+    }
+}
+
+/**
+ * Initialize emoji picker for card registration form
+ */
+function initCardEmojiPicker() {
+    const triggerBtn = document.getElementById('card-emoji-trigger');
+    if (!triggerBtn) return;
+
+    const picker = document.getElementById('card-emoji-picker');
+    const input = document.getElementById('card-emoji-param');
+    let cardPickerOpen = false;
+
+    function renderCardEmojiGrid(category) {
+        const grid = picker.querySelector('.emoji-grid');
+        if (!grid) return;
+        const emojis = emojiCategories[category] || [];
+        grid.innerHTML = '';
+        emojis.forEach(emoji => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'emoji-item';
+            button.textContent = emoji;
+            button.onclick = () => {
+                input.value = emoji;
+                picker.classList.add('hidden');
+                cardPickerOpen = false;
+            };
+            grid.appendChild(button);
+        });
+    }
+
+    triggerBtn.onclick = () => {
+        if (cardPickerOpen) {
+            picker.classList.add('hidden');
+            cardPickerOpen = false;
+        } else {
+            picker.classList.remove('hidden');
+            cardPickerOpen = true;
+            renderCardEmojiGrid('Animales');
+        }
+    };
+
+    // Category tabs
+    picker.querySelectorAll('.emoji-category-tab').forEach(tab => {
+        tab.onclick = () => {
+            picker.querySelectorAll('.emoji-category-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            renderCardEmojiGrid(tab.dataset.category);
+        };
+    });
+
+    // Search
+    const searchInput = picker.querySelector('.emoji-search');
+    if (searchInput) {
+        searchInput.addEventListener('input', () => filterEmojis(searchInput.value));
+    }
+
+    // Close on outside click
+    document.addEventListener('click', (event) => {
+        if (cardPickerOpen && !picker.contains(event.target) && !triggerBtn.contains(event.target)) {
+            picker.classList.add('hidden');
+            cardPickerOpen = false;
+        }
+    });
+}
+
 // Event listeners
 document.addEventListener('DOMContentLoaded', () => {
     loadStories();
+    loadCards();
     uploadForm.addEventListener('submit', uploadStory);
     startStatusPolling();  // NEW: Start hardware status polling
     initEmojiPicker();     // Initialize emoji picker
+    initCardEmojiPicker();
 
     // Edit mode event listeners
     cancelEditBtn.addEventListener('click', () => exitEditMode());

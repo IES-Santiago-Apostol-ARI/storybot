@@ -1,6 +1,7 @@
 // State machine
 const STATES = {
     IDLE: 'idle',
+    COLLECTING: 'collecting',
     PLAYING: 'playing',
     THANKYOU: 'thankyou'
 };
@@ -13,6 +14,7 @@ let ledPulseInterval = null;
 let progressAnimationId = null;
 let isPaused = false;
 let pausedLEDState = null; // { color, brightness, direction }
+let collectingParams = []; // Parameter chips displayed during collection
 const audioElement = document.getElementById('story-audio');
 
 // UI Sound system
@@ -145,6 +147,11 @@ function transitionTo(newState, story = null) {
 
         // State-specific logic
         switch (newState) {
+            case STATES.COLLECTING:
+                stopLEDPulse();
+                turnOffLED();
+                stopProgressTracking();
+                break;
             case STATES.IDLE:
                 // Reset pause state
                 isPaused = false;
@@ -236,6 +243,44 @@ function playStory(story) {
     setTimeout(() => {
         transitionTo(STATES.PLAYING, story);
     }, 100);
+}
+
+// Parameter display functions
+function renderParameterChips() {
+    const container = document.getElementById('parameter-chips');
+    container.innerHTML = '';
+    collectingParams.forEach((param, i) => {
+        const chip = document.createElement('span');
+        chip.className = 'parameter-chip';
+        chip.textContent = `${param.emoji} ${param.label}`;
+        chip.style.animationDelay = `${i * 50}ms`;
+        container.appendChild(chip);
+    });
+}
+
+function clearParameterDisplay() {
+    collectingParams = [];
+    const display = document.getElementById('parameter-display');
+    if (display) {
+        display.classList.remove('visible');
+    }
+    const container = document.getElementById('parameter-chips');
+    if (container) {
+        container.innerHTML = '';
+    }
+}
+
+function showThinkingOverlay() {
+    const overlay = document.getElementById('thinking-overlay');
+    if (overlay) {
+        overlay.classList.add('visible');
+        setTimeout(() => {
+            overlay.classList.remove('visible');
+            if (currentState === STATES.COLLECTING) {
+                transitionTo(STATES.IDLE);
+            }
+        }, 2000);
+    }
 }
 
 // Playback functions
@@ -544,8 +589,64 @@ function startNFCListener() {
 
     nfcEventSource.addEventListener('card', async (event) => {
         try {
-            const { uid } = JSON.parse(event.data);
+            const data = JSON.parse(event.data);
+            const { uid, card_type } = data;
 
+            // Story card retap to pause/resume (existing behavior)
+            if (card_type === 'story' && currentState === STATES.PLAYING && currentStory?.nfc_uid === uid) {
+                togglePause();
+                return;
+            }
+
+            // Parameter card — add to collection
+            if (card_type === 'parameter') {
+                if (currentState !== STATES.IDLE && currentState !== STATES.COLLECTING) return;
+
+                playUISound('tap');
+                collectingParams.push({
+                    emoji: data.emoji || '🏷️',
+                    label: data.label || data.value || '',
+                    category: data.category || '',
+                });
+                renderParameterChips();
+                document.getElementById('parameter-display').classList.add('visible');
+
+                if (currentState === STATES.IDLE) {
+                    transitionTo(STATES.COLLECTING);
+                }
+                return;
+            }
+
+            // Go card — show thinking, clear collection
+            if (card_type === 'go') {
+                clearParameterDisplay();
+                showThinkingOverlay();
+                return;
+            }
+
+            // Story card — play normally, clear any collection
+            if (card_type === 'story') {
+                clearParameterDisplay();
+                if (currentState !== STATES.IDLE && currentState !== STATES.COLLECTING) return;
+
+                const response = await fetch(`/api/stories/nfc/${encodeURIComponent(uid)}`);
+                if (response.ok) {
+                    const story = await response.json();
+                    playStory(story);
+                }
+                return;
+            }
+
+            // Unknown card — clear collection, return to idle
+            if (card_type === 'unknown') {
+                clearParameterDisplay();
+                if (currentState !== STATES.IDLE) {
+                    transitionTo(STATES.IDLE);
+                }
+                return;
+            }
+
+            // Legacy fallback (no card_type field)
             if (currentState === STATES.PLAYING && currentStory?.nfc_uid === uid) {
                 togglePause();
                 return;

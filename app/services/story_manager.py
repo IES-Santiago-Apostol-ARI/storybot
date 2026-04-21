@@ -23,13 +23,26 @@ class StoryManager:
         """Load story index from JSON file.
 
         Returns:
-            dict with keys: version, stories, nfc_to_story
+            dict with keys: version, stories, nfc_to_story, cards
         """
         if not self.INDEX_FILE.exists():
-            return {"version": 1, "stories": {}, "nfc_to_story": {}}
+            return {"version": 2, "stories": {}, "nfc_to_story": {}, "cards": {}}
 
         with open(self.INDEX_FILE, "r") as f:
-            return json.load(f)
+            index = json.load(f)
+
+        if index.get("version", 1) < 2:
+            self._migrate_v1_to_v2(index)
+        return index
+
+    def _migrate_v1_to_v2(self, index: dict) -> None:
+        """Migrate v1 index to v2 by building cards dict from nfc_to_story."""
+        cards = {}
+        for uid, story_id in index.get("nfc_to_story", {}).items():
+            cards[uid] = {"uid": uid, "type": "story", "story_id": story_id}
+        index["cards"] = cards
+        index["version"] = 2
+        self._save_index(index)
 
     def _save_index(self, index: dict) -> None:
         """Save story index to JSON file.
@@ -84,6 +97,11 @@ class StoryManager:
             # Also map NFC UID if provided
             if nfc_uid:
                 index["nfc_to_story"][nfc_uid] = id
+                index.setdefault("cards", {})[nfc_uid] = {
+                    "uid": nfc_uid,
+                    "type": "story",
+                    "story_id": id,
+                }
 
             self._save_index(index)
 
@@ -136,6 +154,7 @@ class StoryManager:
                 nfc_uid = story_data["nfc_uid"]
                 if nfc_uid in index["nfc_to_story"]:
                     del index["nfc_to_story"][nfc_uid]
+                index.get("cards", {}).pop(nfc_uid, None)
 
             # Remove story
             del index["stories"][story_id]
@@ -163,10 +182,17 @@ class StoryManager:
             old_nfc_uid = index["stories"][story_id].get("nfc_uid")
             if old_nfc_uid and old_nfc_uid in index["nfc_to_story"]:
                 del index["nfc_to_story"][old_nfc_uid]
+            if old_nfc_uid:
+                index.get("cards", {}).pop(old_nfc_uid, None)
 
             # Update story with new NFC UID
             index["stories"][story_id]["nfc_uid"] = nfc_uid
             index["nfc_to_story"][nfc_uid] = story_id
+            index.setdefault("cards", {})[nfc_uid] = {
+                "uid": nfc_uid,
+                "type": "story",
+                "story_id": story_id,
+            }
 
             self._save_index(index)
             return Story(**index["stories"][story_id])
@@ -241,3 +267,68 @@ class StoryManager:
 
             self._save_index(index)
             return Story(**story_data)
+
+    def get_card(self, uid: str) -> dict | None:
+        """Get a card by NFC UID.
+
+        Args:
+            uid: NFC card UID
+
+        Returns:
+            Card dict or None if not found
+        """
+        with self._lock:
+            index = self._load_index()
+            return index.get("cards", {}).get(uid)
+
+    def create_card(self, card_data: dict) -> dict:
+        """Register a new card (parameter or go type).
+
+        Args:
+            card_data: Card data with uid, type, and type-specific fields
+
+        Returns:
+            Created card dict
+
+        Raises:
+            ValueError: If uid is already registered
+        """
+        uid = card_data["uid"]
+        with self._lock:
+            index = self._load_index()
+
+            if uid in index.get("nfc_to_story", {}):
+                raise ValueError(f"UID {uid} already registered as story card")
+            if uid in index.get("cards", {}):
+                raise ValueError(f"UID {uid} already registered")
+
+            index.setdefault("cards", {})[uid] = card_data
+            self._save_index(index)
+            return card_data
+
+    def delete_card(self, uid: str) -> bool:
+        """Delete a non-story card by UID.
+
+        Args:
+            uid: NFC card UID
+
+        Returns:
+            True if deleted, False if not found
+
+        Raises:
+            ValueError: If card is a story-type card (use delete_story instead)
+        """
+        with self._lock:
+            index = self._load_index()
+
+            card = index.get("cards", {}).get(uid)
+            if card is None:
+                return False
+            if card.get("type") == "story":
+                raise ValueError(
+                    "Cannot delete story-type card via delete_card. Use delete_story."
+                )
+
+            del index["cards"][uid]
+            self._save_index(index)
+            return True

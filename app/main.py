@@ -28,6 +28,7 @@ from app.config import ConfigManager
 from app.routers.nfc import router as nfc_router
 from app.routers.stories import router as stories_router
 from app.routers.system import router as system_router
+from app.routers.cards import router as cards_router
 from app.services.hardware_manager import HardwareManager
 from app.services.story_manager import StoryManager
 
@@ -92,6 +93,7 @@ async def root():
 app.include_router(system_router, prefix="/api/system", tags=["system"])
 app.include_router(nfc_router)
 app.include_router(stories_router)
+app.include_router(cards_router)
 
 # Mount static files for story content (with no-cache for audio)
 stories_static_dir = Path("content/stories")

@@ -215,6 +215,95 @@ html, body {
     overflow: hidden;
 }
 
+/* Parameter accumulation display */
+.parameter-display {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    padding: var(--space-md) var(--space-lg);
+    background: linear-gradient(180deg, rgba(26, 26, 46, 0.95) 0%, rgba(26, 26, 46, 0.7) 100%);
+    z-index: 50;
+    display: flex;
+    justify-content: center;
+    transform: translateY(-100%);
+    transition: transform var(--duration-normal) var(--ease-out);
+    pointer-events: none;
+}
+
+.parameter-display.visible {
+    transform: translateY(0);
+}
+
+.parameter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+    justify-content: center;
+}
+
+.parameter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-md);
+    background: var(--color-secondary);
+    color: white;
+    border-radius: var(--radius-pill);
+    font-size: 1rem;
+    font-weight: 500;
+    animation: chip-bounce-in var(--duration-normal) var(--ease-bounce) backwards;
+}
+
+@keyframes chip-bounce-in {
+    0% { opacity: 0; transform: scale(0.3); }
+    60% { transform: scale(1.15); }
+    100% { opacity: 1; transform: scale(1); }
+}
+
+/* Thinking overlay */
+.thinking-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(26, 26, 46, 0.9);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--duration-normal) var(--ease-out);
+}
+
+.thinking-overlay.visible {
+    opacity: 1;
+}
+
+.thinking-content {
+    text-align: center;
+    animation: bounce-in var(--duration-slow) var(--ease-bounce);
+}
+
+.thinking-emoji {
+    font-size: 8rem;
+    animation: thinking-pulse 1s ease-in-out infinite;
+}
+
+.thinking-text {
+    color: white;
+    font-size: 1.5rem;
+    font-weight: 500;
+    margin-top: var(--space-md);
+}
+
+@keyframes thinking-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+
 .playback-container {
     position: absolute;
     top: 50%;

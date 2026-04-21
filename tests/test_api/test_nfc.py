@@ -7,15 +7,25 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.dependencies import get_story_manager
 from app.routers.nfc import router
 from app.services.hardware_manager import HardwareManager
 from app.services.nfc_handler import MockNFCService
+from app.services.story_manager import StoryManager
 
 
 @pytest.fixture
 def mock_nfc_service():
     """Create a mock NFC service."""
     return MockNFCService()
+
+
+@pytest.fixture
+def mock_story_manager():
+    """Create a mock story manager for card lookups."""
+    manager = MagicMock(spec=StoryManager)
+    manager.get_card.return_value = None
+    return manager
 
 
 @pytest.fixture
@@ -33,20 +43,32 @@ def hardware_without_nfc():
 
 
 @pytest.fixture
-def app_with_nfc(hardware_with_nfc):
+def app_with_nfc(hardware_with_nfc, mock_story_manager):
     """Create test app with NFC service."""
     test_app = FastAPI()
     test_app.include_router(router)
     test_app.state.hardware = hardware_with_nfc
+    test_app.state.story_manager = mock_story_manager
+
+    async def override_sm():
+        return mock_story_manager
+
+    test_app.dependency_overrides[get_story_manager] = override_sm
     return test_app
 
 
 @pytest.fixture
-def app_without_nfc(hardware_without_nfc):
+def app_without_nfc(hardware_without_nfc, mock_story_manager):
     """Create test app without NFC service."""
     test_app = FastAPI()
     test_app.include_router(router)
     test_app.state.hardware = hardware_without_nfc
+    test_app.state.story_manager = mock_story_manager
+
+    async def override_sm():
+        return mock_story_manager
+
+    test_app.dependency_overrides[get_story_manager] = override_sm
     return test_app
 
 
@@ -103,12 +125,13 @@ class TestNFCReadEventStream:
         """Event stream yields error when NFC service not available."""
         from app.routers.nfc import read_nfc_cards
 
-        # Create mock hardware without NFC
         mock_hardware = MagicMock()
         mock_hardware._services = {}
+        mock_story_manager = MagicMock()
 
-        # Call the endpoint function directly
-        response = await read_nfc_cards(hardware=mock_hardware)
+        response = await read_nfc_cards(
+            hardware=mock_hardware, story_manager=mock_story_manager
+        )
 
         # Get the generator from the response
         event_gen = response.body_iterator
@@ -123,15 +146,17 @@ class TestNFCReadEventStream:
         """Event stream starts NFC polling when service available."""
         from app.routers.nfc import read_nfc_cards
 
-        # Create mock NFC service
         mock_nfc = AsyncMock()
         mock_nfc.start_polling = AsyncMock()
         mock_nfc.stop_polling = AsyncMock()
 
         mock_hardware = MagicMock()
         mock_hardware._services = {"nfc": mock_nfc}
+        mock_story_manager = MagicMock()
 
-        response = await read_nfc_cards(hardware=mock_hardware)
+        response = await read_nfc_cards(
+            hardware=mock_hardware, story_manager=mock_story_manager
+        )
         event_gen = response.body_iterator
 
         # The generator should have started - trigger it
@@ -158,7 +183,6 @@ class TestNFCReadEventStream:
 
         from app.routers.nfc import read_nfc_cards
 
-        # Create mock NFC service that captures the callback
         callback_holder = {}
 
         async def mock_start_polling(callback):
@@ -170,8 +194,12 @@ class TestNFCReadEventStream:
 
         mock_hardware = MagicMock()
         mock_hardware._services = {"nfc": mock_nfc}
+        mock_story_manager = MagicMock()
+        mock_story_manager.get_card.return_value = None
 
-        response = await read_nfc_cards(hardware=mock_hardware)
+        response = await read_nfc_cards(
+            hardware=mock_hardware, story_manager=mock_story_manager
+        )
         event_gen = response.body_iterator
 
         # Start consuming the generator

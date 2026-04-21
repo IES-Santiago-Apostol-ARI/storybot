@@ -12,6 +12,10 @@
         <!-- Idle screen - story grid -->
         <div class="page" data-page="idle">
             <div class="screen-idle" data-screen="idle">
+                <!-- Parameter accumulation display -->
+                <div class="parameter-display" id="parameter-display">
+                    <div class="parameter-chips" id="parameter-chips"></div>
+                </div>
                 <!-- Empty state - shown when no stories -->
                 <div class="empty-state hidden" id="empty-state">
                     <svg class="empty-character" viewBox="0 0 120 140" width="180" height="210">
@@ -104,6 +108,14 @@
                     <div class="thankyou-emoji">&#127775;</div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Thinking overlay for go card -->
+    <div class="thinking-overlay" id="thinking-overlay">
+        <div class="thinking-content">
+            <div class="thinking-emoji">🤖</div>
+            <div class="thinking-text">Pensando...</div>
         </div>
     </div>
 

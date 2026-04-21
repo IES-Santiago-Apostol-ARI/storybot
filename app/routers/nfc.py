@@ -15,11 +15,11 @@ Kiosk (Child):
     3. If story found, trigger playback with LED feedback
     4. Child hears their personalized story
 
-Thread Safety:
-    - NFC polling runs in daemon thread (from Phase 0)
-    - Server remains responsive during polling
-    - SSE disconnection stops polling for that client
-    - StoryManager uses threading.Lock for NFC mapping updates
+Card Type Routing (v1.2):
+    - story cards: existing playback flow, clear session
+    - parameter cards: add to session buffer, emit enriched SSE
+    - go cards: emit session params, clear session
+    - unknown cards: emit card_type="unknown"
 """
 
 import asyncio
@@ -30,25 +30,33 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import EventSourceResponse
 from sse_starlette import EventSourceResponse as SSEStarletteResponse
 
-from app.dependencies import get_hardware
+from app.dependencies import get_hardware, get_story_manager
 from app.services.hardware_manager import HardwareManager
+from app.services.session_manager import SessionManager
+from app.services.story_manager import StoryManager
 
 router = APIRouter(prefix="/api/nfc", tags=["nfc"])
+
+# Global session — one kiosk = one session
+session_manager = SessionManager(timeout_seconds=30)
 
 
 @router.get("/read")
 async def read_nfc_cards(
     hardware: HardwareManager = Depends(get_hardware),
+    story_manager: StoryManager = Depends(get_story_manager),
 ) -> EventSourceResponse:
     """Stream NFC card tap events via Server-Sent Events.
 
-    Returns SSE stream with events like:
-    {"uid": "04:A3:5B:C2:D4:30"}
+    Returns SSE stream with enriched events including card_type:
+    {"uid": "04:A3:5B:C2:D4:30", "card_type": "story"}
+    {"uid": "...", "card_type": "parameter", "category": "...", ...}
+    {"uid": "...", "card_type": "go"}
+    {"uid": "...", "card_type": "unknown"}
     """
 
     async def event_stream() -> AsyncIterator[dict]:
         """Generate SSE events for NFC card taps."""
-        # Get NFC service from hardware manager
         nfc_service = hardware._services.get("nfc")
         if not nfc_service:
             yield {
@@ -57,27 +65,61 @@ async def read_nfc_cards(
             }
             return
 
-        # Create queue for card events
         queue: asyncio.Queue[str] = asyncio.Queue()
         loop = asyncio.get_running_loop()
 
         def card_callback(uid: str) -> None:
-            """Callback when card tapped (called from background thread)."""
             loop.call_soon_threadsafe(queue.put_nowait, uid)
 
-        # Start polling
         await nfc_service.start_polling(card_callback)
 
         try:
             while True:
-                # Wait for card tap
                 uid = await queue.get()
-                yield {
-                    "event": "card",
-                    "data": json.dumps({"uid": uid}),
-                }
+
+                card = story_manager.get_card(uid)
+
+                if card is None:
+                    yield {
+                        "event": "card",
+                        "data": json.dumps({"uid": uid, "card_type": "unknown"}),
+                    }
+                elif card["type"] == "story":
+                    session_manager.clear()
+                    yield {
+                        "event": "card",
+                        "data": json.dumps(
+                            {"uid": uid, "card_type": "story"}
+                        ),
+                    }
+                elif card["type"] == "parameter":
+                    session_manager.add_parameter(card)
+                    yield {
+                        "event": "card",
+                        "data": json.dumps(
+                            {
+                                "uid": uid,
+                                "card_type": "parameter",
+                                "category": card.get("category", ""),
+                                "value": card.get("value", ""),
+                                "emoji": card.get("emoji", ""),
+                                "label": card.get("label", ""),
+                            }
+                        ),
+                    }
+                elif card["type"] == "go":
+                    params = session_manager.get_and_clear()
+                    yield {
+                        "event": "card",
+                        "data": json.dumps(
+                            {
+                                "uid": uid,
+                                "card_type": "go",
+                                "parameters": params,
+                            }
+                        ),
+                    }
         finally:
-            # Unregister this client's callback; stops polling if last subscriber
             await nfc_service.stop_polling(card_callback)
 
     return SSEStarletteResponse(event_stream(), media_type="text/event-stream")
