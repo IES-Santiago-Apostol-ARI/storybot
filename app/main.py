@@ -29,8 +29,10 @@ from app.routers.nfc import router as nfc_router
 from app.routers.stories import router as stories_router
 from app.routers.system import router as system_router
 from app.routers.cards import router as cards_router
+from app.routers.generate import router as generate_router
 from app.services.hardware_manager import HardwareManager
 from app.services.story_manager import StoryManager
+from app.services.story_generator import StoryGenerator
 
 
 @asynccontextmanager
@@ -51,6 +53,7 @@ async def lifespan(app: FastAPI):
     app.state.hardware = hardware
     app.state.config = config
     app.state.story_manager = story_manager
+    app.state.story_generator = StoryGenerator()
 
     # Initialize config
     _ = config.load()
@@ -94,6 +97,7 @@ app.include_router(system_router, prefix="/api/system", tags=["system"])
 app.include_router(nfc_router)
 app.include_router(stories_router)
 app.include_router(cards_router)
+app.include_router(generate_router, tags=["generate"])
 
 # Mount static files for story content (with no-cache for audio)
 stories_static_dir = Path("content/stories")

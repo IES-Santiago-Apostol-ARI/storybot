@@ -1,0 +1,24 @@
+[Unit]
+Description=llama.cpp Server (Qwen 3.5 4B)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ari
+WorkingDirectory=/home/ari/llama.cpp
+ExecStart=/home/ari/llama.cpp/build/bin/llama-server \
+  -m /home/ari/llama.cpp/models/Qwen3.5-4B-GGUF/Qwen3.5-4B-Q4_K_M.gguf \
+  --alias qwen35-4b-local \
+  -np 1 -t 6 -c 8192 --n-gpu-layers 32 \
+  --batch-size 256 --ubatch-size 64 \
+  --no-mmap --mlock --cache-ram 512 \
+  --reasoning off --reasoning-format none \
+  --host 127.0.0.1 --port 8080
+Restart=on-failure
+RestartSec=10
+Environment="PATH=/usr/local/cuda/bin:/usr/bin:/bin"
+Environment="LD_LIBRARY_PATH=/usr/local/cuda/lib64"
+
+[Install]
+WantedBy=multi-user.target
