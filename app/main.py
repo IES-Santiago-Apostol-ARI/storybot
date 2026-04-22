@@ -33,6 +33,7 @@ from app.routers.generate import router as generate_router
 from app.services.hardware_manager import HardwareManager
 from app.services.story_manager import StoryManager
 from app.services.story_generator import StoryGenerator
+from app.services.tts_pipeline import TTSPipeline
 
 
 @asynccontextmanager
@@ -60,6 +61,12 @@ async def lifespan(app: FastAPI):
 
     # Initialize hardware detection (stub for now)
     await hardware.detect_hardware()
+
+    # Wire TTS pipeline to loaded engine (skip during testing)
+    if not os.environ.get("TESTING"):
+        tts_engine = hardware._services.get("tts")
+        if tts_engine:
+            app.state.tts_pipeline = TTSPipeline(synthesizer=tts_engine)
 
     # Ensure content directory exists (skip during testing)
     if not os.environ.get("TESTING"):
@@ -103,6 +110,11 @@ app.include_router(generate_router, tags=["generate"])
 stories_static_dir = Path("content/stories")
 if stories_static_dir.exists():
     app.mount("/static/stories", NoCacheStaticFiles(directory=str(stories_static_dir)), name="stories")
+
+# Mount static files for generated content (with no-cache for audio)
+generated_static_dir = Path("content/generated")
+if generated_static_dir.exists():
+    app.mount("/static/generated", NoCacheStaticFiles(directory=str(generated_static_dir)), name="generated")
 
 # Mount children's kiosk interface
 children_static_dir = Path("static/children")

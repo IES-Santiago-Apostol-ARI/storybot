@@ -167,7 +167,7 @@ function transitionTo(newState, story = null) {
             case STATES.PLAYING:
                 startLEDPulse(story.led_color);
                 showPlaybackScreen(story);
-                playAudio(story);
+                if (!story.generated) playAudio(story);
                 startProgressTracking();
                 break;
             case STATES.THANKYOU:
@@ -338,6 +338,9 @@ function playAudio(story) {
 
 // Audio ended event handler
 function handleAudioEnded() {
+    // During generation playback, the audio queue controls THANKYOU transitions
+    if (generationAudioQueue.isActive()) return;
+
     console.log('Audio ended, transitioning to thank you');
 
     // Play chime sound for completion
@@ -607,6 +610,7 @@ function startNFCListener() {
                     emoji: data.emoji || '🏷️',
                     label: data.label || data.value || '',
                     category: data.category || '',
+                    value: data.value || '',
                 });
                 renderParameterChips();
                 document.getElementById('parameter-display').classList.add('visible');
@@ -617,10 +621,18 @@ function startNFCListener() {
                 return;
             }
 
-            // Go card — show thinking, clear collection
+            // Go card — trigger generation with collected params, or show thinking if empty
             if (card_type === 'go') {
-                clearParameterDisplay();
-                showThinkingOverlay();
+                if (collectingParams.length === 0) {
+                    clearParameterDisplay();
+                    showThinkingOverlay();
+                } else {
+                    const params = [...collectingParams];
+                    clearParameterDisplay();
+                    playUISound('tap');
+                    unlockAudio();
+                    startGeneration(params.map(p => ({ category: p.category, value: p.value })));
+                }
                 return;
             }
 
@@ -728,6 +740,166 @@ document.addEventListener('DOMContentLoaded', () => {
         }, { once: true });
     });
 });
+
+// --- Generation audio queue ---
+const generationAudioQueue = (() => {
+    let pendingUrls = [];
+    let streamComplete = false;
+    let currentlyPlaying = false;
+    let onCompleteCallback = null;
+
+    function reset() {
+        pendingUrls = [];
+        streamComplete = false;
+        currentlyPlaying = false;
+        onCompleteCallback = null;
+    }
+
+    function enqueue(url) {
+        pendingUrls.push(url);
+        if (!currentlyPlaying) _playNext();
+    }
+
+    function markStreamComplete() {
+        streamComplete = true;
+        if (pendingUrls.length === 0 && !currentlyPlaying && onCompleteCallback) {
+            onCompleteCallback();
+        }
+    }
+
+    function onComplete(cb) {
+        onCompleteCallback = cb;
+    }
+
+    function isActive() {
+        return currentlyPlaying || pendingUrls.length > 0 || !streamComplete;
+    }
+
+    function _playNext() {
+        if (pendingUrls.length === 0) return;
+        const url = pendingUrls.shift();
+        currentlyPlaying = true;
+        audioElement.src = url;
+        audioElement.currentTime = 0;
+        audioElement.play().catch(err => {
+            console.error('Queue playback failed:', err);
+            currentlyPlaying = false;
+            _onSegmentEnded();
+        });
+        audioElement.addEventListener('ended', _onSegmentEnded, { once: true });
+    }
+
+    function _onSegmentEnded() {
+        if (pendingUrls.length > 0) {
+            _playNext();
+        } else {
+            currentlyPlaying = false;
+            if (streamComplete && onCompleteCallback) {
+                onCompleteCallback();
+            }
+        }
+    }
+
+    return { reset, enqueue, markStreamComplete, onComplete, isActive };
+})();
+
+// --- SSE generation consumer ---
+let _generationActive = false;
+
+async function startGeneration(parameters) {
+    if (_generationActive) return;
+    _generationActive = true;
+
+    generationAudioQueue.reset();
+    generationAudioQueue.onComplete(() => {
+        _generationActive = false;
+        transitionTo(STATES.THANKYOU);
+    });
+
+    const syntheticStory = {
+        id: 'generated-' + Date.now(),
+        title: 'Historia generada',
+        emoji: '🤖',
+        led_color: '#7C3AED',
+        cover_image: null,
+        audio_file: null,
+        nfc_uid: null,
+        generated: true,
+    };
+    transitionTo(STATES.PLAYING, syntheticStory);
+
+    // Show thinking overlay (JS-controlled — no auto-hide timeout)
+    const overlay = document.getElementById('thinking-overlay');
+    if (overlay) overlay.classList.add('visible');
+
+    let firstAudioReceived = false;
+    console.time('first-audio-latency');
+
+    try {
+        const response = await fetch('/api/generate/story', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ parameters }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`Generation request failed: ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const parts = buffer.split('\n\n');
+            buffer = parts.pop();
+
+            for (const part of parts) {
+                for (const line of part.split('\n')) {
+                    if (!line.startsWith('data: ')) continue;
+                    let event;
+                    try { event = JSON.parse(line.slice(6)); } catch { continue; }
+
+                    if (event.audio_ready) {
+                        if (event.audio_ready.error) {
+                            console.warn('TTS synth failed for segment', event.audio_ready.index, event.audio_ready.error);
+                        } else if (event.audio_ready.url) {
+                            generationAudioQueue.enqueue(event.audio_ready.url);
+                            if (!firstAudioReceived) {
+                                firstAudioReceived = true;
+                                if (overlay) overlay.classList.remove('visible');
+                                console.timeEnd('first-audio-latency');
+                            }
+                        }
+                    } else if (event.error && event.done) {
+                        console.error('Generation error:', event.error);
+                        generationAudioQueue.reset();
+                        if (overlay) overlay.classList.remove('visible');
+                        _generationActive = false;
+                        transitionTo(STATES.IDLE);
+                        return;
+                    } else if (event.text === null && event.done === true) {
+                        generationAudioQueue.markStreamComplete();
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Stream ended without sentinel — mark complete
+        generationAudioQueue.markStreamComplete();
+    } catch (err) {
+        console.error('Generation fetch error:', err);
+        generationAudioQueue.reset();
+        if (overlay) overlay.classList.remove('visible');
+        _generationActive = false;
+        transitionTo(STATES.IDLE);
+    }
+}
 
 // Clean up on page unload
 window.addEventListener('beforeunload', () => {
