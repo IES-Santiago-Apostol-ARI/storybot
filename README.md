@@ -220,6 +220,7 @@ uv venv
 uv sync
 
 # Instalar dependencias de desarrollo
+sudo apt install libpcsclite-dev
 uv sync --extra dev
 
 # Instalar dependencias de IA para Jetson (opcional)

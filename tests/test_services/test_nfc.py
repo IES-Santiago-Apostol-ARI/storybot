@@ -12,6 +12,21 @@ from app.services.nfc_handler import (
 )
 
 
+def nfc_available() -> bool:
+    """Check if NFC hardware is available (pyscard + pcscd running)."""
+    try:
+        from smartcard.System import readers
+        return bool(readers())
+    except Exception:
+        return False
+
+
+skip_if_no_nfc = pytest.mark.skipif(
+    not nfc_available(),
+    reason="pcscd not running or no NFC reader detected"
+)
+
+
 @pytest.fixture
 def mock_nfc_service():
     """Create a mock NFC service for testing."""
@@ -218,6 +233,7 @@ class TestRealNFCService:
         assert cb2 in real_nfc_service._callbacks
 
     @pytest.mark.asyncio
+    @skip_if_no_nfc
     async def test_real_nfc_service_start_polling_creates_thread(self, real_nfc_service):
         """Test start_polling registers callback and starts CardMonitor."""
         assert real_nfc_service._available is True
@@ -239,31 +255,25 @@ class TestRealNFCService:
         assert real_nfc_service._polling is False
 
     @pytest.mark.asyncio
+    @skip_if_no_nfc
     async def test_real_nfc_service_check_availability_with_nfc(self, real_nfc_service):
-        """Test _check_availability returns True when nfc module is installed."""
-        # nfcpy is installed in dev environment
+        """Test _check_availability returns True when pyscard + pcscd available."""
         result = real_nfc_service._check_availability()
         assert result is True
 
     @pytest.mark.asyncio
+    @skip_if_no_nfc
     async def test_real_nfc_service_check_availability_without_nfc(self):
-        """Test _check_availability returns False without nfc module."""
+        """Test _check_availability returns False when pcscd not running."""
         import sys
 
-        # Temporarily remove nfc from sys.modules
-        nfc_module = sys.modules.get("nfc")
-        with patch.dict(sys.modules, {"nfc": None}):
-            # Need to create new service after patching
+        # Temporarily remove smartcard from sys.modules to simulate no pyscard
+        smartcard_module = sys.modules.get("smartcard")
+        with patch.dict(sys.modules, {"smartcard": None}):
+            # Create new service after patching - _check_availability will fail
             service = RealNFCService()
-            # The check happens in __init__, but we can call it again
-            # Actually, the import happens inside _check_availability
-            # Patching with None will cause ImportError
-            pass
-
-        # Alternative: just verify the current state
-        # Since nfc IS installed, this test documents expected behavior
-        service = RealNFCService()
-        assert service._available is True  # nfcpy is installed
+            # _check_availability should return False when smartcard unavailable
+            assert service._available is False
 
 
 class TestCreateNFCService:
