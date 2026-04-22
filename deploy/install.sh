@@ -65,9 +65,9 @@ fi
 echo ""
 echo "Step 1: Installing system dependencies..."
 apt-get update
-apt-get install -y nginx unclutter pcscd pcsc-tools libccid libpcsclite-dev swig uhubctl
+apt-get install -y nginx unclutter pcscd pcsc-tools libccid libpcsclite-dev swig uhubctl  nvidia-jetpack
 # audio bluetooth:
-apt-get -y  install pipewire pipewire-pulse wireplumber libspa-0.2-bluetooth bluez bluez-tools
+apt-get -y  install pipewire pipewire-pulse wireplumber libspa-0.2-bluetooth bluez bluez-tools cmake
 systemctl --user mask pulseaudio
 pulseaudio -k
 systemctl --user --now enable pipewire pipewire-pulse wireplumber
