@@ -55,7 +55,11 @@ class TestGenerateLatency:
     def test_first_audio_ready_under_two_seconds(
         self, mock_story_generator, mock_tts_pipeline, tmp_path
     ):
-        mock_story_generator.generate_story.return_value = iter(
+        async def _fake_async_gen(events):
+            for e in events:
+                yield e
+
+        mock_story_generator.generate_story.return_value = _fake_async_gen(
             [
                 {"text": "Había una vez. ", "done": False},
                 {"text": None, "done": True},

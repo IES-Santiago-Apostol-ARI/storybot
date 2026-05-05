@@ -404,3 +404,67 @@ class TestGenerateStoryWithAudio:
         text_events = [e for e in events if e.get("text") is not None]
         assert len(text_events) == 1
         assert text_events[0]["text"] == "Hola. "
+
+
+class TestPhase13Deployment:
+    """Tests verifying deployment artifacts from Phase 13-02 (AC-3, AC-4)."""
+
+    def test_llama_server_service_has_frozen_config(self):
+        """AC-3: systemd unit contains the frozen launch config flags."""
+        service_path = Path("deploy/llama-server.service")
+        assert service_path.exists(), "llama-server.service must exist"
+        content = service_path.read_text()
+
+        # Frozen config from 13-01 report.md
+        assert "-c 8192" in content, "Must contain context size -c 8192"
+        assert "--n-gpu-layers" in content, "Must specify GPU layers"
+        assert "--no-mmap" in content, "Must disable mmap for safety"
+        assert "--mlock" in content, "Must enable memory locking"
+        assert "--reasoning off" in content, "Must disable reasoning output"
+
+    def test_llama_server_service_restarts_on_failure(self):
+        """AC-3: systemd unit has Restart=on-failure."""
+        service_path = Path("deploy/llama-server.service")
+        content = service_path.read_text()
+        assert "Restart=on-failure" in content
+
+    def test_storybot_depends_on_llama_server(self):
+        """AC-3: storybot.service has After and Wants for llama-server."""
+        svc_path = Path("deploy/storybot.service")
+        content = svc_path.read_text()
+        assert "llama-server.service" in content, "storybot must depend on llama-server"
+
+    def test_no_ollama_in_pyproject(self):
+        """AC-4: ollama dependency fully removed from pyproject.toml."""
+        toml_path = Path("pyproject.toml")
+        content = toml_path.read_text()
+        assert "ollama" not in content.lower(), "ollama must be removed from dependencies"
+
+    def test_no_ollama_imports_in_app(self):
+        """AC-4: no app/ code imports ollama."""
+        import subprocess
+        result = subprocess.run(
+            ["grep", "-r", "ollama", "app/", "--include=*.py"],
+            capture_output=True, text=True, cwd=str(Path(".").resolve()),
+        )
+        assert result.returncode != 0, f"Found ollama imports in app/: {result.stdout}"
+
+    def test_story_generator_default_params_match_report(self):
+        """Verify StoryGenerator defaults match the recommended gen params from report.md."""
+        from app.services.story_generator import StoryGenerator
+        sg = StoryGenerator()
+        assert sg.temperature == 0.8, "Default temp must be 0.8"
+        assert sg.top_p == 0.95, "Default top_p must be 0.95"
+        assert sg.max_tokens == 600, "Default max_tokens must be 600"
+
+    def test_story_generator_model_name(self):
+        """Verify model name matches the chosen Qwen 3.5 4B."""
+        from app.services.story_generator import StoryGenerator
+        sg = StoryGenerator()
+        assert sg.model == "qwen35-4b-local", "Model must be qwen35-4b-local"
+
+    def test_systemd_service_has_cuda_env(self):
+        """AC-3: systemd unit sets CUDA environment variables."""
+        service_path = Path("deploy/llama-server.service")
+        content = service_path.read_text()
+        assert "LD_LIBRARY_PATH" in content, "Must set LD_LIBRARY_PATH for CUDA"
