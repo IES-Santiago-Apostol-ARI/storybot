@@ -1,5 +1,6 @@
 """Generate router — AI story generation endpoint."""
 
+import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
@@ -10,11 +11,14 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+from app.services.cover_prompt_builder import build as build_cover_prompt
 from app.services.sentence_buffer import SentenceBuffer
+from app.services.swap_orchestrator import LlamaRelaunchError
 
 router = APIRouter()
 
 GENERATED_DIR = Path("content/generated")
+COVER_TIMEOUT_S = 90
 
 
 class StoryGenerateRequest(BaseModel):
@@ -43,6 +47,10 @@ def _save_generated_story(
     )
 
 
+def _cover_event(event_type: str, data: dict) -> str:
+    return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
 @router.post("/api/generate/story")
 async def generate_story(request: StoryGenerateRequest, fastapi_request: Request):
     if not request.parameters:
@@ -50,6 +58,8 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
 
     story_generator = fastapi_request.app.state.story_generator
     tts_pipeline = getattr(fastapi_request.app.state, "tts_pipeline", None)
+    story_manager = getattr(fastapi_request.app.state, "story_manager", None)
+    orchestrator = getattr(fastapi_request.app.state, "swap_orchestrator", None)
     story_id = str(uuid.uuid4())
     collected_text: list[str] = []
     segments: list[dict] = []
@@ -58,7 +68,7 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
         buf = SentenceBuffer()
         seg_index = 0
 
-        for event in story_generator.generate_story(request.parameters):
+        async for event in story_generator.generate_story(request.parameters):
             data = json.dumps(event, ensure_ascii=False)
             yield f"data: {data}\n\n"
             if event.get("text"):
@@ -131,5 +141,50 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
                 GENERATED_DIR,
                 segments=segments,
             )
+
+        # Cover generation (after story save, audio fully flushed)
+        if collected_text and orchestrator and story_manager:
+            positive, negative = build_cover_prompt(request.parameters)
+            seed = hash(story_id) & 0xFFFFFFFF
+
+            try:
+                result = await asyncio.wait_for(
+                    orchestrator.generate_cover_for_story(
+                        story_id, positive, negative, seed
+                    ),
+                    timeout=COVER_TIMEOUT_S,
+                )
+                preview_path, print_path, gen_seconds = result
+
+                if preview_path and print_path:
+                    story_manager.attach_cover(
+                        story_id, str(preview_path), str(print_path)
+                    )
+                    yield _cover_event(
+                        "cover_ready",
+                        {
+                            "preview_url": (
+                                f"/static/generated/{story_id}/cover-preview.png"
+                            ),
+                            "print_url": (
+                                f"/static/generated/{story_id}/cover-print.png"
+                            ),
+                            "gen_seconds": gen_seconds,
+                        },
+                    )
+                else:
+                    yield _cover_event(
+                        "cover_failed", {"reason": "orchestrator returned None"}
+                    )
+            except asyncio.TimeoutError:
+                yield _cover_event("cover_failed", {"reason": "timeout"})
+            except LlamaRelaunchError:
+                yield _cover_event(
+                    "cover_failed", {"reason": "llama_relaunch_failed"}
+                )
+            except Exception as e:
+                yield _cover_event(
+                    "cover_failed", {"reason": type(e).__name__}
+                )
 
     return StreamingResponse(stream(), media_type="text/event-stream")

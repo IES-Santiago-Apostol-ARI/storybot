@@ -1,8 +1,10 @@
 """StoryGenerator — streaming LLM client for llama-server OpenAI-compat endpoint."""
 
+import asyncio
 import json
 import re
-from collections.abc import Generator
+import threading
+from collections.abc import AsyncGenerator
 
 import requests
 
@@ -47,7 +49,8 @@ class StoryGenerator:
         stripped = stripped.lstrip("\n\r")
         return stripped
 
-    def generate_story(self, parameters: list[dict]) -> Generator[dict, None, None]:
+    def _fetch_stream(self) -> requests.Response | None:
+        """Run the blocking requests.post in a thread and return the response."""
         url = f"{self.base_url}/v1/chat/completions"
         payload = {
             "model": self.model,
@@ -57,20 +60,51 @@ class StoryGenerator:
             "stream": True,
             "messages": [
                 {"role": "system", "content": SYSTEM_PREAMBLE},
-                {"role": "user", "content": self._build_user_message(parameters)},
+                {"role": "user", "content": self._build_user_message(self._params)},
             ],
         }
-
         try:
             resp = requests.post(
                 url, json=payload, stream=True, timeout=self.timeout
             )
             resp.raise_for_status()
+            return resp
         except (requests.ConnectionError, requests.Timeout) as e:
-            yield {"error": str(e), "done": True}
+            return None
+
+    async def generate_story(self, parameters: list[dict]) -> AsyncGenerator[dict, None]:
+        """Async generator that streams tokens from llama-server.
+
+        The blocking requests.post call is run in a background thread. SSE lines
+        are collected in a queue and yielded from the async side to avoid blocking
+        the FastAPI event loop.
+        """
+        self._params = parameters
+        resp = await asyncio.to_thread(self._fetch_stream)
+
+        if resp is None:
+            yield {"error": "Failed to connect to llama-server", "done": True}
             return
 
-        for line in resp.iter_lines():
+        # Queue to bridge blocking reader → async consumer
+        queue: asyncio.Queue = asyncio.Queue()
+
+        def read_stream():
+            """Background thread: reads SSE lines and pushes to queue."""
+            try:
+                for line in resp.iter_lines():
+                    queue.put_nowait(line)
+            except Exception:
+                pass
+            finally:
+                queue.put_nowait(None)  # Sentinel
+
+        threading.Thread(target=read_stream, daemon=True).start()
+
+        while True:
+            line = await queue.get()
+            if line is None:
+                break
             if not line:
                 continue
             line = line.decode("utf-8", errors="replace")

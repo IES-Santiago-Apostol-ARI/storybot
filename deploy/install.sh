@@ -207,7 +207,7 @@ cat > /home/ari/.config/autostart/storybot-kiosk.desktop << 'KIOSKEOF'
 Type=Application
 Name=StoryBot Kiosk
 Comment=Launch Firefox kiosk for StoryBot
-Exec=bash -c "unclutter -idle 0.5 & sleep 5 && firefox --kiosk http://localhost/"
+Exec=bash -c "unclutter -idle 0.5 & sleep 5 && MOZ_DISABLE_CONTENT_SANDBOX=1 firefox --kiosk --purgecaches --no-remote -P kiosk http://localhost/"
 Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true

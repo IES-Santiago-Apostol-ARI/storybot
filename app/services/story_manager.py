@@ -1,9 +1,10 @@
 """Story manager service for CRUD operations and NFC mapping."""
 
 import json
+import sys
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app.models.story import Story, StoryCreate
@@ -14,6 +15,7 @@ class StoryManager:
 
     CONTENT_DIR = Path("content/stories")
     INDEX_FILE = CONTENT_DIR / "stories.json"
+    GENERATED_DIR = Path("content/generated")
 
     def __init__(self) -> None:
         """Initialize StoryManager."""
@@ -332,3 +334,39 @@ class StoryManager:
             del index["cards"][uid]
             self._save_index(index)
             return True
+
+    def attach_cover(
+        self, story_id: str, preview_path: str, print_path: str
+    ) -> None:
+        """Add cover metadata to a generated story's story.json.
+
+        Args:
+            story_id: Story directory name under content/generated/.
+            preview_path: Absolute path to cover-preview.png.
+            print_path: Absolute path to cover-print.png.
+        """
+        generated_dir = self.GENERATED_DIR
+        story_file = generated_dir / story_id / "story.json"
+
+        if not story_file.exists():
+            print(
+                json.dumps(
+                    {
+                        "event": "cover_attach_orphan",
+                        "story_id": story_id,
+                    }
+                ),
+                file=sys.stderr,
+            )
+            return
+
+        story_data = json.loads(story_file.read_text())
+        story_data["cover"] = {
+            "preview": "cover-preview.png",
+            "print": "cover-print.png",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        tmp = story_file.with_suffix(".tmp")
+        tmp.write_text(json.dumps(story_data, ensure_ascii=False, indent=2))
+        tmp.rename(story_file)

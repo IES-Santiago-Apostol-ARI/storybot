@@ -33,6 +33,7 @@ from app.routers.generate import router as generate_router
 from app.services.hardware_manager import HardwareManager
 from app.services.story_manager import StoryManager
 from app.services.story_generator import StoryGenerator
+from app.services.swap_orchestrator import SwapOrchestrator
 from app.services.tts_pipeline import TTSPipeline
 
 
@@ -55,6 +56,7 @@ async def lifespan(app: FastAPI):
     app.state.config = config
     app.state.story_manager = story_manager
     app.state.story_generator = StoryGenerator()
+    app.state.swap_orchestrator = SwapOrchestrator()
 
     # Initialize config
     _ = config.load()
