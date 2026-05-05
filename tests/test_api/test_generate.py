@@ -8,6 +8,12 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
+
+async def _async_gen(events):
+    """Convert a list of events into an async generator (for mocking)."""
+    for e in events:
+        yield e
+
 from app.main import app
 from app.services.story_generator import StoryGenerator
 from app.services.tts_pipeline import TTSPipeline
@@ -17,6 +23,18 @@ from app.services.tts_pipeline import TTSPipeline
 def mock_story_generator():
     """Create a mock StoryGenerator and attach to app state."""
     sg = MagicMock(spec=StoryGenerator)
+
+    async def _fake_async_gen(events):
+        for e in events:
+            yield e
+
+    # Default return value: a short two-event stream
+    sg.generate_story.return_value = _fake_async_gen(
+        [
+            {"text": "Hola", "done": False},
+            {"text": None, "done": True},
+        ]
+    )
     app.state.story_generator = sg
     yield sg
     delattr(app.state, "story_generator")
@@ -72,7 +90,11 @@ def client(mock_story_generator, mock_tts_pipeline):
 
 class TestGenerateStory:
     def test_generate_returns_sse(self, client, mock_story_generator):
-        mock_story_generator.generate_story.return_value = iter(
+        async def _fake_async_gen(events):
+            for e in events:
+                yield e
+
+        mock_story_generator.generate_story.return_value = _fake_async_gen(
             [
                 {"text": "Hola", "done": False},
                 {"text": None, "done": True},
@@ -100,7 +122,7 @@ class TestGenerateStory:
         assert resp.status_code == 400
 
     def test_generate_error_streams_error(self, client, mock_story_generator):
-        mock_story_generator.generate_story.return_value = iter(
+        mock_story_generator.generate_story.return_value = _async_gen(
             [{"error": "llama-server no disponible", "done": True}]
         )
 
@@ -116,7 +138,7 @@ class TestGenerateStory:
         assert first["done"] is True
 
     def test_generate_saves_story(self, client, mock_story_generator, tmp_path):
-        mock_story_generator.generate_story.return_value = iter(
+        mock_story_generator.generate_story.return_value = _async_gen(
             [
                 {"text": "Había ", "done": False},
                 {"text": "una vez.", "done": False},
@@ -196,7 +218,7 @@ class TestGenerateStoryWithAudio:
         self, mock_story_generator, mock_tts_pipeline, tmp_path
     ):
         """AC-3: SSE emits audio_ready events interleaved with text."""
-        mock_story_generator.generate_story.return_value = iter(
+        mock_story_generator.generate_story.return_value = _async_gen(
             [
                 {"text": "Había una vez un dragón. ", "done": False},
                 {"text": "Vivía en una montaña.", "done": False},
@@ -232,7 +254,7 @@ class TestGenerateStoryWithAudio:
         self, mock_story_generator, mock_tts_pipeline, tmp_path
     ):
         """AC-3: audio_ready event has correct shape."""
-        mock_story_generator.generate_story.return_value = iter(
+        mock_story_generator.generate_story.return_value = _async_gen(
             [
                 {"text": "Hola mundo. ", "done": False},
                 {"text": None, "done": True},
@@ -266,7 +288,7 @@ class TestGenerateStoryWithAudio:
         self, mock_story_generator, mock_tts_pipeline, tmp_path
     ):
         """AC-4: story.json contains segments manifest."""
-        mock_story_generator.generate_story.return_value = iter(
+        mock_story_generator.generate_story.return_value = _async_gen(
             [
                 {"text": "Primero. ", "done": False},
                 {"text": "Segundo!", "done": False},
@@ -297,7 +319,7 @@ class TestGenerateStoryWithAudio:
         self, mock_story_generator, mock_tts_pipeline, tmp_path
     ):
         """Tail without terminal punctuation is flushed and synthesized."""
-        mock_story_generator.generate_story.return_value = iter(
+        mock_story_generator.generate_story.return_value = _async_gen(
             [
                 {"text": "Un final abierto", "done": False},
                 {"text": None, "done": True},
@@ -328,7 +350,7 @@ class TestGenerateStoryWithAudio:
         self, mock_story_generator, mock_tts_pipeline_failing, tmp_path
     ):
         """Synth failure emits audio_ready with error field, doesn't abort."""
-        mock_story_generator.generate_story.return_value = iter(
+        mock_story_generator.generate_story.return_value = _async_gen(
             [
                 {"text": "Falla aquí. ", "done": False},
                 {"text": None, "done": True},
@@ -359,7 +381,7 @@ class TestGenerateStoryWithAudio:
         self, mock_story_generator, mock_tts_pipeline, tmp_path
     ):
         """AC-5: existing text events per token are unchanged."""
-        mock_story_generator.generate_story.return_value = iter(
+        mock_story_generator.generate_story.return_value = _async_gen(
             [
                 {"text": "Hola. ", "done": False},
                 {"text": None, "done": True},
