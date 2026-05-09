@@ -15,6 +15,7 @@ let progressAnimationId = null;
 let isPaused = false;
 let pausedLEDState = null; // { color, brightness, direction }
 let collectingParams = []; // Parameter chips displayed during collection
+let lastGenerationParams = []; // Preserved params for D-09 chip preservation + collage
 const audioElement = document.getElementById('story-audio');
 
 // UI Sound system
@@ -157,15 +158,19 @@ function transitionTo(newState, story = null) {
             page.classList.add('page-hidden');
         });
 
+        // COLLECTING reuses the idle page/screen (parameter-display lives there)
+        const pageKey = newState === STATES.COLLECTING ? STATES.IDLE : newState;
+        const screenKey = pageKey;
+
         // Show the new page
-        const newPage = document.querySelector(`[data-page="${newState}"]`);
+        const newPage = document.querySelector(`[data-page="${pageKey}"]`);
         if (newPage) {
             newPage.classList.remove('page-hidden');
             newPage.classList.add('page-visible');
         }
 
         // Show the target screen (remove hidden class)
-        const targetScreen = document.querySelector(`[data-screen="${newState}"]`);
+        const targetScreen = document.querySelector(`[data-screen="${screenKey}"]`);
         if (targetScreen) {
             targetScreen.classList.remove('hidden');
         }
@@ -193,6 +198,16 @@ function transitionTo(newState, story = null) {
             case STATES.IDLE:
                 // Phase 16 D-06: reset cover buffer for next generation.
                 bufferedCoverUrl = null;
+
+                // Phase 16 D-09: preserve parameter chips after generated story.
+                if (lastGenerationParams.length > 0) {
+                    collectingParams = [...lastGenerationParams];
+                    lastGenerationParams = [];
+                    renderParameterChips();
+                    document.getElementById('parameter-display').classList.add('visible');
+                } else {
+                    clearParameterDisplay();
+                }
 
                 // Reset pause state
                 isPaused = false;
@@ -363,7 +378,8 @@ function showPlaybackScreen(story) {
         emoji.style.display = 'none';
         if (collage) {
             collage.innerHTML = '';
-            for (const p of (collectingParams || [])) {
+            const params = lastGenerationParams.length > 0 ? lastGenerationParams : collectingParams;
+            for (const p of (params || [])) {
                 const chip = document.createElement('span');
                 chip.className = 'parameter-chip';
                 chip.textContent = (p && (p.label || p.value)) || '';
@@ -717,6 +733,7 @@ function startNFCListener() {
                         }
                     }
                     const params = [...collectingParams];
+                    lastGenerationParams = [...collectingParams];
                     clearParameterDisplay();
                     playUISound('tap');
                     unlockAudio();
@@ -728,6 +745,7 @@ function startNFCListener() {
             // Story card — play normally, clear any collection
             if (card_type === 'story') {
                 clearParameterDisplay();
+                lastGenerationParams = [];
                 if (currentState !== STATES.IDLE && currentState !== STATES.COLLECTING) return;
 
                 const response = await fetch(`/api/stories/nfc/${encodeURIComponent(uid)}`);

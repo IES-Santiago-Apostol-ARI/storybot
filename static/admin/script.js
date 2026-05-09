@@ -1339,7 +1339,12 @@ function createGeneratedCard(story) {
     printBtn.type = 'button';
     printBtn.className = 'btn btn-secondary';
     printBtn.textContent = 'Imprimir pegatina';
-    printBtn.addEventListener('click', () => printSticker('content/generated/' + story.id + '/cover-print.png'));
+    if (story.cover) {
+        printBtn.addEventListener('click', () => printSticker('content/generated/' + story.id + '/cover-print.png'));
+    } else {
+        printBtn.disabled = true;
+        printBtn.title = 'No hay portada para imprimir';
+    }
     actions.appendChild(printBtn);
 
     const promoteBtn = document.createElement('button');
@@ -1421,10 +1426,10 @@ async function submitPromote(event) {
             body: JSON.stringify({ title, emoji, led_color }),
         });
         if (!response.ok) {
-            throw new Error('HTTP ' + response.status);
+            const errData = await response.json().catch(() => ({}));
+            throw new Error('HTTP ' + response.status + ': ' + (errData.detail || ''));
         }
         const newStory = await response.json();
-        showMessage('Historia promovida. Acerca una tarjeta NFC para asignarla.', 'success');
         closePromoteModal();
         await loadGeneratedStories();
         if (typeof loadStories === 'function') await loadStories();

@@ -477,10 +477,11 @@ class StoryManager:
         # Verify all segments share params.
         params_ref = None
         with wave.open(str(segments[0]), "rb") as wf0:
-            params_ref = wf0.getparams()
+            params_ref = (wf0.getnchannels(), wf0.getsampwidth(), wf0.getframerate())
         for seg in segments[1:]:
             with wave.open(str(seg), "rb") as wf:
-                if wf.getparams() != params_ref:
+                seg_params = (wf.getnchannels(), wf.getsampwidth(), wf.getframerate())
+                if seg_params != params_ref:
                     print(
                         json.dumps(
                             {
@@ -500,7 +501,9 @@ class StoryManager:
 
         audio_out = curated_dir / "narration.wav"
         with wave.open(str(audio_out), "wb") as out:
-            out.setparams(params_ref)
+            out.setnchannels(params_ref[0])
+            out.setsampwidth(params_ref[1])
+            out.setframerate(params_ref[2])
             for seg in segments:
                 with wave.open(str(seg), "rb") as wf:
                     out.writeframes(wf.readframes(wf.getnframes()))

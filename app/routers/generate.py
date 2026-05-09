@@ -48,7 +48,8 @@ def _save_generated_story(
 
 
 def _cover_event(event_type: str, data: dict) -> str:
-    return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+    wrapped = {event_type: data}
+    return f"data: {json.dumps(wrapped, ensure_ascii=False)}\n\n"
 
 
 @router.post("/api/generate/story")

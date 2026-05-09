@@ -109,13 +109,14 @@ class TestCoverReadyEmitted:
 
         # Parse SSE events
         text = resp.text
-        assert "event: cover_ready" in text
-        # Find the cover_ready data
+        assert "cover_ready" in text
         for line in text.split("\n"):
-            if line.startswith("data: ") and "preview_url" in line:
+            if line.startswith("data: ") and "cover_ready" in line:
                 data = json.loads(line[6:])
-                assert "/static/generated/" in data["preview_url"]
-                assert data["gen_seconds"] == 9.5
+                assert "cover_ready" in data
+                cover = data["cover_ready"]
+                assert "/static/generated/" in cover["preview_url"]
+                assert cover["gen_seconds"] == 9.5
                 break
 
     def test_attach_cover_called_on_success(
@@ -174,7 +175,7 @@ class TestCoverFailedEmitted:
 
         assert resp.status_code == 200
         text = resp.text
-        assert "event: cover_failed" in text
+        assert "cover_failed" in text
 
         # Story still saved (no cover key)
         saved = list(generated_dir.glob("*/story.json"))
@@ -200,7 +201,7 @@ class TestCoverFailedEmitted:
             delattr(app.state, "swap_orchestrator")
 
         assert resp.status_code == 200
-        assert "event: cover_failed" in resp.text
+        assert "cover_failed" in resp.text
 
     def test_no_cover_events_without_orchestrator(
         self, mock_story_generator, mock_story_manager, mock_tts, tmp_path
