@@ -33,6 +33,7 @@ from app.routers.stories import router as stories_router
 from app.routers.system import router as system_router
 from app.routers.cards import router as cards_router
 from app.routers.generate import router as generate_router
+from app.routers.generated import router as generated_router
 from app.services.hardware_manager import HardwareManager
 from app.services.story_manager import StoryManager
 from app.services.story_generator import StoryGenerator
@@ -145,6 +146,7 @@ app.include_router(nfc_router)
 app.include_router(stories_router)
 app.include_router(cards_router)
 app.include_router(generate_router, tags=["generate"])
+app.include_router(generated_router)
 
 # Mount static files for story content (with no-cache for audio)
 stories_static_dir = Path("content/stories")

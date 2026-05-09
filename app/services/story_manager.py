@@ -1,13 +1,30 @@
 """Story manager service for CRUD operations and NFC mapping."""
 
 import json
+import re
+import shutil
 import sys
 import threading
 import uuid
+import wave
 from datetime import datetime, timezone
 from pathlib import Path
 
 from app.models.story import Story, StoryCreate
+
+_UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+
+
+def _is_valid_generated_id(story_id: str) -> bool:
+    """Defense-in-depth: reject path-traversal characters in generated ids.
+
+    The router layer enforces canonical UUID format for HTTP requests.
+    This service-level guard prevents misuse from any call site by
+    blocking ``..`` and ``/`` in the id string.
+    """
+    return ".." not in story_id and "/" not in story_id
 
 
 class StoryManager:
@@ -335,9 +352,7 @@ class StoryManager:
             self._save_index(index)
             return True
 
-    def attach_cover(
-        self, story_id: str, preview_path: str, print_path: str
-    ) -> None:
+    def attach_cover(self, story_id: str, preview_path: str, print_path: str) -> None:
         """Add cover metadata to a generated story's story.json.
 
         Args:
@@ -370,3 +385,161 @@ class StoryManager:
         tmp = story_file.with_suffix(".tmp")
         tmp.write_text(json.dumps(story_data, ensure_ascii=False, indent=2))
         tmp.rename(story_file)
+
+    def list_generated(self) -> list[dict]:
+        """Return lightweight summaries for each generated story dir.
+
+        Each summary has keys: id, text_preview (≤120 chars), parameters,
+        created_at, cover (or None).  Directories without story.json are skipped.
+        """
+        out: list[dict] = []
+        if not self.GENERATED_DIR.exists():
+            return out
+        for d in sorted(self.GENERATED_DIR.iterdir()):
+            if not d.is_dir():
+                continue
+            sj = d / "story.json"
+            if not sj.exists():
+                continue
+            try:
+                data = json.loads(sj.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            out.append(
+                {
+                    "id": data.get("id", d.name),
+                    "text_preview": (data.get("text", "") or "")[:120],
+                    "parameters": data.get("parameters", []),
+                    "created_at": data.get("created_at"),
+                    "cover": data.get("cover"),
+                }
+            )
+        return out
+
+    def delete_generated(self, story_id: str) -> bool:
+        """Recursively remove content/generated/<story_id>/.
+
+        Returns True if removed, False if not found or id is unsafe.
+        """
+        if not _is_valid_generated_id(story_id):
+            print(
+                json.dumps({"event": "discard_invalid_id", "story_id": story_id}),
+                file=sys.stderr,
+            )
+            return False
+        target = self.GENERATED_DIR / story_id
+        # Defense-in-depth path containment check.
+        try:
+            resolved = target.resolve()
+            gdir_resolved = self.GENERATED_DIR.resolve()
+            if hasattr(resolved, "is_relative_to"):
+                if not resolved.is_relative_to(gdir_resolved):
+                    return False
+            else:
+                if gdir_resolved not in resolved.parents and resolved != gdir_resolved:
+                    return False
+        except (OSError, ValueError):
+            return False
+        if not target.exists():
+            return False
+        shutil.rmtree(target)
+        print(
+            json.dumps({"event": "discard_complete", "story_id": story_id}),
+            file=sys.stderr,
+        )
+        return True
+
+    def promote_generated(
+        self,
+        generated_id: str,
+        title: str,
+        emoji: str,
+        led_color: str,
+    ) -> Story:
+        """Promote a generated story into the curated library.
+
+        Concatenates segment WAVs into a single mono 22050Hz 16-bit file,
+        copies the cover (if present), registers via create_story, and
+        deletes the generated directory on success.
+        """
+        if not _is_valid_generated_id(generated_id):
+            raise ValueError(f"invalid generated id: {generated_id!r}")
+
+        src_dir = self.GENERATED_DIR / generated_id
+        if not src_dir.exists() or not (src_dir / "story.json").exists():
+            raise FileNotFoundError(f"generated story {generated_id} not found")
+
+        audio_dir = src_dir / "audio"
+        segments = sorted(audio_dir.glob("*.wav")) if audio_dir.exists() else []
+        if not segments:
+            raise FileNotFoundError(f"no audio segments under {audio_dir}")
+
+        # Verify all segments share params.
+        params_ref = None
+        with wave.open(str(segments[0]), "rb") as wf0:
+            params_ref = wf0.getparams()
+        for seg in segments[1:]:
+            with wave.open(str(seg), "rb") as wf:
+                if wf.getparams() != params_ref:
+                    print(
+                        json.dumps(
+                            {
+                                "event": "promote_segment_format_mismatch",
+                                "story_id": generated_id,
+                                "segment": seg.name,
+                            }
+                        ),
+                        file=sys.stderr,
+                    )
+                    raise ValueError(f"segment {seg.name} has incompatible WAV params")
+
+        # Reserve the new curated id so we can write audio before create_story.
+        new_id = str(uuid.uuid4())
+        curated_dir = self.CONTENT_DIR / new_id
+        curated_dir.mkdir(parents=True, exist_ok=True)
+
+        audio_out = curated_dir / "narration.wav"
+        with wave.open(str(audio_out), "wb") as out:
+            out.setparams(params_ref)
+            for seg in segments:
+                with wave.open(str(seg), "rb") as wf:
+                    out.writeframes(wf.readframes(wf.getnframes()))
+
+        # Copy cover if present.
+        cover_src = src_dir / "cover-preview.png"
+        cover_image_field: str | None = None
+        if cover_src.exists():
+            cover_dst = curated_dir / "cover-preview.png"
+            shutil.copy2(cover_src, cover_dst)
+            cover_image_field = "cover-preview.png"
+
+        print(
+            json.dumps(
+                {"event": "promote_started", "src": generated_id, "new_id": new_id}
+            ),
+            file=sys.stderr,
+        )
+
+        # Register in stories.json — create_story accepts explicit id.
+        story = self.create_story(
+            id=new_id,
+            title=title,
+            emoji=emoji,
+            led_color=led_color,
+            audio_file="narration.wav",
+            cover_image=cover_image_field,
+        )
+
+        # Delete-on-promote.
+        shutil.rmtree(src_dir)
+        print(
+            json.dumps(
+                {
+                    "event": "promote_complete",
+                    "src": generated_id,
+                    "new_id": story.id,
+                }
+            ),
+            file=sys.stderr,
+        )
+        return story
