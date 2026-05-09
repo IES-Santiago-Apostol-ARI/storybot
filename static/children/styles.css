@@ -572,3 +572,53 @@ html, body {
 .screen-playing.paused .progress-character .leg-right {
     animation-play-state: paused;
 }
+
+/* Phase 16 D-01: thinking overlay polish — particles need a default tinted color
+   because --story-color is unset on COLLECTING/IDLE pages. */
+.thinking-overlay {
+    --story-color: var(--color-accent-warm, #FFB347);
+}
+
+.thinking-overlay .particles-container {
+    /* Particles container is ABSOLUTELY positioned to cover the overlay without
+       displacing the centered .thinking-content. */
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+.thinking-overlay .thinking-content {
+    /* Ensure content sits above the particle layer. */
+    position: relative;
+    z-index: 1;
+}
+
+.parameter-chips--thinking {
+    /* Chip row below 'Pensando...' — reuse base .parameter-chips styling for the
+       chips themselves; this rule only adjusts the container spacing. */
+    margin-top: 1rem;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+    max-width: 80vw;
+}
+
+/* Phase 16 D-07: chip-collage placeholder shown in the playback cover area
+   for generated stories before cover_ready arrives. */
+.cover-chip-collage {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-content: center;
+    gap: 0.6rem;
+    width: 100%;
+    height: 100%;
+    padding: 1rem;
+    box-sizing: border-box;
+}
+
+.cover-chip-collage[hidden] {
+    display: none;
+}

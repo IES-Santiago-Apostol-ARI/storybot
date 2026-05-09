@@ -60,6 +60,7 @@
                 <div class="playback-container">
                     <img class="cover-image" src="" alt="" style="display: none;">
                     <div class="cover-emoji"></div>
+                    <div class="cover-chip-collage" id="cover-chip-collage" hidden aria-hidden="true"></div>
                     <!-- Pause icon overlay - shown when audio is paused -->
                     <div class="pause-overlay hidden">
                         <svg viewBox="0 0 100 100" width="120" height="120">
@@ -113,9 +114,22 @@
 
     <!-- Thinking overlay for go card -->
     <div class="thinking-overlay" id="thinking-overlay">
+        <div class="particles-container" aria-hidden="true">
+            <div class="particle" style="--delay: 0s; top: 12%; left: 18%;"></div>
+            <div class="particle" style="--delay: 0.4s; top: 22%; left: 78%;"></div>
+            <div class="particle" style="--delay: 0.8s; top: 38%; left: 12%;"></div>
+            <div class="particle" style="--delay: 1.2s; top: 48%; left: 88%;"></div>
+            <div class="particle" style="--delay: 1.6s; top: 58%; left: 30%;"></div>
+            <div class="particle" style="--delay: 2.0s; top: 64%; left: 70%;"></div>
+            <div class="particle" style="--delay: 2.4s; top: 76%; left: 22%;"></div>
+            <div class="particle" style="--delay: 2.8s; top: 82%; left: 60%;"></div>
+            <div class="particle" style="--delay: 3.2s; top: 32%; left: 50%;"></div>
+            <div class="particle" style="--delay: 3.6s; top: 88%; left: 44%;"></div>
+        </div>
         <div class="thinking-content">
             <div class="thinking-emoji">🤖</div>
             <div class="thinking-text" id="thinking-text">Pensando...</div>
+            <div id="thinking-chips" class="parameter-chips parameter-chips--thinking" aria-hidden="true"></div>
         </div>
     </div>
 

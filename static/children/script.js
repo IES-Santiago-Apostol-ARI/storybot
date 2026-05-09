@@ -22,6 +22,12 @@ let uiAudioContext = null;
 const soundBuffers = {};
 const UI_SOUND_VOLUME = 0.3; // Keep sounds quiet
 
+// Phase 16 D-04: pre-rendered bridge clips. Names match files preloaded below.
+const BRIDGE_SOUND_NAMES = ['bridge_00', 'bridge_01', 'bridge_02', 'bridge_03', 'bridge_04'];
+
+// Phase 16 D-06: buffered cover URL for THANKYOU swap. Reset per generation.
+let bufferedCoverUrl = null;
+
 /**
  * Initialize UI audio context and preload sounds
  * Must be called after user gesture due to autoplay policy
@@ -40,7 +46,13 @@ async function initUISounds() {
         // Preload sound files
         await Promise.all([
             loadSound('tap', '/children/assets/tap.mp3'),
-            loadSound('chime', '/children/assets/chime.mp3')
+            loadSound('chime', '/children/assets/chime.mp3'),
+            // Phase 16 D-04: bridge clips for 3s threshold audio (D-02)
+            loadSound('bridge_00', '/children/assets/bridge/00.wav').catch(() => null),
+            loadSound('bridge_01', '/children/assets/bridge/01.wav').catch(() => null),
+            loadSound('bridge_02', '/children/assets/bridge/02.wav').catch(() => null),
+            loadSound('bridge_03', '/children/assets/bridge/03.wav').catch(() => null),
+            loadSound('bridge_04', '/children/assets/bridge/04.wav').catch(() => null),
         ]);
 
         console.log('UI sounds initialized');
@@ -88,6 +100,32 @@ function playUISound(name, volume = UI_SOUND_VOLUME) {
         source.start(0);
     } catch (err) {
         console.warn(`Failed to play sound ${name}:`, err);
+    }
+}
+
+/**
+ * Play a bridge audio clip at full volume. Returns the AudioBufferSourceNode
+ * so the caller can .stop(0) it when narration arrives (D-03).
+ * @param {string} name - Sound name (e.g. 'bridge_00')
+ * @returns {AudioBufferSourceNode|null}
+ */
+function playBridgeSound(name) {
+    if (!uiAudioContext || !soundBuffers[name]) return null;
+    try {
+        if (uiAudioContext.state === 'suspended') {
+            uiAudioContext.resume();
+        }
+        const source = uiAudioContext.createBufferSource();
+        const gainNode = uiAudioContext.createGain();
+        source.buffer = soundBuffers[name];
+        gainNode.gain.value = 1.0;
+        source.connect(gainNode);
+        gainNode.connect(uiAudioContext.destination);
+        source.start(0);
+        return source;
+    } catch (err) {
+        console.warn('Failed to play bridge sound', name, err);
+        return null;
     }
 }
 
@@ -153,6 +191,9 @@ function transitionTo(newState, story = null) {
                 stopProgressTracking();
                 break;
             case STATES.IDLE:
+                // Phase 16 D-06: reset cover buffer for next generation.
+                bufferedCoverUrl = null;
+
                 // Reset pause state
                 isPaused = false;
                 pausedLEDState = null;
@@ -177,6 +218,11 @@ function transitionTo(newState, story = null) {
                 document.querySelector('.pause-overlay')?.classList.add('hidden');
                 document.querySelector('.pause-overlay')?.classList.remove('visible', 'resuming');
                 document.querySelector('.screen-playing')?.classList.remove('paused');
+
+                // Phase 16 D-06: apply buffered cover swap at THANKYOU transition.
+                if (bufferedCoverUrl) {
+                    applyCoverSwap(bufferedCoverUrl);
+                }
 
                 fadeLEDToIdle();
                 stopProgressTracking();
@@ -283,6 +329,20 @@ function showThinkingOverlay() {
     }
 }
 
+// Phase 16 D-06: replace the placeholder (chip-collage / cover-emoji) with the real cover URL.
+function applyCoverSwap(url) {
+    if (!url) return;
+    const img = document.querySelector('.cover-image');
+    const emoji = document.querySelector('.cover-emoji');
+    const collage = document.getElementById('cover-chip-collage');
+    if (img) {
+        img.src = url;
+        img.style.display = '';
+    }
+    if (emoji) emoji.style.display = 'none';
+    if (collage) collage.hidden = true;
+}
+
 // Playback functions
 function showPlaybackScreen(story) {
     const container = document.querySelector('[data-screen="playing"]');
@@ -290,15 +350,32 @@ function showPlaybackScreen(story) {
 
     const cover = container.querySelector('.cover-image');
     const emoji = container.querySelector('.cover-emoji');
+    const collage = document.getElementById('cover-chip-collage');
 
     if (story.cover_image) {
         cover.src = `/static/stories/${story.id}/${story.cover_image}`;
         cover.style.display = 'block';
         emoji.style.display = 'none';
+        if (collage) collage.hidden = true;
+    } else if (story && story.generated && !bufferedCoverUrl) {
+        // Phase 16 D-07: chip-collage placeholder for generated stories before cover_ready.
+        cover.style.display = 'none';
+        emoji.style.display = 'none';
+        if (collage) {
+            collage.innerHTML = '';
+            for (const p of (collectingParams || [])) {
+                const chip = document.createElement('span');
+                chip.className = 'parameter-chip';
+                chip.textContent = (p && (p.label || p.value)) || '';
+                collage.appendChild(chip);
+            }
+            collage.hidden = false;
+        }
     } else {
         cover.style.display = 'none';
         emoji.style.display = 'block';
         emoji.textContent = story.emoji;
+        if (collage) collage.hidden = true;
     }
 }
 
@@ -627,6 +704,18 @@ function startNFCListener() {
                     clearParameterDisplay();
                     showThinkingOverlay();
                 } else {
+                    // Phase 16 D-01: copy the just-collected chips into the thinking overlay so
+                    // the child sees their choices while the AI is composing.
+                    const thinkingChipsEl = document.getElementById('thinking-chips');
+                    if (thinkingChipsEl) {
+                        thinkingChipsEl.innerHTML = '';
+                        for (const p of collectingParams) {
+                            const chip = document.createElement('span');
+                            chip.className = 'parameter-chip';
+                            chip.textContent = (p && (p.label || p.value)) || '';
+                            thinkingChipsEl.appendChild(chip);
+                        }
+                    }
                     const params = [...collectingParams];
                     clearParameterDisplay();
                     playUISound('tap');
@@ -811,6 +900,31 @@ async function startGeneration(parameters) {
     _generationActive = true;
 
     generationAudioQueue.reset();
+
+    // Phase 16 D-06: reset cover buffer for this generation.
+    bufferedCoverUrl = null;
+
+    // Phase 16 D-02 / D-03: 3-second bridge-audio gate.
+    let bridgeNode = null;
+    let bridgeFired = false;
+    const bridgeTimer = setTimeout(() => {
+        if (firstAudioReceived) return;
+        bridgeFired = true;
+        const idx = Math.floor(Math.random() * BRIDGE_SOUND_NAMES.length);
+        bridgeNode = playBridgeSound(BRIDGE_SOUND_NAMES[idx]);
+    }, 3000);
+
+    const cancelBridge = () => {
+        clearTimeout(bridgeTimer);
+        if (bridgeNode) {
+            try { bridgeNode.stop(0); } catch (_) { /* node may have ended */ }
+            bridgeNode = null;
+        }
+    };
+
+    // Diagnostic: cover round-trip timer (read manually on Jetson per VERIFICATION.md).
+    console.time('cover-roundtrip');
+
     generationAudioQueue.onComplete(() => {
         _generationActive = false;
         transitionTo(STATES.THANKYOU);
@@ -870,12 +984,25 @@ async function startGeneration(parameters) {
                         } else if (event.audio_ready.url) {
                             generationAudioQueue.enqueue(event.audio_ready.url);
                             if (!firstAudioReceived) {
+                                cancelBridge();        // Phase 16 D-03: stop bridge clip the instant narration arrives.
                                 firstAudioReceived = true;
                                 if (overlay) overlay.classList.remove('visible');
                                 console.timeEnd('first-audio-latency');
                             }
                         }
+                    } else if (event.cover_ready) {
+                        // Phase 16 D-06: buffer until THANKYOU. Don't swap during PLAYING.
+                        bufferedCoverUrl = event.cover_ready.preview_url || null;
+                        try { console.timeEnd('cover-roundtrip'); } catch (_) {}
+                        // Edge case: if playback already finished (queue idle and we are still in PLAYING
+                        // because the THANKYOU transition hasn't fired yet for some reason), apply now.
+                        if (bufferedCoverUrl && !generationAudioQueue.isActive() && currentState === STATES.PLAYING) {
+                            applyCoverSwap(bufferedCoverUrl);
+                        }
+                    } else if (event.cover_failed) {
+                        // Phase 16 D-08: silent. Leave bufferedCoverUrl null → chip-collage stays through THANKYOU.
                     } else if (event.error && event.done) {
+                        cancelBridge();
                         console.error('Generation error:', event.error);
                         generationAudioQueue.reset();
                         if (overlay) overlay.classList.remove('visible');
@@ -883,6 +1010,7 @@ async function startGeneration(parameters) {
                         transitionTo(STATES.IDLE);
                         return;
                     } else if (event.text === null && event.done === true) {
+                        cancelBridge();
                         generationAudioQueue.markStreamComplete();
                         return;
                     }
@@ -893,6 +1021,7 @@ async function startGeneration(parameters) {
         // Stream ended without sentinel — mark complete
         generationAudioQueue.markStreamComplete();
     } catch (err) {
+        cancelBridge();
         console.error('Generation fetch error:', err);
         generationAudioQueue.reset();
         if (overlay) overlay.classList.remove('visible');
