@@ -1264,9 +1264,197 @@ document.addEventListener('DOMContentLoaded', () => {
     // Edit mode event listeners
     cancelEditBtn.addEventListener('click', () => exitEditMode());
     clearCoverBtn.addEventListener('click', clearCover);
+
+    // Phase 16: Historias generadas (D-10, D-11, D-18)
+    const promoteForm = document.getElementById('promote-form');
+    if (promoteForm) promoteForm.addEventListener('submit', submitPromote);
+    const promoteCancel = document.getElementById('promote-cancel');
+    if (promoteCancel) promoteCancel.addEventListener('click', closePromoteModal);
+    loadGeneratedStories();
 });
 
 window.addEventListener('beforeunload', cleanup);
+
+// === Phase 16: Historias generadas (D-10, D-11, D-18) ===
+
+let generatedStories = [];
+let pendingPromoteId = null;
+
+async function loadGeneratedStories() {
+    const list = document.getElementById('generated-list');
+    if (!list) return;
+    try {
+        const response = await fetch('/api/generated');
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        const data = await response.json();
+        generatedStories = data.stories || [];
+        renderGeneratedList();
+    } catch (error) {
+        console.error('Error loading generated stories:', error);
+        list.innerHTML = '<p class="error">Error al cargar historias generadas.</p>';
+    }
+}
+
+function renderGeneratedList() {
+    const list = document.getElementById('generated-list');
+    if (!list) return;
+    if (!generatedStories.length) {
+        list.innerHTML = '<p class="empty">No hay historias generadas pendientes.</p>';
+        return;
+    }
+    list.innerHTML = '';
+    for (const s of generatedStories) {
+        list.appendChild(createGeneratedCard(s));
+    }
+}
+
+function createGeneratedCard(story) {
+    const card = document.createElement('div');
+    card.className = 'generated-card';
+    card.dataset.id = story.id;
+
+    const title = document.createElement('h3');
+    title.textContent = (story.text_preview || '').slice(0, 60) || story.id;
+    card.appendChild(title);
+
+    const meta = document.createElement('p');
+    meta.className = 'generated-meta';
+    const params = (story.parameters || []).map(p => p.label || p.value || '').filter(Boolean).join(' · ');
+    meta.textContent = params;
+    card.appendChild(meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'generated-actions';
+
+    const previewBtn = document.createElement('button');
+    previewBtn.type = 'button';
+    previewBtn.className = 'btn btn-secondary';
+    previewBtn.textContent = 'Vista previa';
+    previewBtn.addEventListener('click', () => previewGenerated(story.id));
+    actions.appendChild(previewBtn);
+
+    const printBtn = document.createElement('button');
+    printBtn.type = 'button';
+    printBtn.className = 'btn btn-secondary';
+    printBtn.textContent = 'Imprimir pegatina';
+    printBtn.addEventListener('click', () => printSticker('content/generated/' + story.id + '/cover-print.png'));
+    actions.appendChild(printBtn);
+
+    const promoteBtn = document.createElement('button');
+    promoteBtn.type = 'button';
+    promoteBtn.className = 'btn btn-primary';
+    promoteBtn.textContent = 'Promover → Asignar';
+    promoteBtn.addEventListener('click', () => openPromoteModal(story.id));
+    actions.appendChild(promoteBtn);
+
+    const discardBtn = document.createElement('button');
+    discardBtn.type = 'button';
+    discardBtn.className = 'btn btn-danger';
+    discardBtn.textContent = 'Descartar';
+    discardBtn.addEventListener('click', () => discardGenerated(story.id));
+    actions.appendChild(discardBtn);
+
+    card.appendChild(actions);
+    return card;
+}
+
+async function previewGenerated(id) {
+    try {
+        const response = await fetch('/api/generated/' + encodeURIComponent(id));
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const data = await response.json();
+        const text = (data.text || '').slice(0, 600);
+        const cover = data.cover && data.cover.preview ? '/static/generated/' + id + '/cover-preview.png' : null;
+        let msg = text;
+        if (cover) msg += '\n\n(Una imagen de portada se abrirá en otra pestaña.)';
+        showMessage(msg || '(sin texto)', 'info');
+        if (cover) window.open(cover, '_blank');
+    } catch (e) {
+        console.error('previewGenerated failed', e);
+        showMessage('No se pudo cargar la vista previa.', 'error');
+    }
+}
+
+async function discardGenerated(id) {
+    if (!confirm('¿Descartar esta historia generada? Se eliminarán texto, audio y portada.')) return;
+    try {
+        const response = await fetch('/api/generated/' + encodeURIComponent(id), { method: 'DELETE' });
+        if (!response.ok && response.status !== 204) {
+            throw new Error('HTTP ' + response.status);
+        }
+        showMessage('Historia generada descartada.', 'success');
+        await loadGeneratedStories();
+    } catch (e) {
+        console.error('discardGenerated failed', e);
+        showMessage('Error al descartar la historia.', 'error');
+    }
+}
+
+function openPromoteModal(id) {
+    pendingPromoteId = id;
+    const modal = document.getElementById('promote-modal');
+    if (modal) modal.hidden = false;
+    const titleInput = document.getElementById('promote-title');
+    if (titleInput) titleInput.focus();
+}
+
+function closePromoteModal() {
+    pendingPromoteId = null;
+    const modal = document.getElementById('promote-modal');
+    if (modal) modal.hidden = true;
+    const form = document.getElementById('promote-form');
+    if (form) form.reset();
+}
+
+async function submitPromote(event) {
+    event.preventDefault();
+    if (!pendingPromoteId) return;
+    const title = document.getElementById('promote-title').value.trim();
+    const emoji = document.getElementById('promote-emoji').value.trim();
+    const led_color = document.getElementById('promote-led-color').value;
+    try {
+        const response = await fetch('/api/generated/' + encodeURIComponent(pendingPromoteId) + '/promote', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, emoji, led_color }),
+        });
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        const newStory = await response.json();
+        showMessage('Historia promovida. Acerca una tarjeta NFC para asignarla.', 'success');
+        closePromoteModal();
+        await loadGeneratedStories();
+        if (typeof loadStories === 'function') await loadStories();
+        if (typeof startNFCAssignment === 'function') {
+            startNFCAssignment(newStory.id);
+        }
+    } catch (e) {
+        console.error('submitPromote failed', e);
+        showMessage('Error al promover la historia.', 'error');
+    }
+}
+
+async function printSticker(path) {
+    try {
+        const response = await fetch('/api/printer/print', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (response.ok && data.ok) {
+            showMessage('Pegatina enviada a la impresora.', 'success');
+        } else {
+            showMessage('Error al imprimir: ' + (data.error || response.status), 'error');
+        }
+    } catch (e) {
+        console.error('printSticker failed', e);
+        showMessage('Error al imprimir la pegatina.', 'error');
+    }
+}
 
 // Warn about unsaved changes on page navigation
 window.addEventListener('beforeunload', (event) => {

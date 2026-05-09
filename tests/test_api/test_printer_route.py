@@ -13,19 +13,13 @@ from app.main import app
 
 
 @pytest.fixture
-def mock_printer():
+def client():
     p = AsyncMock()
     p.is_mock = True
-    app.state.printer = p
-    yield p
-    if hasattr(app.state, "printer"):
-        delattr(app.state, "printer")
-
-
-@pytest.fixture
-def client(mock_printer):
     with TestClient(app) as c:
-        yield c, mock_printer
+        # Override the lifespan-created printer with our mock.
+        app.state.printer = p
+        yield c, p
 
 
 class TestPrintRoute:

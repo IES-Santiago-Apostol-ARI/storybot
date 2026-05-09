@@ -632,3 +632,83 @@ input[type="color"] {
         flex-direction: row;
     }
 }
+
+/* Phase 16: Historias generadas */
+.generated-section {
+    margin-top: 2rem;
+}
+
+.generated-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.generated-card {
+    background: var(--color-surface, #fff);
+    border: 1px solid var(--color-border, #ddd);
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.generated-card h3 {
+    margin: 0 0 0.25rem 0;
+    font-size: 1rem;
+}
+
+.generated-meta {
+    margin: 0 0 0.5rem 0;
+    color: var(--color-muted, #666);
+    font-size: 0.875rem;
+}
+
+.generated-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.modal-overlay[hidden] {
+    display: none;
+}
+
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+}
+
+.modal-content.promote-modal {
+    background: var(--color-surface, #fff);
+    border-radius: 12px;
+    padding: 1.5rem;
+    width: min(90vw, 420px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.promote-modal label {
+    display: block;
+    margin-bottom: 1rem;
+    font-weight: 600;
+}
+
+.promote-modal label input {
+    display: block;
+    width: 100%;
+    margin-top: 0.25rem;
+    padding: 0.5rem;
+    border: 1px solid var(--color-border, #ddd);
+    border-radius: 6px;
+    font: inherit;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
