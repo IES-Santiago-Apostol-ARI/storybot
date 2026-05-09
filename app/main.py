@@ -17,12 +17,15 @@ class NoCacheStaticFiles(StaticFiles):
         response = await super().get_response(path, scope)
 
         # Add no-cache headers for audio and image files
-        if path.endswith(('.mp3', '.wav', '.m4a', '.ogg', '.jpg', '.jpeg', '.png', '.webp')):
-            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-            response.headers['Pragma'] = 'no-cache'
-            response.headers['Expires'] = '0'
+        if path.endswith(
+            (".mp3", ".wav", ".m4a", ".ogg", ".jpg", ".jpeg", ".png", ".webp")
+        ):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
 
         return response
+
 
 from app.config import ConfigManager
 from app.routers.nfc import router as nfc_router
@@ -58,6 +61,38 @@ async def lifespan(app: FastAPI):
     app.state.story_generator = StoryGenerator()
     app.state.swap_orchestrator = SwapOrchestrator()
 
+    # Phase 16 D-18: attach printer service for /api/printer/print (router added in 16-04).
+    try:
+        from app.services.printer_handler import create_printer_service
+
+        app.state.printer = create_printer_service()
+    except (
+        Exception
+    ) as e:  # pragma: no cover — defensive; factory is contracted to never raise
+        import json
+        import sys
+
+        print(
+            json.dumps({"event": "printer_init_failed", "reason": type(e).__name__}),
+            file=sys.stderr,
+        )
+
+    # Phase 16 D-13: 7-day disk hygiene for content/generated/<uuid>/.
+    import asyncio
+
+    try:
+        from app.services.generated_sweeper import sweep_generated
+
+        n = await asyncio.to_thread(sweep_generated, story_manager)
+    except Exception as e:
+        import json
+        import sys
+
+        print(
+            json.dumps({"event": "sweep_failed", "reason": type(e).__name__}),
+            file=sys.stderr,
+        )
+
     # Initialize config
     _ = config.load()
 
@@ -79,7 +114,10 @@ async def lifespan(app: FastAPI):
         index_file = content_dir / "stories.json"
         if not index_file.exists():
             import json
-            index_file.write_text(json.dumps({"version": 1, "stories": {}, "nfc_to_story": {}}))
+
+            index_file.write_text(
+                json.dumps({"version": 1, "stories": {}, "nfc_to_story": {}})
+            )
 
     yield
 
@@ -111,22 +149,36 @@ app.include_router(generate_router, tags=["generate"])
 # Mount static files for story content (with no-cache for audio)
 stories_static_dir = Path("content/stories")
 if stories_static_dir.exists():
-    app.mount("/static/stories", NoCacheStaticFiles(directory=str(stories_static_dir)), name="stories")
+    app.mount(
+        "/static/stories",
+        NoCacheStaticFiles(directory=str(stories_static_dir)),
+        name="stories",
+    )
 
 # Mount static files for generated content (with no-cache for audio)
 generated_static_dir = Path("content/generated")
 if generated_static_dir.exists():
-    app.mount("/static/generated", NoCacheStaticFiles(directory=str(generated_static_dir)), name="generated")
+    app.mount(
+        "/static/generated",
+        NoCacheStaticFiles(directory=str(generated_static_dir)),
+        name="generated",
+    )
 
 # Mount children's kiosk interface
 children_static_dir = Path("static/children")
 if children_static_dir.exists():
-    app.mount("/children", StaticFiles(directory=str(children_static_dir), html=True), name="children")
+    app.mount(
+        "/children",
+        StaticFiles(directory=str(children_static_dir), html=True),
+        name="children",
+    )
 
 # Mount admin panel (html=True enables index.html serving)
 admin_static_dir = Path("static/admin")
 if admin_static_dir.exists():
-    app.mount("/admin", StaticFiles(directory=str(admin_static_dir), html=True), name="admin")
+    app.mount(
+        "/admin", StaticFiles(directory=str(admin_static_dir), html=True), name="admin"
+    )
 
 # Mount shared theme directory
 shared_static_dir = Path("static/shared")
