@@ -1252,6 +1252,65 @@ function initCardEmojiPicker() {
     });
 }
 
+function initPromoteEmojiPicker() {
+    const triggerBtn = document.getElementById('promote-emoji-trigger');
+    if (!triggerBtn) return;
+
+    const picker = document.getElementById('promote-emoji-picker');
+    const input = document.getElementById('promote-emoji');
+    let promotePickerOpen = false;
+
+    function renderPromoteEmojiGrid(category) {
+        const grid = picker.querySelector('.emoji-grid');
+        if (!grid) return;
+        const emojis = emojiCategories[category] || [];
+        grid.innerHTML = '';
+        emojis.forEach(emoji => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'emoji-item';
+            button.textContent = emoji;
+            button.onclick = () => {
+                input.value = emoji;
+                picker.classList.add('hidden');
+                promotePickerOpen = false;
+            };
+            grid.appendChild(button);
+        });
+    }
+
+    triggerBtn.onclick = () => {
+        if (promotePickerOpen) {
+            picker.classList.add('hidden');
+            promotePickerOpen = false;
+        } else {
+            picker.classList.remove('hidden');
+            promotePickerOpen = true;
+            renderPromoteEmojiGrid('Animales');
+        }
+    };
+
+    picker.querySelectorAll('.emoji-category-tab').forEach(tab => {
+        tab.onclick = () => {
+            picker.querySelectorAll('.emoji-category-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            renderPromoteEmojiGrid(tab.dataset.category);
+        };
+    });
+
+    const searchInput = picker.querySelector('.emoji-search');
+    if (searchInput) {
+        searchInput.addEventListener('input', () => filterEmojis(searchInput.value));
+    }
+
+    document.addEventListener('click', (event) => {
+        if (promotePickerOpen && !picker.contains(event.target) && !triggerBtn.contains(event.target)) {
+            picker.classList.add('hidden');
+            promotePickerOpen = false;
+        }
+    });
+}
+
 // Event listeners
 document.addEventListener('DOMContentLoaded', () => {
     loadStories();
@@ -1260,6 +1319,7 @@ document.addEventListener('DOMContentLoaded', () => {
     startStatusPolling();  // NEW: Start hardware status polling
     initEmojiPicker();     // Initialize emoji picker
     initCardEmojiPicker();
+    initPromoteEmojiPicker();
 
     // Edit mode event listeners
     cancelEditBtn.addEventListener('click', () => exitEditMode());
@@ -1340,7 +1400,7 @@ function createGeneratedCard(story) {
     printBtn.className = 'btn btn-secondary';
     printBtn.textContent = 'Imprimir pegatina';
     if (story.cover) {
-        printBtn.addEventListener('click', () => printSticker('content/generated/' + story.id + '/cover-print.png'));
+        printBtn.addEventListener('click', () => openPrintPreview(story.id));
     } else {
         printBtn.disabled = true;
         printBtn.title = 'No hay portada para imprimir';
@@ -1442,23 +1502,26 @@ async function submitPromote(event) {
     }
 }
 
-async function printSticker(path) {
-    try {
-        const response = await fetch('/api/printer/print', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path }),
-        });
-        const data = await response.json().catch(() => ({}));
-        if (response.ok && data.ok) {
-            showMessage('Pegatina enviada a la impresora.', 'success');
-        } else {
-            showMessage('Error al imprimir: ' + (data.error || response.status), 'error');
-        }
-    } catch (e) {
-        console.error('printSticker failed', e);
-        showMessage('Error al imprimir la pegatina.', 'error');
+function openPrintPreview(storyId) {
+    const url = '/static/generated/' + encodeURIComponent(storyId) + '/cover-print.png';
+    const win = window.open('', '_blank');
+    if (!win) {
+        showMessage('Habilita las ventanas emergentes para imprimir.', 'error');
+        return;
     }
+    win.document.write(
+        '<!doctype html><html><head><meta charset="utf-8">' +
+        '<title>Imprimir portada</title>' +
+        '<style>' +
+        'html,body{margin:0;padding:0;background:#fff;}' +
+        'body{display:flex;justify-content:center;align-items:center;min-height:100vh;}' +
+        'img{max-width:100%;max-height:100vh;display:block;}' +
+        '@media print{@page{margin:0;}body{min-height:auto;}}' +
+        '</style></head><body>' +
+        '<img src="' + url + '" alt="Portada" onload="window.focus();window.print();">' +
+        '</body></html>'
+    );
+    win.document.close();
 }
 
 // Warn about unsaved changes on page navigation

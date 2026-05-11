@@ -15,9 +15,11 @@ def _params(*specs: tuple[str, str]) -> list[dict]:
 
 
 class TestStylePreamble:
-    def test_positive_always_starts_with_preamble(self):
+    def test_subject_leads_then_preamble(self):
         positive, _ = build(_params(("personaje", "robot")))
-        assert positive.startswith(STYLE_PREAMBLE)
+        assert positive.startswith("cute cartoon robot")
+        assert STYLE_PREAMBLE in positive
+        assert positive.index("cute cartoon robot") < positive.index(STYLE_PREAMBLE)
 
     def test_negative_is_verbatim(self):
         _, negative = build(_params(("personaje", "robot")))

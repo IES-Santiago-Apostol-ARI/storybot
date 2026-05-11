@@ -212,7 +212,26 @@
                     </label>
                     <label>
                         Emoji
-                        <input type="text" id="promote-emoji" name="emoji" required maxlength="8" placeholder="🐉">
+                        <div class="emoji-input-wrapper">
+                            <input type="text" id="promote-emoji" name="emoji" required maxlength="8" placeholder="Toca el botón para elegir">
+                            <button type="button" class="emoji-trigger-btn" aria-label="Abrir selector de emojis" id="promote-emoji-trigger">
+                                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm-4-8c.79 0 1.5-.71 1.5-1.5S8.79 9 8 9s-1.5.71-1.5 1.5S7.21 12 8 12zm8 0c.79 0 1.5-.71 1.5-1.5S16.79 9 16 9s-1.5.71-1.5 1.5S15.21 12 16 12zm-7.25 4.25c0 .41.34.75.75.75h13c.41 0 .75-.34.75-.75v-.5c0-2.52-2.02-4.5-4.5-4.5h-1.5c-2.52 0-4.5 1.98-4.5 4.5v.5z"/>
+                                </svg>
+                            </button>
+                            <div id="promote-emoji-picker" class="emoji-picker hidden">
+                                <input type="text" class="emoji-search" placeholder="Buscar emojis...">
+                                <div class="emoji-categories">
+                                    <button type="button" class="emoji-category-tab active" data-category="Animales">Animales</button>
+                                    <button type="button" class="emoji-category-tab" data-category="Comida">Comida</button>
+                                    <button type="button" class="emoji-category-tab" data-category="Clima">Clima</button>
+                                    <button type="button" class="emoji-category-tab" data-category="Actividades">Actividades</button>
+                                    <button type="button" class="emoji-category-tab" data-category="Emociones">Emociones</button>
+                                    <button type="button" class="emoji-category-tab" data-category="Objetos">Objetos</button>
+                                </div>
+                                <div class="emoji-grid"></div>
+                            </div>
+                        </div>
                     </label>
                     <label>
                         Color del LED

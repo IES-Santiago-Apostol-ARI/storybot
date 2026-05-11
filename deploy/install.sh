@@ -68,9 +68,27 @@ apt-get update
 apt-get install -y nginx unclutter pcscd pcsc-tools libccid libpcsclite-dev swig uhubctl  nvidia-jetpack
 # audio bluetooth:
 apt-get -y  install pipewire pipewire-pulse wireplumber libspa-0.2-bluetooth bluez bluez-tools cmake
-systemctl --user mask pulseaudio
-pulseaudio -k
-systemctl --user --now enable pipewire pipewire-pulse wireplumber
+
+# Audio: configure pipewire in the install user's session, not root's.
+# `systemctl --user` needs the target user's DBus session — run via sudo -u
+# with XDG_RUNTIME_DIR/DBUS_SESSION_BUS_ADDRESS exported. Skip silently if
+# the user has no active session (e.g. headless first-boot install).
+USER_UID=$(id -u "$INSTALL_USER")
+if [[ -d "/run/user/$USER_UID" ]]; then
+    sudo -u "$INSTALL_USER" \
+        XDG_RUNTIME_DIR="/run/user/$USER_UID" \
+        DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$USER_UID/bus" \
+        systemctl --user mask pulseaudio || true
+    sudo -u "$INSTALL_USER" \
+        XDG_RUNTIME_DIR="/run/user/$USER_UID" \
+        pulseaudio -k 2>/dev/null || true
+    sudo -u "$INSTALL_USER" \
+        XDG_RUNTIME_DIR="/run/user/$USER_UID" \
+        DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$USER_UID/bus" \
+        systemctl --user --now enable pipewire pipewire-pulse wireplumber || true
+else
+    echo -e "${YELLOW}No active user session for $INSTALL_USER — skipping pipewire user-unit setup${NC}"
+fi
 
 echo -e "${GREEN}System dependencies installed${NC}"
 
@@ -167,6 +185,18 @@ systemctl daemon-reload
 systemctl enable storybot.service
 systemctl enable storybot-nfc-reset.service
 echo -e "${GREEN}Systemd service installed${NC}"
+
+# Step 6b: Configure passwordless sudo for llama-server control
+# The storybot service runs as user `ari` and must stop/start llama-server
+# during the SD cover swap cycle. Grant NOPASSWD for just those two commands.
+echo ""
+echo "Step 6b: Configuring passwordless sudo for llama-server control..."
+cat > /etc/sudoers.d/storybot-llama << EOF
+${INSTALL_USER} ALL=(root) NOPASSWD: /bin/systemctl stop llama-server, /bin/systemctl start llama-server
+EOF
+chmod 0440 /etc/sudoers.d/storybot-llama
+visudo -c -f /etc/sudoers.d/storybot-llama
+echo -e "${GREEN}Sudoers entry installed${NC}"
 
 # Step 7: Configure Nginx reverse proxy
 echo ""

@@ -8,9 +8,15 @@ This script imports NOTHING from the storybot app/ package (process isolation).
 """
 
 import json
+import os
 import sys
 import time
 from pathlib import Path
+
+os.environ.setdefault(
+    "PYTORCH_CUDA_ALLOC_CONF",
+    "expandable_segments:True,max_split_size_mb:128",
+)
 
 # --- Frozen pipeline config from 15-01 report.md ---
 
@@ -29,8 +35,14 @@ LCM_WEIGHT = 1.0
 
 
 def build_pipeline():
+    import gc
     import torch
     from diffusers import LCMScheduler, StableDiffusionPipeline
+
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
 
     pipe = StableDiffusionPipeline.from_pretrained(
         str(SD_MODEL),
@@ -43,12 +55,14 @@ def build_pipeline():
         str(LINEART), weight_name=LINEART_WEIGHTS, adapter_name="lineart"
     )
     pipe.set_adapters(["lcm", "lineart"], adapter_weights=[LCM_WEIGHT, LINEART_WEIGHT])
+    pipe.fuse_lora(adapter_names=["lcm", "lineart"])
+    pipe.unload_lora_weights()
     pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
 
     pipe.enable_vae_slicing()
     pipe.enable_vae_tiling()
     pipe.enable_attention_slicing(1)
-    pipe.to("cuda")
+    pipe.enable_sequential_cpu_offload()
     return pipe
 
 

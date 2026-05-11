@@ -3,17 +3,18 @@
 from pathlib import Path
 
 STYLE_PREAMBLE = (
-    "coloring book page, bold thick black outlines on white background, "
-    "no color, no shading, no fill, simple flat shapes, uniform line weight, "
-    "single clear cartoon subject centered with uncluttered background, "
-    "suitable for children ages 3-7 to color with crayons, "
-    "no text, no lettering, no human face details"
+    "children's coloring book page, simple shapes, thick bold outlines, "
+    "minimal details, black and white line art, easy coloring page, "
+    "white background, single subject centered, "
+    "no shading, no fill, no text, for ages 2-8"
 )
 
 NEGATIVE_PROMPT = (
-    "color, shading, gradient, gray, fill, painting, photorealistic, "
-    "3d render, blurry, distorted face, ugly, deformed, scary, weapons, "
-    "watermark, signature, text, letters, low quality, nsfw, gore, dark, horror"
+    "shading, grayscale, shadow, realistic, photorealistic, "
+    "crosshatching, sketch, painting, texture, background clutter, "
+    "tiny details, text, watermark, color, dark background, "
+    "scary, creepy, sharp teeth, fangs, claws, angry, "
+    "deformed, ugly, distorted, blurry, low quality, nsfw"
 )
 
 MAX_CLIP_TOKENS = 75
@@ -47,7 +48,7 @@ def _count_tokens(text: str) -> int:
 
 
 def _sub_personaje(value: str) -> str:
-    return f"cute cartoon {value}"
+    return f"cute cartoon {value} with a friendly smile"
 
 
 def _sub_lugar(value: str) -> str:
@@ -105,7 +106,7 @@ def build(params: list[dict]) -> tuple[str, str]:
 
     positive_subject = " ".join(subject_parts)
     if positive_subject:
-        full_prompt = f"{STYLE_PREAMBLE}, {positive_subject}"
+        full_prompt = f"{positive_subject}, {STYLE_PREAMBLE}"
     else:
         full_prompt = STYLE_PREAMBLE
 
@@ -117,7 +118,7 @@ def build(params: list[dict]) -> tuple[str, str]:
             subject_parts = [p for p in subject_parts if p != phrase]
             positive_subject = " ".join(subject_parts)
             full_prompt = (
-                f"{STYLE_PREAMBLE}, {positive_subject}"
+                f"{positive_subject}, {STYLE_PREAMBLE}"
                 if positive_subject
                 else STYLE_PREAMBLE
             )
