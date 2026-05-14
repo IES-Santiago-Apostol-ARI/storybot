@@ -1,6 +1,7 @@
 """Tests for NFC handler service."""
 
 import asyncio
+import sys
 from unittest.mock import patch
 
 import pytest
@@ -262,18 +263,22 @@ class TestRealNFCService:
         assert result is True
 
     @pytest.mark.asyncio
-    @skip_if_no_nfc
     async def test_real_nfc_service_check_availability_without_nfc(self):
-        """Test _check_availability returns False when pcscd not running."""
-        import sys
-
-        # Temporarily remove smartcard from sys.modules to simulate no pyscard
-        smartcard_module = sys.modules.get("smartcard")
-        with patch.dict(sys.modules, {"smartcard": None}):
-            # Create new service after patching - _check_availability will fail
+        """Test _check_availability returns False when smartcard import fails."""
+        # Save all smartcard-related modules so we can restore them
+        saved = {
+            k: v for k, v in sys.modules.items()
+            if k == "smartcard" or k.startswith("smartcard.")
+        }
+        try:
+            # Remove all smartcard entries so the import fails
+            for key in saved:
+                sys.modules.pop(key, None)
             service = RealNFCService()
-            # _check_availability should return False when smartcard unavailable
             assert service._available is False
+        finally:
+            # Restore original modules
+            sys.modules.update(saved)
 
 
 class TestCreateNFCService:
@@ -282,7 +287,7 @@ class TestCreateNFCService:
     def test_create_nfc_service_returns_real_with_nfc_installed(self):
         """Test that create_nfc_service returns RealNFCService when nfc installed."""
         service = create_nfc_service()
-        # nfcpy is installed, so should return RealNFCService
+        # pyscard is installed, so should return RealNFCService
         assert isinstance(service, RealNFCService)
         assert service.is_mock is False
 

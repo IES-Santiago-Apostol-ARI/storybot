@@ -29,11 +29,9 @@ class TestSuccessPath:
     """Full happy-path: stop llama → worker → start llama → health check."""
 
     @patch("app.services.swap_orchestrator._wait_for_llama_health", return_value=True)
-    @patch("app.services.swap_orchestrator._wait_for_mem_free", return_value=True)
-    @patch("app.services.swap_orchestrator._read_mem_available_mb", return_value=2500)
     @patch("app.services.swap_orchestrator.asyncio.create_subprocess_exec")
     async def test_returns_paths_on_success(
-        self, mock_exec, mock_mem, mock_wait_mem, mock_health, orchestrator
+        self, mock_exec, mock_health, orchestrator
     ):
         stop_proc = _make_subprocess_mock()
         worker_output = json.dumps(
@@ -59,11 +57,9 @@ class TestSuccessPath:
         assert mock_exec.call_count == 3
 
     @patch("app.services.swap_orchestrator._wait_for_llama_health", return_value=True)
-    @patch("app.services.swap_orchestrator._wait_for_mem_free", return_value=True)
-    @patch("app.services.swap_orchestrator._read_mem_available_mb", return_value=2500)
     @patch("app.services.swap_orchestrator.asyncio.create_subprocess_exec")
     async def test_stop_before_start_order(
-        self, mock_exec, mock_mem, mock_wait_mem, mock_health, orchestrator
+        self, mock_exec, mock_health, orchestrator
     ):
         """Verify systemctl stop is called before worker, start after."""
         stop_proc = _make_subprocess_mock()
@@ -101,11 +97,9 @@ class TestWorkerFailure:
     """Worker exits non-zero → still relaunches llama."""
 
     @patch("app.services.swap_orchestrator._wait_for_llama_health", return_value=True)
-    @patch("app.services.swap_orchestrator._wait_for_mem_free", return_value=True)
-    @patch("app.services.swap_orchestrator._read_mem_available_mb", return_value=2500)
     @patch("app.services.swap_orchestrator.asyncio.create_subprocess_exec")
     async def test_worker_nonzero_returns_none_tuple(
-        self, mock_exec, mock_mem, mock_wait_mem, mock_health, orchestrator
+        self, mock_exec, mock_health, orchestrator
     ):
         stop_proc = _make_subprocess_mock()
         worker_proc = _make_subprocess_mock(
@@ -125,11 +119,9 @@ class TestWorkerFailure:
         assert "start" in third_cmd[0]
 
     @patch("app.services.swap_orchestrator._wait_for_llama_health", return_value=True)
-    @patch("app.services.swap_orchestrator._wait_for_mem_free", return_value=True)
-    @patch("app.services.swap_orchestrator._read_mem_available_mb", return_value=2500)
     @patch("app.services.swap_orchestrator.asyncio.create_subprocess_exec")
     async def test_worker_failure_logs_to_stderr(
-        self, mock_exec, mock_mem, mock_wait_mem, mock_health, orchestrator, capsys
+        self, mock_exec, mock_health, orchestrator, capsys
     ):
         stop_proc = _make_subprocess_mock()
         worker_proc = _make_subprocess_mock(
@@ -153,11 +145,9 @@ class TestLlamaRelaunchTimeout:
     """Health check fails → raises LlamaRelaunchError."""
 
     @patch("app.services.swap_orchestrator._wait_for_llama_health", return_value=False)
-    @patch("app.services.swap_orchestrator._wait_for_mem_free", return_value=True)
-    @patch("app.services.swap_orchestrator._read_mem_available_mb", return_value=2500)
     @patch("app.services.swap_orchestrator.asyncio.create_subprocess_exec")
     async def test_raises_llama_relaunch_error(
-        self, mock_exec, mock_mem, mock_wait_mem, mock_health, orchestrator
+        self, mock_exec, mock_health, orchestrator
     ):
         stop_proc = _make_subprocess_mock()
         worker_output = json.dumps(
@@ -183,11 +173,9 @@ class TestBusyLock:
     """Concurrent invocation rejected — returns (None, None, None)."""
 
     @patch("app.services.swap_orchestrator._wait_for_llama_health", return_value=True)
-    @patch("app.services.swap_orchestrator._wait_for_mem_free", return_value=True)
-    @patch("app.services.swap_orchestrator._read_mem_available_mb", return_value=2500)
     @patch("app.services.swap_orchestrator.asyncio.create_subprocess_exec")
     async def test_second_call_rejected_when_busy(
-        self, mock_exec, mock_mem, mock_wait_mem, mock_health, orchestrator, capsys
+        self, mock_exec, mock_health, orchestrator, capsys
     ):
         # Make the first call slow (worker never completes during test)
         stop_proc = _make_subprocess_mock()

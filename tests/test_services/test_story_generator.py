@@ -92,7 +92,12 @@ class TestGenerateStory:
         mock_resp.iter_lines.return_value = iter(lines)
         return mock_resp
 
-    def test_streams_text(self):
+    async def _collect(self, sg, params):
+        """Collect all events from the async generator."""
+        return [e async for e in sg.generate_story(params)]
+
+    @pytest.mark.asyncio
+    async def test_streams_text(self):
         lines = [
             b'data: {"choices":[{"delta":{"content":"Hola "}}]}',
             b'data: {"choices":[{"delta":{"content":"mundo"}}]}',
@@ -101,14 +106,15 @@ class TestGenerateStory:
         with patch("app.services.story_generator.requests.post") as mock_post:
             mock_post.return_value = self._mock_response(lines)
             sg = StoryGenerator()
-            events = list(sg.generate_story([{"category": "personaje", "value": "dragón"}]))
+            events = await self._collect(sg, [{"category": "personaje", "value": "dragón"}])
 
         assert len(events) == 3
         assert events[0] == {"text": "Hola ", "done": False}
         assert events[1] == {"text": "mundo", "done": False}
         assert events[2] == {"text": None, "done": True}
 
-    def test_skips_reasoning_content(self):
+    @pytest.mark.asyncio
+    async def test_skips_reasoning_content(self):
         lines = [
             b'data: {"choices":[{"delta":{"role":"assistant","content":null}}]}',
             b'data: {"choices":[{"delta":{"reasoning_content":"thinking..."}}]}',
@@ -118,13 +124,14 @@ class TestGenerateStory:
         with patch("app.services.story_generator.requests.post") as mock_post:
             mock_post.return_value = self._mock_response(lines)
             sg = StoryGenerator()
-            events = list(sg.generate_story([{"category": "lugar", "value": "jardín"}]))
+            events = await self._collect(sg, [{"category": "lugar", "value": "jardín"}])
 
         text_events = [e for e in events if e.get("text")]
         assert len(text_events) == 1
         assert text_events[0]["text"] == "Story text"
 
-    def test_strips_think_tags_from_chunks(self):
+    @pytest.mark.asyncio
+    async def test_strips_think_tags_from_chunks(self):
         lines = [
             b'data: {"choices":[{"delta":{"content":"<think\\n\\n</think\\n\\nUna historia"}}]}',
             b"data: [DONE]",
@@ -132,28 +139,30 @@ class TestGenerateStory:
         with patch("app.services.story_generator.requests.post") as mock_post:
             mock_post.return_value = self._mock_response(lines)
             sg = StoryGenerator()
-            events = list(sg.generate_story([{"category": "objeto", "value": "pelota"}]))
+            events = await self._collect(sg, [{"category": "objeto", "value": "pelota"}])
 
         text_events = [e for e in events if e.get("text")]
         assert "<think" not in text_events[0]["text"]
         assert "Una historia" in text_events[0]["text"]
 
-    def test_connection_error(self):
+    @pytest.mark.asyncio
+    async def test_connection_error(self):
         with patch("app.services.story_generator.requests.post") as mock_post:
             mock_post.side_effect = requests.ConnectionError("Connection refused")
             sg = StoryGenerator()
-            events = list(sg.generate_story([{"category": "personaje", "value": "robot"}]))
+            events = await self._collect(sg, [{"category": "personaje", "value": "robot"}])
 
         assert len(events) == 1
         assert "error" in events[0]
         assert events[0]["done"] is True
 
-    def test_sends_correct_payload(self):
+    @pytest.mark.asyncio
+    async def test_sends_correct_payload(self):
         lines = [b"data: [DONE]"]
         with patch("app.services.story_generator.requests.post") as mock_post:
             mock_post.return_value = self._mock_response(lines)
             sg = StoryGenerator(temperature=0.7, top_p=0.9, max_tokens=500)
-            list(sg.generate_story([{"category": "personaje", "value": "dragón"}]))
+            await self._collect(sg, [{"category": "personaje", "value": "dragón"}])
 
         call_kwargs = mock_post.call_args
         payload = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
