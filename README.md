@@ -253,6 +253,22 @@ El script de instalación realiza:
 
 > **Nota NFC:** El lector ACR122U usa la pila PC/SC estándar vía `pyscard` + `pcscd`. No se usa `nfcpy` (la propia documentación de nfcpy desaconseja el ACR122U por sus limitaciones de acceso directo al PN532).
 
+> **Nota permisos NFC (polkit):** En sistemas Ubuntu recientes, `pcscd` usa polkit para controlar el acceso. Si al ejecutar como usuario normal obtienes el error `EstablishContextException: Access denied (0x8010006A)`, necesitas crear una regla polkit:
+>
+> ```bash
+> sudo tee /etc/polkit-1/rules.d/50-pcscd.rules <<'EOF'
+> polkit.addRule(function(action, subject) {
+>     if (action.id == "org.debian.pcsc-lite.access_pcsc" &&
+>         subject.isInGroup("plugdev")) {
+>         return polkit.Result.YES;
+>     }
+> });
+> EOF
+> sudo systemctl restart pcscd
+> ```
+>
+> El archivo de la regla también está disponible en `deploy/50-pcscd.rules`. Asegúrate de que tu usuario pertenece al grupo `plugdev` (`sudo usermod -aG plugdev $USER`).
+
 Para iniciar manualmente después de la instalación:
 
 ```bash
