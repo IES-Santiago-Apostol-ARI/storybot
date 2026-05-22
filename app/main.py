@@ -32,6 +32,7 @@ from app.routers.nfc import router as nfc_router
 from app.routers.stories import router as stories_router
 from app.routers.system import router as system_router
 from app.routers.cards import router as cards_router
+from app.routers.capabilities import router as capabilities_router
 from app.routers.generate import router as generate_router
 from app.routers.generated import router as generated_router
 from app.routers.printer import router as printer_router
@@ -163,6 +164,7 @@ app.include_router(system_router, prefix="/api/system", tags=["system"])
 app.include_router(nfc_router)
 app.include_router(stories_router)
 app.include_router(cards_router)
+app.include_router(capabilities_router)
 app.include_router(generate_router, tags=["generate"])
 app.include_router(generated_router)
 app.include_router(printer_router)

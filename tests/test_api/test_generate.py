@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.datastructures import State
 
 
 async def _async_gen(events):
@@ -36,8 +37,10 @@ def mock_story_generator():
         ]
     )
     app.state.story_generator = sg
+    app.state.ai_enabled = True
     yield sg
     delattr(app.state, "story_generator")
+    delattr(app.state, "ai_enabled")
 
 
 @pytest.fixture
@@ -468,3 +471,85 @@ class TestPhase13Deployment:
         service_path = Path("deploy/llama-server.service")
         content = service_path.read_text()
         assert "LD_LIBRARY_PATH" in content, "Must set LD_LIBRARY_PATH for CUDA"
+
+
+# ---------------------------------------------------------------------------
+# Phase 18-02: 503 AI-availability guard tests (API-02)
+# ---------------------------------------------------------------------------
+
+
+def _reset_app_state(app):
+    """Clear app.state so attributes from a prior TestClient session don't leak."""
+    app.state = State()
+
+
+@pytest.fixture
+def lifespan_env_ai_off(tmp_path, monkeypatch):
+    """Lifespan env with AI forced OFF (STORYBOT_AI=0), TESTING deleted."""
+    generated = tmp_path / "generated"
+    generated.mkdir()
+    monkeypatch.delenv("TESTING", raising=False)
+    monkeypatch.setenv("STORYBOT_AI", "0")
+    monkeypatch.setenv("STORYBOT_LIFESPAN_TEST", "1")
+    from app.services.story_manager import StoryManager
+
+    monkeypatch.setattr(StoryManager, "GENERATED_DIR", generated)
+    return generated
+
+
+class TestGenerateAiGuard:
+    """API-02: POST /api/generate/story returns 503 when AI is disabled."""
+
+    def test_returns_503_when_ai_disabled(self, lifespan_env_ai_off):
+        from app.main import app
+
+        _reset_app_state(app)
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/generate/story",
+                json={"parameters": [{"category": "personaje", "value": "dragón"}]},
+            )
+            assert resp.status_code == 503, (
+                "API-02: must return 503 when ai_enabled=False"
+            )
+            assert resp.json() == {"error": "AI not available on this device"}, (
+                "API-02: literal body shape locked"
+            )
+
+    def test_guard_fires_before_param_validation(self, lifespan_env_ai_off):
+        """503 must come BEFORE the 400 empty-params check (CONTEXT.md)."""
+        from app.main import app
+
+        _reset_app_state(app)
+        with TestClient(app) as client:
+            resp = client.post("/api/generate/story", json={"parameters": []})
+            assert resp.status_code == 503, (
+                "API-02: AI guard must fire before 400 empty-params check"
+            )
+
+    def test_succeeds_when_ai_enabled(self, client, mock_story_generator):
+        """Existing 200 SSE path still works when ai_enabled=True."""
+        async def _fake_async_gen(events):
+            for e in events:
+                yield e
+
+        mock_story_generator.generate_story.return_value = _fake_async_gen(
+            [
+                {"text": "Hola", "done": False},
+                {"text": None, "done": True},
+            ]
+        )
+
+        resp = client.post(
+            "/api/generate/story",
+            json={"parameters": [{"category": "personaje", "value": "dragón"}]},
+        )
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.headers["content-type"]
+
+    def test_400_still_works_when_ai_enabled(self, client):
+        """Existing 400 empty-params path still works when ai_enabled=True."""
+        resp = client.post(
+            "/api/generate/story", json={"parameters": []}
+        )
+        assert resp.status_code == 400

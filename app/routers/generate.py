@@ -54,6 +54,11 @@ def _cover_event(event_type: str, data: dict) -> str:
 
 @router.post("/api/generate/story")
 async def generate_story(request: StoryGenerateRequest, fastapi_request: Request):
+    if not fastapi_request.app.state.ai_enabled:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "AI not available on this device"},
+        )
     if not request.parameters:
         return JSONResponse(status_code=400, content={"error": "parameters required"})
 
@@ -180,12 +185,8 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
             except asyncio.TimeoutError:
                 yield _cover_event("cover_failed", {"reason": "timeout"})
             except LlamaRelaunchError:
-                yield _cover_event(
-                    "cover_failed", {"reason": "llama_relaunch_failed"}
-                )
+                yield _cover_event("cover_failed", {"reason": "llama_relaunch_failed"})
             except Exception as e:
-                yield _cover_event(
-                    "cover_failed", {"reason": type(e).__name__}
-                )
+                yield _cover_event("cover_failed", {"reason": type(e).__name__})
 
     return StreamingResponse(stream(), media_type="text/event-stream")
