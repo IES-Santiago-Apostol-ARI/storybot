@@ -25,8 +25,10 @@ def mock_story_generator():
     """Create a mock StoryGenerator and attach to app state."""
     sg = MagicMock(spec=StoryGenerator)
     app.state.story_generator = sg
+    app.state.ai_enabled = True
     yield sg
     delattr(app.state, "story_generator")
+    delattr(app.state, "ai_enabled")
 
 
 @pytest.fixture

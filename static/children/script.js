@@ -18,6 +18,25 @@ let collectingParams = []; // Parameter chips displayed during collection
 let lastGenerationParams = []; // Preserved params for D-09 chip preservation + collage
 const audioElement = document.getElementById('story-audio');
 
+window.aiEnabled = false; // KSK-01 / D-04: fail-closed initial value
+
+// KSK-01 / D-01: fetch /api/capabilities with 1500ms timeout, fail-closed on any failure (no retry per D-02)
+async function fetchCapabilities() {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1500);
+    try {
+        const response = await fetch('/api/capabilities', { signal: controller.signal });
+        if (!response.ok) throw new Error('non-2xx');
+        const data = await response.json();
+        window.aiEnabled = data.ai_enabled === true;
+    } catch (err) {
+        window.aiEnabled = false;
+        console.warn('Capability fetch failed; running in non-AI mode:', err && err.message);
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
+
 // UI Sound system
 let uiAudioContext = null;
 const soundBuffers = {};
@@ -817,7 +836,7 @@ function unlockAudio() {
 }
 
 // Initialization
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     // Initialize page states
     document.querySelectorAll('.page').forEach(page => {
         if (page.dataset.page === 'idle') {
@@ -827,6 +846,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // KSK-01 / D-06: discover AI capability before any NFC events can arrive
+    await fetchCapabilities();
     loadStories();
     startNFCListener();
 
