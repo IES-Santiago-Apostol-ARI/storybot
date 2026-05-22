@@ -1,6 +1,7 @@
 """Phase 19 kiosk gating source-assertion tests (KSK-01..04)."""
 from pathlib import Path
 import re
+import subprocess
 import pytest
 from fastapi.testclient import TestClient
 
@@ -125,3 +126,217 @@ class TestKioskCapabilityFetch:
             data = response.json()
             assert "ai_enabled" in data
             assert isinstance(data["ai_enabled"], bool)
+
+
+# ---------------------------------------------------------------------------
+# Helper for TestKioskNfcGating
+# ---------------------------------------------------------------------------
+
+def _branch_range(text, start_marker, end_marker):
+    """Return (start, end) indices for the code between two markers.
+
+    The start index points to the *first character* of the start_marker line.
+    The end index points to the *first character* of the end_marker line.
+    """
+    start = text.find(start_marker)
+    assert start != -1, f"Start marker not found: {start_marker!r}"
+    end = text.find(end_marker, start + len(start_marker))
+    assert end != -1, f"End marker not found after start: {end_marker!r}"
+    return start, end
+
+
+class TestKioskNfcGating:
+    """Source-assertion tests for NFC branch gating on non-AI devices.
+
+    KSK-02: parameter + GO card branches are gated.
+    KSK-03: showThinkingOverlay never fires on non-AI path.
+    KSK-04: curated playback paths are byte-untouched.
+    """
+
+    # -- Literal guard presence ------------------------------------------
+
+    def test_guard_literal_appears_twice(self, script_text):
+        """The exact guard text appears at least twice in script.js."""
+        guard = "if (!window.aiEnabled) { playUISound('tap'); return; }"
+        count = script_text.count(guard)
+        assert count >= 2, (
+            f"Expected >= 2 occurrences of guard, got {count}"
+        )
+
+    # -- Parameter branch ordering ---------------------------------------
+
+    def test_parameter_guard_before_state_mutation(self, script_text):
+        """Guard sits between card_type==='parameter' and collectingParams.push."""
+        param_start = script_text.find("if (card_type === 'parameter')")
+        assert param_start != -1, "parameter branch not found"
+        push_idx = script_text.find("collectingParams.push", param_start)
+        assert push_idx != -1, "collectingParams.push after param branch not found"
+        guard_idx = script_text.find(
+            "if (!window.aiEnabled)", param_start
+        )
+        assert guard_idx != -1, "No window.aiEnabled guard in parameter branch"
+        assert param_start < guard_idx < push_idx, (
+            f"Guard at {guard_idx} not between param_start ({param_start}) "
+            f"and push ({push_idx})"
+        )
+
+    def test_parameter_guard_before_chip_render(self, script_text):
+        """Guard precedes renderParameterChips and parameter-display."""
+        param_start = script_text.find("if (card_type === 'parameter')")
+        guard_idx = script_text.find(
+            "if (!window.aiEnabled)", param_start
+        )
+        assert guard_idx != -1, "No guard found in parameter branch"
+        chips_idx = script_text.find("renderParameterChips", param_start)
+        assert chips_idx != -1, "renderParameterChips not found after param branch"
+        display_idx = script_text.find("parameter-display", param_start)
+        assert display_idx != -1, "parameter-display not found after param branch"
+        assert guard_idx < chips_idx, (
+            f"Guard at {guard_idx} must precede renderParameterChips at {chips_idx}"
+        )
+        assert guard_idx < display_idx, (
+            f"Guard at {guard_idx} must precede parameter-display at {display_idx}"
+        )
+
+    # -- GO branch ordering ----------------------------------------------
+
+    def test_go_guard_before_empty_params_branch(self, script_text):
+        """Guard in GO branch sits before 'if (collectingParams.length === 0)'."""
+        go_start = script_text.find("if (card_type === 'go')")
+        assert go_start != -1, "GO branch not found"
+        empty_check = script_text.find(
+            "if (collectingParams.length === 0)", go_start
+        )
+        assert empty_check != -1, "empty-params check not found in GO branch"
+        guard_idx = script_text.find("if (!window.aiEnabled)", go_start)
+        assert guard_idx != -1, "No guard found in GO branch"
+        assert go_start < guard_idx < empty_check, (
+            f"GO guard at {guard_idx} not between go_start ({go_start}) "
+            f"and empty_check ({empty_check})"
+        )
+
+    # -- showThinkingOverlay not defensively modified ---------------------
+
+    def test_no_defensive_check_inside_show_thinking_overlay(self, script_text):
+        """showThinkingOverlay body must NOT contain window.aiEnabled."""
+        fn_start = script_text.find("function showThinkingOverlay(")
+        assert fn_start != -1, "showThinkingOverlay function not found"
+        # Find the opening brace
+        brace_start = script_text.find("{", fn_start)
+        depth = 1
+        end = brace_start + 1
+        while depth > 0 and end < len(script_text):
+            if script_text[end] == "{":
+                depth += 1
+            elif script_text[end] == "}":
+                depth -= 1
+            end += 1
+        body = script_text[brace_start:end]
+        assert "window.aiEnabled" not in body, (
+            "showThinkingOverlay body must not reference window.aiEnabled (D-08)"
+        )
+
+    def test_show_thinking_overlay_only_called_inside_gated_paths(
+        self, script_text
+    ):
+        """showThinkingOverlay() call inside GO branch is after the guard."""
+        go_start = script_text.find("if (card_type === 'go')")
+        assert go_start != -1, "GO branch not found"
+        guard_idx = script_text.find("if (!window.aiEnabled)", go_start)
+        # Find showThinkingOverlay() call within GO branch
+        go_end = script_text.find("return;", script_text.find("showThinkingOverlay()", go_start))
+        go_branch = script_text[go_start:go_end] if go_end != -1 else script_text[go_start:]
+        overlay_call = script_text.find("showThinkingOverlay()", go_start)
+        assert overlay_call != -1, "showThinkingOverlay() call not found in GO branch"
+        if guard_idx != -1:
+            assert guard_idx < overlay_call, (
+                f"Guard at {guard_idx} must precede showThinkingOverlay call at {overlay_call}"
+            )
+
+    # -- KSK-04: Untouched branches --------------------------------------
+
+    def test_story_branch_byte_untouched(self, script_text):
+        """Story branch must not contain window.aiEnabled."""
+        start, end = _branch_range(
+            script_text,
+            "if (card_type === 'story') {",
+            "// Unknown card",
+        )
+        branch = script_text[start:end]
+        assert "window.aiEnabled" not in branch, (
+            "Story branch must not contain window.aiEnabled (KSK-04)"
+        )
+
+    def test_story_retap_branch_byte_untouched(self, script_text):
+        """Story retap branch must not contain window.aiEnabled."""
+        start, end = _branch_range(
+            script_text,
+            "// Story card retap to pause/resume (existing behavior)",
+            "// Parameter card",
+        )
+        branch = script_text[start:end]
+        assert "window.aiEnabled" not in branch, (
+            "Story retap branch must not contain window.aiEnabled (KSK-04)"
+        )
+
+    def test_legacy_fallback_branch_byte_untouched(self, script_text):
+        """Legacy fallback branch must not contain window.aiEnabled."""
+        start, end = _branch_range(
+            script_text,
+            "// Legacy fallback (no card_type field)",
+            "} catch (err)",
+        )
+        branch = script_text[start:end]
+        assert "window.aiEnabled" not in branch, (
+            "Legacy fallback branch must not contain window.aiEnabled (KSK-04)"
+        )
+
+    def test_unknown_card_branch_byte_untouched(self, script_text):
+        """Unknown card branch must not contain window.aiEnabled."""
+        start, end = _branch_range(
+            script_text,
+            "if (card_type === 'unknown') {",
+            "// Legacy fallback",
+        )
+        branch = script_text[start:end]
+        assert "window.aiEnabled" not in branch, (
+            "Unknown card branch must not contain window.aiEnabled (KSK-04)"
+        )
+
+    # -- Backend contract unchanged --------------------------------------
+
+    def test_backend_nfc_contract_unchanged(self):
+        """Existing NFC API tests still pass (no backend regression)."""
+        result = subprocess.run(
+            ["uv", "run", "pytest", "tests/test_api/test_nfc.py", "-x", "--tb=short"],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, (
+            f"Backend NFC tests failed:\n{result.stdout}\n{result.stderr}"
+        )
+
+    # -- D-03: Blocked tap is sound-only ---------------------------------
+
+    def test_blocked_tap_is_sound_only(self, script_text):
+        """The guard line and its immediate context contain ONLY playUISound."""
+        guard = "if (!window.aiEnabled) { playUISound('tap'); return; }"
+        guard_idx = script_text.find(guard)
+        assert guard_idx != -1, "Guard text not found"
+        # Check the first guard (parameter branch)
+        param_start = script_text.find("if (card_type === 'parameter')")
+        first_guard = script_text.find(guard, param_start)
+        if first_guard != -1:
+            context = script_text[first_guard - 80 : first_guard + len(guard) + 80]
+            forbidden = [
+                "classList.add",
+                "transitionTo(",
+                "setLED",
+                "console.log",
+                "console.warn",
+            ]
+            for token in forbidden:
+                assert token not in context, (
+                    f"Guard context contains forbidden token '{token}' — "
+                    f"blocked tap must be sound-only (D-03)"
+                )

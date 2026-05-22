@@ -715,6 +715,7 @@ function startNFCListener() {
 
             // Parameter card — add to collection
             if (card_type === 'parameter') {
+                if (!window.aiEnabled) { playUISound('tap'); return; }
                 if (currentState !== STATES.IDLE && currentState !== STATES.COLLECTING) return;
 
                 playUISound('tap');
@@ -735,6 +736,7 @@ function startNFCListener() {
 
             // Go card — trigger generation with collected params, or show thinking if empty
             if (card_type === 'go') {
+                if (!window.aiEnabled) { playUISound('tap'); return; }
                 if (collectingParams.length === 0) {
                     clearParameterDisplay();
                     showThinkingOverlay();
