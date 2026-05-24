@@ -15,6 +15,25 @@ let removeCoverFlag = false;
 let cardRegMode = null; // 'parameter' | 'go' | null
 let capturedCardUID = null;
 
+window.aiEnabled = false; // ADM-06 / D-03: fail-closed initial value
+
+// ADM-06 / D-01: fetch /api/capabilities with 1500ms timeout, fail-closed on any failure (no retry per D-02)
+async function fetchCapabilities() {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1500);
+    try {
+        const response = await fetch('/api/capabilities', { signal: controller.signal });
+        if (!response.ok) throw new Error('non-2xx');
+        const data = await response.json();
+        window.aiEnabled = data.ai_enabled === true;
+    } catch (err) {
+        window.aiEnabled = false;
+        console.warn('Capability fetch failed; running in non-AI mode:', err && err.message);
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
+
 // Hardware status elements
 const nfcStatusIcon = document.getElementById('nfc-status');
 const ledStatusIcon = document.getElementById('led-status');
@@ -1440,9 +1459,23 @@ function initPromoteEmojiPicker() {
 }
 
 // Event listeners
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    // ADM-06 / D-05: discover AI capability before any gated work
+    await fetchCapabilities();
+
+    // ADM-10 / D-06: set badge text based on capability
+    document.querySelector('.capability-badge').textContent = window.aiEnabled ? 'Modo: Completo' : 'Modo: Basico (sin IA)';
+
+    // ADM-07, ADM-08, ADM-09 / D-08: hide AI-only sections on non-AI devices
+    if (!window.aiEnabled) {
+        document.querySelector('.cards-section').classList.add('hidden');
+        document.querySelector('.generated-section').classList.add('hidden');
+        document.getElementById('register-parameter-btn').classList.add('hidden');
+        document.getElementById('register-go-btn').classList.add('hidden');
+    }
+
     loadStories();
-    loadCards();
+    if (window.aiEnabled) { loadCards(); }
     uploadForm.addEventListener('submit', uploadStory);
     startStatusPolling();  // NEW: Start hardware status polling
     initEmojiPicker();     // Initialize emoji picker
@@ -1458,7 +1491,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (promoteForm) promoteForm.addEventListener('submit', submitPromote);
     const promoteCancel = document.getElementById('promote-cancel');
     if (promoteCancel) promoteCancel.addEventListener('click', closePromoteModal);
-    loadGeneratedStories();
+    if (window.aiEnabled) { loadGeneratedStories(); }
 });
 
 window.addEventListener('beforeunload', cleanup);

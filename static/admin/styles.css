@@ -58,6 +58,19 @@ header h1 {
     height: 18px;
 }
 
+/* Capability badge */
+.capability-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    border-radius: var(--radius-pill);
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    white-space: nowrap;
+}
+
 /* Status states */
 .status-icon.connected {
     background: rgba(16, 185, 129, 0.3);  /* --color-success with alpha */
