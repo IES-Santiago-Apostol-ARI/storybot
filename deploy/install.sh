@@ -1,16 +1,18 @@
 #!/bin/bash
 #
-# StoryBot Jetson Installation Script
+# StoryBot Installation Script
 #
-# This script sets up a complete StoryBot deployment on NVIDIA Jetson Orin Nano Super.
-# It assumes the project is already cloned at /home/ari/storybot and the script
-# is invoked from that directory.
+# This script sets up a complete StoryBot deployment on any Linux device.
+# It auto-detects AI capability (NVIDIA GPU) and adapts the installation.
+# The project should be cloned at /home/ari/storybot.
 #
 # Usage:
-#   sudo bash deploy/install.sh [--dev]
+#   sudo bash deploy/install.sh [--dev] [--ai|--no-ai]
 #
 # Options:
-#   --dev    Skip model downloads (for development/testing)
+#   --dev      Skip model downloads (for development/testing)
+#   --ai       Force AI mode (LLM + TTS + SD covers)
+#   --no-ai    Force stories-only mode (no AI services)
 #
 set -e
 
@@ -23,12 +25,21 @@ NC='\033[0m' # No Color
 INSTALL_USER="ari"
 INSTALL_DIR="/home/ari/storybot"
 DEV_MODE=false
+AI_FLAG=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --dev)
             DEV_MODE=true
+            shift
+            ;;
+        --ai)
+            AI_FLAG="force-on"
+            shift
+            ;;
+        --no-ai)
+            AI_FLAG="force-off"
             shift
             ;;
         *)
@@ -38,14 +49,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-echo "================================================"
-echo "StoryBot Installation Script"
-echo "================================================"
-echo "Target directory: $INSTALL_DIR"
-echo "Service user: $INSTALL_USER"
-echo "Dev mode: $DEV_MODE"
-echo ""
-
 # Check if running as root
 if [[ $EUID -ne 0 ]]; then
    echo -e "${RED}ERROR: This script must be run as root${NC}"
@@ -53,19 +56,51 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-# Detect platform - Jetson only
-ARCH=$(uname -m)
-if [[ "$ARCH" != "aarch64" ]]; then
-    echo -e "${RED}ERROR: This script is for Jetson (aarch64) only.${NC}"
-    echo "Detected architecture: $ARCH"
-    exit 1
+# Detect AI capability
+if [[ "$AI_FLAG" == "force-on" ]]; then
+    AI_MODE=true
+elif [[ "$AI_FLAG" == "force-off" ]]; then
+    AI_MODE=false
+else
+    # Auto-detect: probe for NVIDIA GPU
+    if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
+        AI_MODE=true
+    elif ls /dev/nvidia* &>/dev/null 2>&1; then
+        AI_MODE=true
+    else
+        AI_MODE=false
+    fi
 fi
+
+echo "================================================"
+echo "StoryBot Installation Script"
+echo "================================================"
+echo "Target directory: $INSTALL_DIR"
+echo "Service user: $INSTALL_USER"
+echo "Dev mode: $DEV_MODE"
+echo "AI mode: $AI_MODE"
+echo ""
+
+# Write AI mode to .env file
+if [[ "$AI_MODE" == true ]]; then
+    echo "STORYBOT_AI=1" > "$INSTALL_DIR/.env"
+else
+    echo "STORYBOT_AI=0" > "$INSTALL_DIR/.env"
+fi
+chown "$INSTALL_USER:$INSTALL_USER" "$INSTALL_DIR/.env"
 
 # Step 1: Install system dependencies
 echo ""
 echo "Step 1: Installing system dependencies..."
 apt-get update
-apt-get install -y nginx unclutter pcscd pcsc-tools libccid libpcsclite-dev swig uhubctl  nvidia-jetpack
+apt-get install -y nginx unclutter pcscd pcsc-tools libccid libpcsclite-dev swig uhubctl
+
+# AI-specific: NVIDIA JetPack (GPU drivers + CUDA + TensorRT + cuDNN)
+if [[ "$AI_MODE" == true ]]; then
+    apt-get install -y nvidia-jetpack
+else
+    echo -e "${YELLOW}Skipping nvidia-jetpack (stories-only mode)${NC}"
+fi
 # audio bluetooth:
 apt-get -y  install pipewire pipewire-pulse wireplumber libspa-0.2-bluetooth bluez bluez-tools cmake
 
@@ -132,14 +167,19 @@ sudo -u "$INSTALL_USER" /home/ari/.local/bin/uv sync
 echo -e "${GREEN}Python dependencies installed${NC}"
 
 # Step 3: Download TTS models
-if [[ "$DEV_MODE" == false ]]; then
-    echo ""
-    echo "Step 3: Downloading TTS models..."
-    sudo -u "$INSTALL_USER" bash "$INSTALL_DIR/deploy/download-models.sh" "/home/ari/.local/share/piper"
-    echo -e "${GREEN}Models downloaded${NC}"
+if [[ "$AI_MODE" == true ]]; then
+    if [[ "$DEV_MODE" == false ]]; then
+        echo ""
+        echo "Step 3: Downloading TTS models..."
+        sudo -u "$INSTALL_USER" bash "$INSTALL_DIR/deploy/download-models.sh" "/home/ari/.local/share/piper"
+        echo -e "${GREEN}Models downloaded${NC}"
+    else
+        echo ""
+        echo "Step 3: Skipping model downloads (dev mode)..."
+    fi
 else
     echo ""
-    echo "Step 3: Skipping model downloads (dev mode)..."
+    echo "Step 3: Skipping model downloads (stories-only mode)..."
 fi
 
 # Step 4: Create content directories
@@ -190,13 +230,17 @@ echo -e "${GREEN}Systemd service installed${NC}"
 # The storybot service runs as user `ari` and must stop/start llama-server
 # during the SD cover swap cycle. Grant NOPASSWD for just those two commands.
 echo ""
-echo "Step 6b: Configuring passwordless sudo for llama-server control..."
-cat > /etc/sudoers.d/storybot-llama << EOF
+if [[ "$AI_MODE" == true ]]; then
+    echo "Step 6b: Configuring passwordless sudo for llama-server control..."
+    cat > /etc/sudoers.d/storybot-llama << EOF
 ${INSTALL_USER} ALL=(root) NOPASSWD: /bin/systemctl stop llama-server, /bin/systemctl start llama-server
 EOF
-chmod 0440 /etc/sudoers.d/storybot-llama
-visudo -c -f /etc/sudoers.d/storybot-llama
-echo -e "${GREEN}Sudoers entry installed${NC}"
+    chmod 0440 /etc/sudoers.d/storybot-llama
+    visudo -c -f /etc/sudoers.d/storybot-llama
+    echo -e "${GREEN}Sudoers entry installed${NC}"
+else
+    echo "Step 6b: Skipping llama-server sudoers (stories-only mode)..."
+fi
 
 # Step 7: Configure Nginx reverse proxy
 echo ""
@@ -209,10 +253,11 @@ systemctl enable nginx
 systemctl restart nginx
 echo -e "${GREEN}Nginx configured${NC}"
 
-# Step 8: Configure GDM3 autologin
+# Step 8: Configure GDM3 autologin (AI/kiosk devices only)
 echo ""
-echo "Step 8: Configuring GDM3 autologin..."
-cat > /etc/gdm3/custom.conf << 'GDMEOF'
+if [[ "$AI_MODE" == true ]]; then
+    echo "Step 8: Configuring GDM3 autologin..."
+    cat > /etc/gdm3/custom.conf << 'GDMEOF'
 [daemon]
 AutomaticLoginEnable=true
 AutomaticLogin=ari
@@ -225,14 +270,18 @@ AutomaticLogin=ari
 
 [debug]
 GDMEOF
-echo -e "${GREEN}GDM3 autologin configured${NC}"
+    echo -e "${GREEN}GDM3 autologin configured${NC}"
+else
+    echo "Step 8: Skipping GDM3 autologin (stories-only mode)..."
+fi
 
-# Step 9: Configure GNOME autostart (Firefox kiosk + unclutter)
+# Step 9: Configure GNOME autostart (Firefox kiosk + unclutter) — AI/kiosk only
 echo ""
-echo "Step 9: Configuring kiosk autostart..."
-sudo -u "$INSTALL_USER" mkdir -p /home/ari/.config/autostart
+if [[ "$AI_MODE" == true ]]; then
+    echo "Step 9: Configuring kiosk autostart..."
+    sudo -u "$INSTALL_USER" mkdir -p /home/ari/.config/autostart
 
-cat > /home/ari/.config/autostart/storybot-kiosk.desktop << 'KIOSKEOF'
+    cat > /home/ari/.config/autostart/storybot-kiosk.desktop << 'KIOSKEOF'
 [Desktop Entry]
 Type=Application
 Name=StoryBot Kiosk
@@ -242,13 +291,17 @@ Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
 KIOSKEOF
-chown "$INSTALL_USER:$INSTALL_USER" /home/ari/.config/autostart/storybot-kiosk.desktop
-echo -e "${GREEN}Kiosk autostart configured${NC}"
+    chown "$INSTALL_USER:$INSTALL_USER" /home/ari/.config/autostart/storybot-kiosk.desktop
+    echo -e "${GREEN}Kiosk autostart configured${NC}"
+else
+    echo "Step 9: Skipping Firefox kiosk autostart (stories-only mode)..."
+fi
 
-# Step 10: Configure screen-never-blocks
+# Step 10: Configure screen-never-blocks (AI/kiosk only)
 echo ""
-echo "Step 10: Configuring screen settings..."
-cat > /home/ari/.config/autostart/storybot-screen-setup.desktop << 'SCREENEOF'
+if [[ "$AI_MODE" == true ]]; then
+    echo "Step 10: Configuring screen settings..."
+    cat > /home/ari/.config/autostart/storybot-screen-setup.desktop << 'SCREENEOF'
 [Desktop Entry]
 Type=Application
 Name=StoryBot Screen Setup
@@ -258,8 +311,11 @@ Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
 SCREENEOF
-chown "$INSTALL_USER:$INSTALL_USER" /home/ari/.config/autostart/storybot-screen-setup.desktop
-echo -e "${GREEN}Screen settings configured${NC}"
+    chown "$INSTALL_USER:$INSTALL_USER" /home/ari/.config/autostart/storybot-screen-setup.desktop
+    echo -e "${GREEN}Screen settings configured${NC}"
+else
+    echo "Step 10: Skipping screen settings (stories-only mode)..."
+fi
 
 # Step 11: Fix file ownership
 echo ""
@@ -303,17 +359,38 @@ echo ""
 # Completion summary
 echo ""
 echo "================================================"
-echo -e "${GREEN}Installation Complete!${NC}"
+if [[ "$AI_MODE" == true ]]; then
+    echo -e "${GREEN}Installation Complete! (Full AI Mode)${NC}"
+else
+    echo -e "${GREEN}Installation Complete! (Stories-Only Mode)${NC}"
+fi
 echo "================================================"
 echo ""
 echo "Installed:"
 echo "  - Python dependencies (uv sync)"
-echo "  - Piper TTS models at /home/ari/.local/share/piper"
 echo "  - Nginx reverse proxy (port 80 -> 8000)"
-echo "  - GDM3 autologin for user ari"
-echo "  - Firefox kiosk autostart"
-echo "  - Screen-never-blocks (activates on first login)"
-echo "  - Cursor hiding (unclutter)"
+echo "  - StoryBot systemd service"
+if [[ "$AI_MODE" == true ]]; then
+    echo "  - NVIDIA JetPack (GPU + CUDA)"
+    if [[ "$DEV_MODE" == false ]]; then
+        echo "  - Piper TTS models at /home/ari/.local/share/piper"
+    fi
+    echo "  - GDM3 autologin for user ari"
+    echo "  - Firefox kiosk autostart"
+    echo "  - Screen-never-blocks (activates on first login)"
+    echo "  - Cursor hiding (unclutter)"
+    echo "  - Llama-server sudoers entry"
+else
+    echo -e "${YELLOW}Skipped (stories-only mode):${NC}"
+    echo "  - nvidia-jetpack"
+    echo "  - TTS model downloads"
+    echo "  - GDM3 autologin"
+    echo "  - Firefox kiosk autostart"
+    echo "  - Screen-never-blocks"
+    echo "  - Llama-server sudoers"
+    echo ""
+    echo "  Access admin panel at: http://localhost/admin"
+fi
 echo ""
 echo "To start StoryBot:"
 echo "  sudo systemctl start storybot"
@@ -322,8 +399,14 @@ echo "To check status:"
 echo "  sudo systemctl status storybot"
 echo "  sudo journalctl -u storybot -f"
 echo ""
-echo "After reboot:"
-echo "  - StoryBot service starts automatically (systemd)"
-echo "  - Firefox opens in kiosk mode (GNOME autostart)"
-echo "  - Screen stays on, cursor hides automatically"
+if [[ "$AI_MODE" == true ]]; then
+    echo "After reboot:"
+    echo "  - StoryBot service starts automatically (systemd)"
+    echo "  - Firefox opens in kiosk mode (GNOME autostart)"
+    echo "  - Screen stays on, cursor hides automatically"
+else
+    echo "After reboot:"
+    echo "  - StoryBot service starts automatically (systemd)"
+    echo "  - Access admin panel at http://localhost/admin"
+fi
 echo ""

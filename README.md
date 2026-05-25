@@ -277,7 +277,30 @@ sudo systemctl start storybot
 
 ### Configuración
 
-Crea un archivo `.env` con las variables de configuración necesarias.
+Crea un archivo `.env` en la raíz del proyecto con las variables de configuración necesarias. El servicio systemd lo carga automáticamente al arrancar.
+
+#### `STORYBOT_AI`
+
+Controla la detección de capacidades de IA. Si no se define, el sistema auto-detecta el hardware al arrancar (CUDA + RAM).
+
+| Valor | Comportamiento |
+|-------|---------------|
+| *(no definida)* | Auto-detección: comprueba GPU CUDA y RAM disponible |
+| `1` | Forzar IA activada (ignora detección hardware) |
+| `0` | Forzar IA desactivada (omite todas las pruebas) |
+
+Ejemplo:
+
+```bash
+# .env
+STORYBOT_AI=1
+```
+
+Para desarrollo local, también se puede pasar como variable de entorno inline:
+
+```bash
+STORYBOT_AI=0 uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
 
 ## Uso
 

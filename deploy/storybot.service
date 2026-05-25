@@ -9,6 +9,7 @@ Type=simple
 User=ari
 Group=ari
 WorkingDirectory=/home/ari/storybot
+EnvironmentFile=-/home/ari/storybot/.env
 Environment="PATH=/home/ari/storybot/.venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="PYTHONUNBUFFERED=1"
 ExecStartPre=/usr/bin/udevadm settle
