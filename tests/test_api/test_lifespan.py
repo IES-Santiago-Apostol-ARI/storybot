@@ -64,6 +64,8 @@ def lifespan_env(tmp_path, monkeypatch):
     # Disable TESTING so the lifespan actually invokes the sweeper / printer factory.
     monkeypatch.delenv("TESTING", raising=False)
     monkeypatch.setenv("STORYBOT_LIFESPAN_TEST", "1")
+    # Force AI enabled so Phase 16 tests see swap_orchestrator / tts_pipeline.
+    monkeypatch.setenv("STORYBOT_AI", "1")
     from app.services.story_manager import StoryManager
 
     monkeypatch.setattr(StoryManager, "GENERATED_DIR", generated)
@@ -75,17 +77,17 @@ class TestLifespanStateAttachment:
         from app.main import app
 
         with TestClient(app) as client:
-            assert hasattr(client.app.state, "swap_orchestrator"), (
-                "Phase 15 regression: app.state.swap_orchestrator must be set by lifespan"
-            )
+            assert hasattr(
+                client.app.state, "swap_orchestrator"
+            ), "Phase 15 regression: app.state.swap_orchestrator must be set by lifespan"
 
     def test_printer_attached_after_startup(self, lifespan_env):
         from app.main import app
 
         with TestClient(app) as client:
-            assert hasattr(client.app.state, "printer"), (
-                "Plan 16-01 RED: app.state.printer = create_printer_service() must be set by lifespan"
-            )
+            assert hasattr(
+                client.app.state, "printer"
+            ), "Plan 16-01 RED: app.state.printer = create_printer_service() must be set by lifespan"
 
 
 class TestLifespanSweeperInvocation:
@@ -99,9 +101,9 @@ class TestLifespanSweeperInvocation:
         with TestClient(app):
             pass  # startup runs sweeper; shutdown is a no-op for this assertion
 
-        assert not stale.exists(), (
-            "Plan 16-01 RED: lifespan must call sweep_generated against GENERATED_DIR"
-        )
+        assert (
+            not stale.exists()
+        ), "Plan 16-01 RED: lifespan must call sweep_generated against GENERATED_DIR"
         assert fresh.exists(), "Sweeper must NOT remove fresh dirs"
 
     def test_sweep_complete_event_emitted(self, lifespan_env, capsys):
@@ -115,6 +117,6 @@ class TestLifespanSweeperInvocation:
 
         captured = capsys.readouterr()
         # The sweeper logs a JSON sweep_complete event to stderr at the end.
-        assert "sweep_complete" in captured.err, (
-            "Plan 16-01 RED: lifespan sweeper must log sweep_complete JSON to stderr"
-        )
+        assert (
+            "sweep_complete" in captured.err
+        ), "Plan 16-01 RED: lifespan sweeper must log sweep_complete JSON to stderr"

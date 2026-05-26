@@ -7,8 +7,12 @@ from app.main import app
 
 
 @pytest.fixture
-def client():
-    """Create test client with lifespan context."""
+def client(monkeypatch):
+    """Create test client with lifespan context.
+
+    Force AI enabled so TTS is loaded and hardware status includes it.
+    """
+    monkeypatch.setenv("STORYBOT_AI", "1")
     with TestClient(app) as c:
         yield c
 
@@ -67,10 +71,7 @@ class TestLEDEndpoints:
 
     def test_set_led_color_with_valid_hex(self, client):
         """POST /api/system/led with valid hex color returns success."""
-        response = client.post(
-            "/api/system/led",
-            json={"color": "#FF0000"}
-        )
+        response = client.post("/api/system/led", json={"color": "#FF0000"})
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "ok"
@@ -81,8 +82,7 @@ class TestLEDEndpoints:
     def test_set_led_color_with_brightness(self, client):
         """POST /api/system/led with brightness applies brightness multiplier."""
         response = client.post(
-            "/api/system/led",
-            json={"color": "#FF0000", "brightness": 0.5}
+            "/api/system/led", json={"color": "#FF0000", "brightness": 0.5}
         )
         assert response.status_code == 200
         data = response.json()
@@ -92,33 +92,25 @@ class TestLEDEndpoints:
 
     def test_set_led_color_with_invalid_hex_format(self, client):
         """POST /api/system/led with invalid hex format returns 422."""
-        response = client.post(
-            "/api/system/led",
-            json={"color": "FF0000"}  # Missing #
-        )
+        response = client.post("/api/system/led", json={"color": "FF0000"})  # Missing #
         assert response.status_code == 422
 
     def test_set_led_color_with_invalid_hex_values(self, client):
         """POST /api/system/led with invalid hex values returns 422."""
         response = client.post(
-            "/api/system/led",
-            json={"color": "#GGGGGG"}  # Invalid hex chars
+            "/api/system/led", json={"color": "#GGGGGG"}  # Invalid hex chars
         )
         assert response.status_code == 422
 
     def test_set_led_color_with_invalid_hex_length(self, client):
         """POST /api/system/led with invalid hex length returns 422."""
-        response = client.post(
-            "/api/system/led",
-            json={"color": "#FFF"}  # Too short
-        )
+        response = client.post("/api/system/led", json={"color": "#FFF"})  # Too short
         assert response.status_code == 422
 
     def test_set_led_color_with_invalid_brightness(self, client):
         """POST /api/system/led with brightness > 1.0 returns 422."""
         response = client.post(
-            "/api/system/led",
-            json={"color": "#FF0000", "brightness": 1.5}
+            "/api/system/led", json={"color": "#FF0000", "brightness": 1.5}
         )
         assert response.status_code == 422
 

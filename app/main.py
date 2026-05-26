@@ -39,6 +39,7 @@ from app.services.hardware_manager import HardwareManager
 from app.services.story_manager import StoryManager
 from app.services.story_generator import StoryGenerator
 from app.services.swap_orchestrator import SwapOrchestrator
+from app.services.capability_probe import probe_capability
 from app.services.tts_pipeline import TTSPipeline
 
 
@@ -60,8 +61,16 @@ async def lifespan(app: FastAPI):
     app.state.hardware = hardware
     app.state.config = config
     app.state.story_manager = story_manager
-    app.state.story_generator = StoryGenerator()
-    app.state.swap_orchestrator = SwapOrchestrator()
+
+    # D-07 / D-12 step 2: probe capability and set both attributes atomically.
+    profile = probe_capability()
+    app.state.capability = profile
+    app.state.ai_enabled = profile.ai_enabled
+
+    # D-12 step 3: AI services only when ai_enabled (D-09 — no stub, no None).
+    if profile.ai_enabled:
+        app.state.story_generator = StoryGenerator()
+        app.state.swap_orchestrator = SwapOrchestrator()
 
     # Phase 16 D-18: attach printer service for /api/printer/print (router added in 16-04).
     try:
@@ -78,6 +87,14 @@ async def lifespan(app: FastAPI):
             json.dumps({"event": "printer_init_failed", "reason": type(e).__name__}),
             file=sys.stderr,
         )
+
+    # D-08: overwrite capability.printer from probe default (False) to actual result.
+    app.state.capability = app.state.capability.model_copy(
+        update={
+            "printer": app.state.printer is not None
+            and not getattr(app.state.printer, "is_mock", True)
+        }
+    )
 
     # Phase 16 D-13: 7-day disk hygiene for content/generated/<uuid>/.
     import asyncio
@@ -98,11 +115,11 @@ async def lifespan(app: FastAPI):
     # Initialize config
     _ = config.load()
 
-    # Initialize hardware detection (stub for now)
-    await hardware.detect_hardware(ai_enabled=True)
+    # Initialize hardware detection — D-15: pass ai_enabled explicitly.
+    await hardware.detect_hardware(ai_enabled=profile.ai_enabled)
 
-    # Wire TTS pipeline to loaded engine (skip during testing)
-    if not os.environ.get("TESTING"):
+    # Wire TTS pipeline to loaded engine (D-12 step 8: skip when ai disabled or testing)
+    if profile.ai_enabled and not os.environ.get("TESTING"):
         tts_engine = hardware._services.get("tts")
         if tts_engine:
             app.state.tts_pipeline = TTSPipeline(synthesizer=tts_engine)
