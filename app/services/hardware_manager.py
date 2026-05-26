@@ -52,21 +52,25 @@ class HardwareManager:
         )
         return status.dict()
 
-    async def detect_hardware(self) -> None:
+    async def detect_hardware(self, ai_enabled: bool) -> None:
         """Detect available hardware and register services.
 
-        Probes each service type and registers real or mock implementation
-        based on hardware availability.
+        When ai_enabled is False, the Piper TTS engine is NOT loaded
+        (CONTEXT.md D-14, D-15). Other peripherals always probe.
         """
+        self._ai_enabled: bool = ai_enabled
+
         from app.services.audio_player import create_audio_player
         from app.services.led_controller import create_led_service
         from app.services.nfc_handler import create_nfc_service
-        from app.services.tts_engine import TTSEngine
 
-        # TTS: Always real, load model at startup (eager load)
-        tts_engine = TTSEngine()
-        await tts_engine.initialize()
-        self.register_service("tts", tts_engine)
+        if ai_enabled:
+            from app.services.tts_engine import TTSEngine
+
+            # TTS: Always real, load model at startup (eager load)
+            tts_engine = TTSEngine()
+            await tts_engine.initialize()
+            self.register_service("tts", tts_engine)
 
         # NFC: Try real, fall back to mock
         nfc_service = create_nfc_service()
@@ -89,7 +93,7 @@ class HardwareManager:
         Returns:
             Updated SystemStatus dict
         """
-        await self.detect_hardware()
+        await self.detect_hardware(ai_enabled=self._ai_enabled)
         return await self.get_status()
 
     async def shutdown(self) -> None:

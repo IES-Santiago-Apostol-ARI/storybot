@@ -99,7 +99,7 @@ async def lifespan(app: FastAPI):
     _ = config.load()
 
     # Initialize hardware detection (stub for now)
-    await hardware.detect_hardware()
+    await hardware.detect_hardware(ai_enabled=True)
 
     # Wire TTS pipeline to loaded engine (skip during testing)
     if not os.environ.get("TESTING"):
