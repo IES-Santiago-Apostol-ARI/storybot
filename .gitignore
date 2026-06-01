@@ -209,5 +209,6 @@ __marimo__/
 .planning/
 .gsd/
 content/stories/
+.update-state
 .paul/
 .gitnexus

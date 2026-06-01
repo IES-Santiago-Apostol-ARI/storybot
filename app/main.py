@@ -37,6 +37,7 @@ from app.routers.generate import router as generate_router
 from app.routers.generated import router as generated_router
 from app.routers.printer import router as printer_router
 from app.routers.wifi import router as wifi_router
+from app.routers.updates import router as updates_router
 from app.services.hardware_manager import HardwareManager
 from app.services.story_manager import StoryManager
 from app.services.story_generator import StoryGenerator
@@ -114,6 +115,36 @@ async def lifespan(app: FastAPI):
             file=sys.stderr,
         )
 
+    # Phase 23 D-06: boot-time update check (skip during testing).
+    if not os.environ.get("TESTING"):
+        try:
+            from app.services.update_manager import create_update_manager
+
+            update_mgr = create_update_manager()
+            result = await asyncio.wait_for(
+                update_mgr.check_update(), timeout=10
+            )
+            app.state.update_available = result.get("update_available", False)
+            app.state.update_info = result
+        except Exception as e:
+            import json
+            import sys
+
+            print(
+                json.dumps(
+                    {
+                        "event": "boot_update_check_failed",
+                        "reason": type(e).__name__,
+                    }
+                ),
+                file=sys.stderr,
+            )
+            app.state.update_available = False
+            app.state.update_info = {}
+    else:
+        app.state.update_available = False
+        app.state.update_info = {}
+
     # Initialize config
     _ = config.load()
 
@@ -139,6 +170,18 @@ async def lifespan(app: FastAPI):
             index_file.write_text(
                 json.dumps({"version": 1, "stories": {}, "nfc_to_story": {}})
             )
+
+    # Phase 23 D-13: clear .update-state flag on successful boot.
+    import json
+    import sys
+
+    flag_path = Path(".update-state")
+    if flag_path.exists():
+        flag_path.unlink(missing_ok=True)
+        print(
+            json.dumps({"event": "update_state_flag_cleared"}),
+            file=sys.stderr,
+        )
 
     yield
 
@@ -170,6 +213,7 @@ app.include_router(generate_router, tags=["generate"])
 app.include_router(generated_router)
 app.include_router(printer_router)
 app.include_router(wifi_router)
+app.include_router(updates_router)
 
 # Mount static files for story content (with no-cache for audio)
 stories_static_dir = Path("content/stories")

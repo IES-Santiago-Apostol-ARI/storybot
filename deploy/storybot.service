@@ -14,6 +14,7 @@ Environment="PATH=/home/ari/storybot/.venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="PYTHONUNBUFFERED=1"
 ExecStartPre=/usr/bin/udevadm settle
 ExecStartPre=/bin/sleep 4
+ExecStartPre=/usr/local/bin/storybot-rollback.sh
 ExecStart=/home/ari/storybot/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=5

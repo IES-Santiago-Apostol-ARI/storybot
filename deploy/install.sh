@@ -221,6 +221,8 @@ cp "$INSTALL_DIR/deploy/storybot.service" /etc/systemd/system/
 cp "$INSTALL_DIR/deploy/storybot-nfc-reset.service" /etc/systemd/system/
 cp "$INSTALL_DIR/deploy/storybot-reset-nfc.sh" /usr/local/bin/storybot-reset-nfc.sh
 chmod +x /usr/local/bin/storybot-reset-nfc.sh
+cp "$INSTALL_DIR/deploy/storybot-rollback.sh" /usr/local/bin/storybot-rollback.sh
+chmod +x /usr/local/bin/storybot-rollback.sh
 systemctl daemon-reload
 systemctl enable storybot.service
 systemctl enable storybot-nfc-reset.service
@@ -267,6 +269,16 @@ if [[ -n "$ETH_CONN" ]]; then
 else
     echo -e "${YELLOW}No active Ethernet connection found -- skipping never-default${NC}"
 fi
+
+# Step 6e: Configure passwordless sudo for service restart (OTA updates)
+echo ""
+echo "Step 6e: Configuring passwordless sudo for OTA service restart..."
+cat > /etc/sudoers.d/storybot-updates << EOF
+${INSTALL_USER} ALL=(root) NOPASSWD: /bin/systemctl restart storybot
+EOF
+chmod 0440 /etc/sudoers.d/storybot-updates
+visudo -c -f /etc/sudoers.d/storybot-updates
+echo -e "${GREEN}Sudoers entry for OTA updates installed${NC}"
 
 # Step 7: Configure Nginx reverse proxy
 echo ""
