@@ -14,7 +14,6 @@ from app.services.wifi_manager import (
     create_wifi_manager,
 )
 
-
 # ---------------------------------------------------------------------------
 # Subprocess mock helper (same pattern as test_swap_orchestrator.py)
 # ---------------------------------------------------------------------------
@@ -37,9 +36,7 @@ class TestWifiNetworkModel:
     """WifiNetwork model validation."""
 
     def test_valid_network(self):
-        net = WifiNetwork(
-            ssid="MyNetwork", signal=85, security="WPA2", connected=True
-        )
+        net = WifiNetwork(ssid="MyNetwork", signal=85, security="WPA2", connected=True)
         assert net.ssid == "MyNetwork"
         assert net.signal == 85
         assert net.security == "WPA2"
@@ -99,9 +96,7 @@ class TestInterfaceDetection:
 
     @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
     async def test_detects_wifi_interface(self, mock_exec):
-        proc = _make_subprocess_mock(
-            stdout=b"eth0:ethernet\nwlP1p1s0:wifi\n"
-        )
+        proc = _make_subprocess_mock(stdout=b"eth0:ethernet\nwlP1p1s0:wifi\n")
         mock_exec.return_value = proc
         mgr = RealWifiManager()
         iface = await mgr._detect_wifi_interface()
@@ -109,9 +104,7 @@ class TestInterfaceDetection:
 
     @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
     async def test_detects_wlx_mac_format(self, mock_exec):
-        proc = _make_subprocess_mock(
-            stdout=b"wlx001122334455:wifi\neth0:ethernet\n"
-        )
+        proc = _make_subprocess_mock(stdout=b"wlx001122334455:wifi\neth0:ethernet\n")
         mock_exec.return_value = proc
         mgr = RealWifiManager()
         iface = await mgr._detect_wifi_interface()
@@ -137,18 +130,18 @@ class TestScan:
     @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
     async def test_scan_parses_terse_output(self, mock_exec):
         # First call: device list for interface detection
-        # Second call: rescan (non-fatal)
-        # Third call: wifi list
-        detect_proc = _make_subprocess_mock(
-            stdout=b"wlP1p1s0:wifi\neth0:ethernet\n"
-        )
-        rescan_proc = _make_subprocess_mock(returncode=0)
+        # Second call: wifi list with blocking --rescan yes
+        detect_proc = _make_subprocess_mock(stdout=b"wlP1p1s0:wifi\neth0:ethernet\n")
         list_proc = _make_subprocess_mock(
             stdout=b"MyNetwork:85:WPA2:*\nOpenNet:42:--:\n"
         )
-        mock_exec.side_effect = [detect_proc, rescan_proc, list_proc]
+        mock_exec.side_effect = [detect_proc, list_proc]
         mgr = RealWifiManager()
         result = await mgr.scan()
+        # The list command must force a fresh blocking scan, not read cache.
+        list_args = mock_exec.call_args_list[1].args
+        assert "--rescan" in list_args
+        assert list_args[list_args.index("--rescan") + 1] == "yes"
         assert len(result) == 2
         assert result[0]["ssid"] == "MyNetwork"
         assert result[0]["signal"] == 85
@@ -161,47 +154,39 @@ class TestScan:
     @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
     async def test_scan_filters_blank_ssids(self, mock_exec):
         """Hidden networks (blank SSIDs) are filtered out (D-06)."""
-        detect_proc = _make_subprocess_mock(
-            stdout=b"wlP1p1s0:wifi\n"
-        )
-        rescan_proc = _make_subprocess_mock(returncode=0)
-        list_proc = _make_subprocess_mock(
-            stdout=b":30:WPA2:\nMyNetwork:85:WPA2:*\n"
-        )
-        mock_exec.side_effect = [detect_proc, rescan_proc, list_proc]
+        detect_proc = _make_subprocess_mock(stdout=b"wlP1p1s0:wifi\n")
+        list_proc = _make_subprocess_mock(stdout=b":30:WPA2:\nMyNetwork:85:WPA2:*\n")
+        mock_exec.side_effect = [detect_proc, list_proc]
         mgr = RealWifiManager()
         result = await mgr.scan()
         assert len(result) == 1
         assert result[0]["ssid"] == "MyNetwork"
 
     @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
-    async def test_rescan_failure_is_nonfatal(self, mock_exec):
-        """Rescan failure logs warning, still returns list results."""
-        detect_proc = _make_subprocess_mock(
-            stdout=b"wlP1p1s0:wifi\n"
-        )
-        rescan_proc = _make_subprocess_mock(
+    async def test_rescan_failure_falls_back_to_cache(self, mock_exec):
+        """If the blocking rescan is denied, fall back to cached results."""
+        detect_proc = _make_subprocess_mock(stdout=b"wlP1p1s0:wifi\n")
+        # Fresh --rescan yes list fails (e.g. not authorized / rate-limited)
+        rescan_list_proc = _make_subprocess_mock(
             returncode=1, stderr=b"Error: not authorized"
         )
-        list_proc = _make_subprocess_mock(
-            stdout=b"MyNetwork:85:WPA2:*\n"
-        )
-        mock_exec.side_effect = [detect_proc, rescan_proc, list_proc]
+        # Fallback cached list (--rescan no) succeeds
+        cached_list_proc = _make_subprocess_mock(stdout=b"MyNetwork:85:WPA2:*\n")
+        mock_exec.side_effect = [detect_proc, rescan_list_proc, cached_list_proc]
         mgr = RealWifiManager()
         result = await mgr.scan()
         assert len(result) == 1
+        # Fallback list must explicitly request cached results.
+        fallback_args = mock_exec.call_args_list[2].args
+        assert "--rescan" in fallback_args
+        assert fallback_args[fallback_args.index("--rescan") + 1] == "no"
 
     @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
     async def test_scan_includes_signal_security_connected_fields(self, mock_exec):
         """D-05: scan returns ssid, signal, security, connected fields."""
-        detect_proc = _make_subprocess_mock(
-            stdout=b"wlP1p1s0:wifi\n"
-        )
-        rescan_proc = _make_subprocess_mock(returncode=0)
-        list_proc = _make_subprocess_mock(
-            stdout=b"TestNet:75:WPA3:*\n"
-        )
-        mock_exec.side_effect = [detect_proc, rescan_proc, list_proc]
+        detect_proc = _make_subprocess_mock(stdout=b"wlP1p1s0:wifi\n")
+        list_proc = _make_subprocess_mock(stdout=b"TestNet:75:WPA3:*\n")
+        mock_exec.side_effect = [detect_proc, list_proc]
         mgr = RealWifiManager()
         result = await mgr.scan()
         assert len(result) == 1
@@ -222,9 +207,7 @@ class TestConnect:
 
     @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
     async def test_connect_returns_true_on_success(self, mock_exec):
-        detect_proc = _make_subprocess_mock(
-            stdout=b"wlP1p1s0:wifi\n"
-        )
+        detect_proc = _make_subprocess_mock(stdout=b"wlP1p1s0:wifi\n")
         connect_proc = _make_subprocess_mock(
             returncode=0,
             stdout=b"Device 'wlP1p1s0' successfully activated with 'abc'.\n",
@@ -236,9 +219,7 @@ class TestConnect:
 
     @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
     async def test_connect_returns_false_on_failure(self, mock_exec):
-        detect_proc = _make_subprocess_mock(
-            stdout=b"wlP1p1s0:wifi\n"
-        )
+        detect_proc = _make_subprocess_mock(stdout=b"wlP1p1s0:wifi\n")
         connect_proc = _make_subprocess_mock(
             returncode=1,
             stderr=b"Error: Connection activation failed.\n",
@@ -251,9 +232,7 @@ class TestConnect:
     @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
     async def test_connect_calls_nmcli_with_correct_args(self, mock_exec):
         """Verify connect uses correct nmcli command with ssid and password."""
-        detect_proc = _make_subprocess_mock(
-            stdout=b"wlP1p1s0:wifi\n"
-        )
+        detect_proc = _make_subprocess_mock(stdout=b"wlP1p1s0:wifi\n")
         connect_proc = _make_subprocess_mock(returncode=0)
         mock_exec.side_effect = [detect_proc, connect_proc]
         mgr = RealWifiManager()
@@ -298,9 +277,7 @@ class TestDisconnect:
     @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
     async def test_disconnect_returns_false_no_active_wifi(self, mock_exec):
         """No active WiFi connection -> returns False."""
-        active_proc = _make_subprocess_mock(
-            stdout=b"eth0:802-3-ethernet:eth0\n"
-        )
+        active_proc = _make_subprocess_mock(stdout=b"eth0:802-3-ethernet:eth0\n")
         mock_exec.return_value = active_proc
         mgr = RealWifiManager()
         result = await mgr.disconnect()
@@ -328,9 +305,7 @@ class TestStatus:
 
     @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
     async def test_status_connected(self, mock_exec):
-        detect_proc = _make_subprocess_mock(
-            stdout=b"wlP1p1s0:wifi\n"
-        )
+        detect_proc = _make_subprocess_mock(stdout=b"wlP1p1s0:wifi\n")
         show_proc = _make_subprocess_mock(
             stdout=b"GENERAL.STATE:100 (connected)\nGENERAL.CONNECTION:MyNetwork\n"
         )
@@ -343,9 +318,7 @@ class TestStatus:
 
     @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
     async def test_status_disconnected(self, mock_exec):
-        detect_proc = _make_subprocess_mock(
-            stdout=b"wlP1p1s0:wifi\n"
-        )
+        detect_proc = _make_subprocess_mock(stdout=b"wlP1p1s0:wifi\n")
         show_proc = _make_subprocess_mock(
             stdout=b"GENERAL.STATE:30 (disconnected)\nGENERAL.CONNECTION:--\n"
         )

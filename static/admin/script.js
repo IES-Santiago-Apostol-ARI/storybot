@@ -1493,6 +1493,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (promoteCancel) promoteCancel.addEventListener('click', closePromoteModal);
     if (window.aiEnabled) { loadGeneratedStories(); }
     initWifiSection();
+
+    // Phase 25 (OTA-02): one-shot update check + version footer on load (D-02, no polling)
+    checkForUpdate();
+    renderVersionFooter();
+
+    // Phase 25 (OTA-03): wire the install button (D-05, open immediately)
+    initUpdatesSection();
 });
 
 window.addEventListener('beforeunload', cleanup);
@@ -1736,6 +1743,210 @@ function updateWifiSectionSummary(status) {
     } else {
         summary.textContent = '— Sin conexion';
     }
+}
+
+// === Phase 25: Updates UI (OTA-02) ===
+
+// Spanish labels for each backend install stage (D-06). Fixed map, not user data.
+const STAGE_LABELS = {
+    fetching: 'Descargando...',
+    updating: 'Aplicando cambios...',
+    syncing: 'Sincronizando dependencias...',
+    checking: 'Verificando...',
+    restarting: 'Reiniciando StoryBot... esto puede tardar hasta un minuto',
+};
+
+function stageLabel(stage) {
+    return STAGE_LABELS[stage] || 'Procesando...';
+}
+
+// One-shot update check (D-02). Reveals header badge + Actualizaciones section
+// only when an update is available. Fails silently on any error (D-03).
+async function checkForUpdate() {
+    try {
+        const response = await fetch('/api/updates/check');
+        if (!response.ok) throw new Error('Update check failed');
+        const data = await response.json();
+        if (data.update_available === true) {
+            const icon = document.getElementById('update-status');
+            if (icon) icon.classList.remove('hidden');
+            const section = document.getElementById('updates-section');
+            if (section) section.classList.remove('hidden');
+            const info = document.getElementById('updates-info');
+            // Short 7-char identifier, coherent with the short footer version.
+            // Assigned via textContent so the commit string is rendered inert (T-25-01).
+            if (info) {
+                info.textContent =
+                    'Nueva version disponible: ' + data.remote_commit.slice(0, 7);
+            }
+        }
+        // On update_available === false, leave the badge and section hidden (D-03).
+    } catch (error) {
+        // Silent neutral fallback — no toast (D-03).
+        console.error('Failed to check for update:', error);
+    }
+}
+
+// Always-visible footer version line from /api/updates/version (D-11).
+async function renderVersionFooter() {
+    try {
+        const response = await fetch('/api/updates/version');
+        if (!response.ok) throw new Error('Version fetch failed');
+        const data = await response.json();
+        const footer = document.getElementById('version-footer');
+        // Assigned via textContent to keep backend strings inert (T-25-01).
+        if (footer) footer.textContent = 'Version: ' + data.version;
+    } catch (error) {
+        // Silent — leave footer neutral (D-03).
+        console.error('Failed to fetch version:', error);
+    }
+}
+
+// Module-scoped baseline: the FULL pre-install commit captured from /check (D-09).
+let preInstallFullCommit = '';
+
+// Teacher-triggered OTA install (OTA-03). Opens the modal immediately (no confirm,
+// D-05), POSTs to /api/updates/apply and consumes the SSE stream via getReader()
+// (apply is a POST, so EventSource cannot be used — D-06). Stage events update a
+// single status line in place; an error event renders inline with a retry action
+// (D-07). On the restarting stage it hands off to the reconnect poll loop (D-08).
+async function installUpdate() {
+    const modal = document.getElementById('updates-modal');
+    const statusLine = document.getElementById('updates-status-line');
+    const errorEl = document.getElementById('updates-modal-error');
+    const actionBtn = document.getElementById('updates-modal-action');
+
+    // Open the modal and reset transient UI (D-05).
+    if (modal) modal.hidden = false;
+    if (errorEl) {
+        errorEl.classList.add('hidden');
+        errorEl.textContent = '';
+    }
+    if (actionBtn) {
+        actionBtn.classList.add('hidden');
+        actionBtn.onclick = null;
+    }
+    if (statusLine) statusLine.textContent = stageLabel('fetching');
+
+    // Reveal the inline error + a Reintentar action; backend auto-rolls-back (D-07).
+    function showInstallError(message) {
+        if (errorEl) {
+            // textContent keeps the backend error string inert (T-25-02).
+            errorEl.textContent = message || 'No se pudo completar la instalacion';
+            errorEl.classList.remove('hidden');
+        }
+        if (actionBtn) {
+            actionBtn.textContent = 'Reintentar';
+            actionBtn.classList.remove('hidden');
+            actionBtn.onclick = installUpdate;
+        }
+    }
+
+    // After the restarting stage the backend goes down; poll /version silently for
+    // up to 60s (D-08). Success = the new SHORT version.commit is NOT a prefix of the
+    // captured FULL pre-install commit (hash-prefix normalization, D-09). On success
+    // briefly show "Actualizado" then auto-reload; on timeout show a manual Recargar
+    // button with NO auto-reload (D-10).
+    function pollForRestart() {
+        const startTime = Date.now();
+        const intervalId = setInterval(async () => {
+            if (Date.now() - startTime > 60000) {
+                clearInterval(intervalId);
+                if (statusLine) {
+                    statusLine.textContent = 'No se pudo confirmar el reinicio';
+                }
+                // Manual Recargar button on timeout — no auto-reload here (D-10).
+                const timeoutBtn = document.getElementById('updates-modal-action');
+                if (timeoutBtn) {
+                    timeoutBtn.textContent = 'Recargar';
+                    timeoutBtn.classList.remove('hidden');
+                    timeoutBtn.onclick = () => window.location.reload();
+                }
+                return;
+            }
+            // Guarded fetch; swallow errors silently while the backend is down (D-08).
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 2000);
+            try {
+                const response = await fetch('/api/updates/version', {
+                    signal: controller.signal,
+                });
+                if (!response.ok) return;
+                const version = await response.json();
+                // Same commit → short IS a prefix of the full baseline → keep polling.
+                const isNewCommit =
+                    !version.commit ||
+                    !preInstallFullCommit.startsWith(version.commit);
+                if (isNewCommit) {
+                    clearInterval(intervalId);
+                    if (statusLine) {
+                        statusLine.textContent = 'Actualizado a v' + version.version;
+                    }
+                    window.location.reload();
+                }
+            } catch (error) {
+                // Backend unreachable mid-restart — stay silent and keep polling.
+            } finally {
+                clearTimeout(timeoutId);
+            }
+        }, 2500);
+    }
+
+    try {
+        // Capture the AUTHORITATIVE baseline: the FULL local_commit from /check (D-09).
+        const checkResponse = await fetch('/api/updates/check');
+        if (checkResponse.ok) {
+            const checkData = await checkResponse.json();
+            preInstallFullCommit = checkData.local_commit || '';
+        }
+
+        const response = await fetch('/api/updates/apply', { method: 'POST' });
+        if (!response.ok) throw new Error('Apply request failed: ' + response.status);
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const parts = buffer.split('\n\n');
+            buffer = parts.pop();
+
+            for (const part of parts) {
+                for (const line of part.split('\n')) {
+                    if (!line.startsWith('data: ')) continue;
+                    let event;
+                    try {
+                        event = JSON.parse(line.slice(6));
+                    } catch {
+                        continue;
+                    }
+
+                    if (event.stage === 'error') {
+                        showInstallError(event.error);
+                        return;
+                    }
+                    // Stage label rendered via textContent (T-25-02).
+                    if (statusLine) statusLine.textContent = stageLabel(event.stage);
+                    if (event.stage === 'restarting') {
+                        pollForRestart();
+                        return;
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        showInstallError(error && error.message);
+    }
+}
+
+// Wire the install button (open immediately, no confirm — D-05).
+function initUpdatesSection() {
+    const installBtn = document.getElementById('updates-install-btn');
+    if (installBtn) installBtn.addEventListener('click', installUpdate);
 }
 
 function toggleWifiSection() {

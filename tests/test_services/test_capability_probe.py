@@ -7,6 +7,9 @@ _get_ram_total) so tests run without torch installed.
 """
 
 import json
+import os
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -35,6 +38,7 @@ class TestProbeAutoDetect:
         monkeypatch.setattr(f"{_MOD}._cuda_is_available", lambda: True)
         monkeypatch.setattr(f"{_MOD}._cuda_device_count", lambda: 1)
         monkeypatch.setattr(f"{_MOD}._get_ram_total", lambda: 8 * 1024**3)
+        monkeypatch.setattr(f"{_MOD}._jetson_marker_exists", lambda: False)
 
         profile = probe_capability()
 
@@ -48,6 +52,7 @@ class TestProbeAutoDetect:
         monkeypatch.delenv("STORYBOT_AI", raising=False)
         monkeypatch.setattr(f"{_MOD}._cuda_is_available", lambda: False)
         monkeypatch.setattr(f"{_MOD}._get_ram_total", lambda: 8 * 1024**3)
+        monkeypatch.setattr(f"{_MOD}._jetson_marker_exists", lambda: False)
 
         profile = probe_capability()
 
@@ -59,6 +64,7 @@ class TestProbeAutoDetect:
         monkeypatch.setattr(f"{_MOD}._cuda_is_available", lambda: True)
         monkeypatch.setattr(f"{_MOD}._cuda_device_count", lambda: 1)
         monkeypatch.setattr(f"{_MOD}._get_ram_total", lambda: 4 * 1024**3)
+        monkeypatch.setattr(f"{_MOD}._jetson_marker_exists", lambda: False)
 
         profile = probe_capability()
 
@@ -69,6 +75,7 @@ class TestProbeAutoDetect:
         monkeypatch.delenv("STORYBOT_AI", raising=False)
         monkeypatch.setattr(f"{_MOD}._cuda_is_available", lambda: False)
         monkeypatch.setattr(f"{_MOD}._get_ram_total", lambda: 4 * 1024**3)
+        monkeypatch.setattr(f"{_MOD}._jetson_marker_exists", lambda: False)
 
         profile = probe_capability()
 
@@ -81,6 +88,7 @@ class TestProbeAutoDetect:
         monkeypatch.setattr(f"{_MOD}._cuda_is_available", lambda: True)
         monkeypatch.setattr(f"{_MOD}._cuda_device_count", lambda: 1)
         monkeypatch.setattr(f"{_MOD}._get_ram_total", lambda: 6 * 1024**3)
+        monkeypatch.setattr(f"{_MOD}._jetson_marker_exists", lambda: False)
 
         profile = probe_capability()
 
@@ -94,6 +102,7 @@ class TestProbeAutoDetect:
         # which catches ImportError from missing torch.  On this venv torch is
         # not installed, so it returns False naturally.
         monkeypatch.setattr(f"{_MOD}._get_ram_total", lambda: 8 * 1024**3)
+        monkeypatch.setattr(f"{_MOD}._jetson_marker_exists", lambda: False)
 
         profile = probe_capability()
 
@@ -279,3 +288,85 @@ class TestProbeStderrEvents:
             "Expected capability_env_contradiction event or warning field "
             "in capability_probe event when env=1 but hardware is not capable"
         )
+
+
+# ---------------------------------------------------------------------------
+# Group E — .env file loading (load_dotenv called before env var read)
+# ---------------------------------------------------------------------------
+
+
+class TestDotenvLoading:
+    def test_load_dotenv_called_before_env_read(self, monkeypatch, tmp_path):
+        """probe_capability must call load_dotenv() so .env file is honoured."""
+        env_file = tmp_path / ".env"
+        env_file.write_text("STORYBOT_AI=1\n")
+
+        # Ensure STORYBOT_AI is NOT in os.environ (simulating fresh process)
+        monkeypatch.delenv("STORYBOT_AI", raising=False)
+
+        # Patch the module-level reference to load_dotenv in capability_probe.
+        called = []
+
+        def _fake_load_dotenv(**kwargs):
+            called.append(True)
+            # Simulate what load_dotenv would do
+            os.environ["STORYBOT_AI"] = "1"
+
+        monkeypatch.setattr(f"{_MOD}.load_dotenv", _fake_load_dotenv)
+        monkeypatch.setattr(f"{_MOD}._cuda_is_available", lambda: False)
+        monkeypatch.setattr(f"{_MOD}._get_ram_total", lambda: 4 * 1024**3)
+
+        profile = probe_capability()
+
+        assert called, "load_dotenv was never called"
+        assert profile.ai_enabled is True
+        assert profile.reason == "env-override:forced-on"
+
+
+# ---------------------------------------------------------------------------
+# Group F — Jetson hardware detection (torch not installed)
+# ---------------------------------------------------------------------------
+
+
+class TestJetsonDetection:
+    def test_jetson_detected_via_nv_tegra_release(self, monkeypatch):
+        """Jetson with /etc/nv_tegra_release + 8GB RAM should enable AI
+        even when torch is not installed (CUDA via apt, not pip)."""
+        monkeypatch.delenv("STORYBOT_AI", raising=False)
+        monkeypatch.setattr(f"{_MOD}._cuda_is_available", lambda: False)
+        monkeypatch.setattr(f"{_MOD}._cuda_device_count", lambda: 0)
+        monkeypatch.setattr(f"{_MOD}._get_ram_total", lambda: 8 * 1024**3)
+
+        def _is_file(path):
+            return str(path) == "/etc/nv_tegra_release"
+
+        monkeypatch.setattr(f"{_MOD}._jetson_marker_exists", lambda: True)
+
+        profile = probe_capability()
+
+        assert profile.ai_enabled is True
+        assert "jetson" in profile.reason
+
+    def test_jetson_with_insufficient_ram_still_disabled(self, monkeypatch):
+        """Jetson with <6GB RAM should NOT enable AI."""
+        monkeypatch.delenv("STORYBOT_AI", raising=False)
+        monkeypatch.setattr(f"{_MOD}._cuda_is_available", lambda: False)
+        monkeypatch.setattr(f"{_MOD}._cuda_device_count", lambda: 0)
+        monkeypatch.setattr(f"{_MOD}._get_ram_total", lambda: 4 * 1024**3)
+        monkeypatch.setattr(f"{_MOD}._jetson_marker_exists", lambda: True)
+
+        profile = probe_capability()
+
+        assert profile.ai_enabled is False
+
+    def test_non_jetson_without_cuda_stays_disabled(self, monkeypatch):
+        """Non-Jetson without torch CUDA stays disabled."""
+        monkeypatch.delenv("STORYBOT_AI", raising=False)
+        monkeypatch.setattr(f"{_MOD}._cuda_is_available", lambda: False)
+        monkeypatch.setattr(f"{_MOD}._get_ram_total", lambda: 8 * 1024**3)
+        monkeypatch.setattr(f"{_MOD}._jetson_marker_exists", lambda: False)
+
+        profile = probe_capability()
+
+        assert profile.ai_enabled is False
+        assert "no-cuda" in profile.reason

@@ -1,0 +1,11 @@
+polkit.addRule(function(action, subject) {
+      if (action.id == "org.debian.pcsc-lite.access_pcsc" &&
+          subject.isInGroup("plugdev")) {
+          return polkit.Result.YES;
+      }
+  });
+polkit.addRule(function(action, subject) {
+      if (action.id.indexOf("org.debian.pcsc-lite") === 0) {
+          return polkit.Result.YES;
+      }
+  });

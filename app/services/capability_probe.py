@@ -12,8 +12,10 @@ from __future__ import annotations
 import json
 import os
 import sys
+from pathlib import Path
 
 import psutil
+from dotenv import load_dotenv
 
 from app.models.capability import CapabilityProfile
 
@@ -28,6 +30,9 @@ def probe_capability() -> CapabilityProfile:
       - "1" → force-enabled, "0" → force-disabled, else auto-detect.
     """
     try:
+        # Load .env file so STORYBOT_AI is visible via os.environ.
+        load_dotenv()
+
         env_val = os.environ.get(ENV_VAR)
 
         # --- Env override: forced-on (D-04) ---
@@ -94,7 +99,16 @@ def probe_capability() -> CapabilityProfile:
         # --- Auto-detect (env unset or non-"0"/"1" string) ---
         cuda_present, ram_ok, gpu_name, ram_gb = _probe_hardware()
 
-        reason = _compose_autodetect_reason(cuda_present, ram_ok)
+        # Jetson fallback: CUDA is installed via apt (nvidia-jetpack), not pip.
+        # torch.cuda.is_available() may fail even though the device has CUDA.
+        jetson_detected = False
+        if not cuda_present:
+            jetson_detected = _jetson_marker_exists()
+            if jetson_detected:
+                cuda_present = True
+                gpu_name = gpu_name or "NVIDIA Jetson (auto-detected)"
+
+        reason = _compose_autodetect_reason(cuda_present, ram_ok, jetson_detected)
         ai_enabled = cuda_present and ram_ok
 
         profile = CapabilityProfile(
@@ -193,12 +207,21 @@ def _probe_hardware() -> tuple[bool, bool, str | None, float | None]:
     return cuda_present, ram_ok, gpu_name, ram_gb
 
 
-def _compose_autodetect_reason(cuda_present: bool, ram_ok: bool) -> str:
-    """Map the two boolean signals to a D-05 reason slug."""
+def _compose_autodetect_reason(
+    cuda_present: bool, ram_ok: bool, jetson_detected: bool = False
+) -> str:
+    """Map the boolean signals to a D-05 reason slug."""
     if cuda_present and ram_ok:
+        if jetson_detected:
+            return "auto-detect:jetson+ram-ok"
         return "auto-detect:cuda+ram-ok"
     if not cuda_present and not ram_ok:
         return "auto-detect:no-cuda+insufficient-ram"
     if not cuda_present:
         return "auto-detect:no-cuda"
     return "auto-detect:insufficient-ram"
+
+
+def _jetson_marker_exists() -> bool:
+    """Check for /etc/nv_tegra_release — always present on NVIDIA Jetson devices."""
+    return Path("/etc/nv_tegra_release").is_file()

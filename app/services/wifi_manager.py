@@ -15,7 +15,11 @@ async def _run_nmcli(*args: str) -> tuple[str, str, int]:
         stderr=asyncio.subprocess.PIPE,
     )
     stdout, stderr = await proc.communicate()
-    return stdout.decode().strip(), stderr.decode().strip(), proc.returncode if proc.returncode is not None else -1
+    return (
+        stdout.decode().strip(),
+        stderr.decode().strip(),
+        proc.returncode if proc.returncode is not None else -1,
+    )
 
 
 def _log_event(event: str, **kwargs: object) -> None:
@@ -67,22 +71,16 @@ class RealWifiManager(WifiManager):
     async def scan(self) -> list[dict]:
         """Scan for WiFi networks.
 
-        Triggers a rescan first (non-fatal if it fails), then lists networks.
+        Lists networks forcing a fresh blocking scan (--rescan yes); falls
+        back to cached results if that scan is denied or rate-limited.
         Filters out hidden networks (blank SSIDs) per D-06.
         """
         iface = await self._detect_wifi_interface()
-        # Trigger fresh rescan (may fail without polkit, non-fatal)
-        _, rescan_stderr, rescan_rc = await _run_nmcli(
-            "device", "wifi", "rescan", "ifname", iface
-        )
-        if rescan_rc != 0:
-            _log_event(
-                "wifi_rescan_failed",
-                interface=iface,
-                detail=rescan_stderr,
-            )
-        # List networks with terse output
-        stdout, _, rc = await _run_nmcli(
+        # List networks, forcing a fresh blocking scan. `--rescan yes` makes
+        # nmcli perform a new scan and wait for the results, instead of
+        # returning the stale cache — which often holds only the currently
+        # connected AP and was the cause of "Actualizar" showing one network.
+        stdout, rescan_stderr, rc = await _run_nmcli(
             "-t",
             "-f",
             "SSID,SIGNAL,SECURITY,IN-USE",
@@ -91,7 +89,29 @@ class RealWifiManager(WifiManager):
             "list",
             "ifname",
             iface,
+            "--rescan",
+            "yes",
         )
+        if rc != 0:
+            # A fresh scan may be denied (no polkit auth) or rate-limited.
+            # Fall back to cached results so scan still returns something.
+            _log_event(
+                "wifi_rescan_failed",
+                interface=iface,
+                detail=rescan_stderr,
+            )
+            stdout, _, _ = await _run_nmcli(
+                "-t",
+                "-f",
+                "SSID,SIGNAL,SECURITY,IN-USE",
+                "device",
+                "wifi",
+                "list",
+                "ifname",
+                iface,
+                "--rescan",
+                "no",
+            )
         networks: list[dict] = []
         for line in stdout.splitlines():
             parts = line.split(":", 3)
@@ -148,9 +168,7 @@ class RealWifiManager(WifiManager):
             parts = line.split(":", 2)
             if len(parts) >= 3 and parts[1] == "802-11-wireless":
                 conn_name = parts[0]
-                _, _, down_rc = await _run_nmcli(
-                    "connection", "down", conn_name
-                )
+                _, _, down_rc = await _run_nmcli("connection", "down", conn_name)
                 return down_rc == 0
         return False  # No active WiFi connection
 

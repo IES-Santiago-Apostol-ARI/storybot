@@ -916,3 +916,61 @@ input[type="color"] {
     font-size: 0.875rem;
     margin-top: 0.25rem;
 }
+
+/* === Phase 25: Updates UI (OTA-02) === */
+.update-status-icon {
+    position: relative;
+}
+
+.update-badge-dot {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-pill);
+    background: var(--color-danger);
+}
+
+.updates-section #updates-info {
+    color: var(--color-text-muted);
+}
+
+.version-footer {
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    text-align: center;
+    margin-top: var(--space-md);
+}
+
+/* Install progress modal (OTA-03) */
+.modal-content.updates-modal {
+    background: var(--color-surface);
+    border-radius: var(--radius-lg);
+    padding: var(--space-lg);
+    width: min(90vw, 420px);
+    box-shadow: var(--shadow-lg);
+}
+
+.updates-status-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-top: var(--space-md);
+}
+
+.updates-spinner {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    border: 3px solid var(--color-border, #ddd);
+    border-top-color: var(--color-primary);
+    border-radius: var(--radius-pill);
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}

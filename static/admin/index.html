@@ -38,6 +38,14 @@
                     </svg>
                     <span id="wifi-ssid-text" class="wifi-ssid-text">Sin conexion</span>
                 </span>
+                <!-- Update Available Status (Phase 25 / D-01) -->
+                <span class="status-icon update-status-icon hidden" id="update-status" title="Actualizacion disponible">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                        <!-- Download / update arrow icon -->
+                        <path d="M12 2a1 1 0 0 1 1 1v9.59l2.3-2.3a1 1 0 0 1 1.4 1.42l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 0 1 1.4-1.42l2.3 2.3V3a1 1 0 0 1 1-1zM5 18a1 1 0 0 1 1-1h12a1 1 0 0 1 0 2H6a1 1 0 0 1-1-1z"/>
+                    </svg>
+                    <span class="update-badge-dot"></span>
+                </span>
             </div>
         </header>
 
@@ -180,6 +188,13 @@
             </div>
         </section>
 
+        <!-- Updates section (Phase 25 / D-12) — shown only when an update is available -->
+        <section class="updates-section hidden" id="updates-section">
+            <h2>Actualizaciones</h2>
+            <p id="updates-info"></p>
+            <button type="button" class="btn btn-primary" id="updates-install-btn">Instalar</button>
+        </section>
+
         <!-- Card registration overlay -->
         <div id="card-registration-overlay" class="card-registration-overlay hidden">
             <div class="card-registration-form">
@@ -294,11 +309,28 @@
             </div>
         </div>
 
+        <!-- Phase 25 (OTA-03): install progress modal -->
+        <div id="updates-modal" class="modal-overlay" hidden>
+            <div class="modal-content updates-modal">
+                <h3>Instalando actualizacion</h3>
+                <div class="updates-status-row">
+                    <span class="updates-spinner"></span>
+                    <p id="updates-status-line">Iniciando...</p>
+                </div>
+                <p id="updates-modal-error" class="wifi-connect-error hidden"></p>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-primary hidden" id="updates-modal-action"></button>
+                </div>
+            </div>
+        </div>
+
         <div id="status-message" class="status-message hidden"></div>
 
         <div class="children-mode-link">
             <a href="/children" class="btn btn-secondary">Ir al modo niños</a>
         </div>
+
+        <p class="version-footer" id="version-footer"></p>
     </div>
 
     <script src="/admin/script.js"></script>
