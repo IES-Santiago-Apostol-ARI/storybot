@@ -1492,6 +1492,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const promoteCancel = document.getElementById('promote-cancel');
     if (promoteCancel) promoteCancel.addEventListener('click', closePromoteModal);
     if (window.aiEnabled) { loadGeneratedStories(); }
+    initWifiSection();
 });
 
 window.addEventListener('beforeunload', cleanup);
@@ -1692,3 +1693,319 @@ window.addEventListener('beforeunload', (event) => {
         event.returnValue = '';
     }
 });
+
+// === Phase 24: WiFi Management (D-01 through D-15) ===
+
+let wifiNetworks = [];
+let selectedWifiSsid = null;
+
+async function fetchWifiStatus() {
+    try {
+        const response = await fetch('/api/wifi/status');
+        if (!response.ok) throw new Error('WiFi status fetch failed');
+        const data = await response.json();
+        updateWifiHeaderIcon(data);
+        updateWifiSectionSummary(data);
+    } catch (error) {
+        console.error('Failed to fetch WiFi status:', error);
+        updateWifiHeaderIcon({state: 'disconnected', ssid: null});
+        updateWifiSectionSummary({state: 'disconnected', ssid: null});
+    }
+}
+
+function updateWifiHeaderIcon(status) {
+    const icon = document.getElementById('wifi-status');
+    if (!icon) return;
+    const ssidText = document.getElementById('wifi-ssid-text');
+    if (status.state === 'connected') {
+        icon.className = 'status-icon wifi-status-icon connected';
+        icon.title = 'WiFi: Conectado a ' + status.ssid;
+        if (ssidText) ssidText.textContent = status.ssid;
+    } else {
+        icon.className = 'status-icon wifi-status-icon disconnected';
+        icon.title = 'WiFi: Sin conexion';
+        if (ssidText) ssidText.textContent = 'Sin conexion';
+    }
+}
+
+function updateWifiSectionSummary(status) {
+    const summary = document.getElementById('wifi-header-summary');
+    if (!summary) return;
+    if (status.state === 'connected') {
+        summary.textContent = '— Conectado a ' + status.ssid;
+    } else {
+        summary.textContent = '— Sin conexion';
+    }
+}
+
+function toggleWifiSection() {
+    const section = document.querySelector('.wifi-section');
+    if (!section) return;
+    section.classList.toggle('expanded');
+    if (section.classList.contains('expanded')) {
+        scanWifiNetworks();
+        fetchWifiStatus();
+    }
+}
+
+async function scanWifiNetworks() {
+    const scanning = document.getElementById('wifi-scanning');
+    const networkList = document.getElementById('wifi-network-list');
+    const noInterface = document.getElementById('wifi-no-interface');
+    try {
+        if (scanning) scanning.classList.remove('hidden');
+        if (networkList) networkList.innerHTML = '';
+        const response = await fetch('/api/wifi/scan');
+        if (!response.ok) throw new Error('WiFi scan failed');
+        const data = await response.json();
+        wifiNetworks = data;
+        if (!data || data.length === 0) {
+            if (noInterface) noInterface.classList.remove('hidden');
+        } else {
+            if (noInterface) noInterface.classList.add('hidden');
+            renderNetworkList();
+        }
+    } catch (error) {
+        console.error('Error scanning WiFi networks:', error);
+        showMessage('Error al buscar redes WiFi', 'error');
+    } finally {
+        if (scanning) scanning.classList.add('hidden');
+    }
+}
+
+function renderNetworkList() {
+    const list = document.getElementById('wifi-network-list');
+    if (!list) return;
+    if (!wifiNetworks.length) {
+        list.innerHTML = '<p class="empty">No se encontraron redes WiFi.</p>';
+        return;
+    }
+    list.innerHTML = '';
+    for (const network of wifiNetworks) {
+        list.appendChild(createNetworkItem(network));
+    }
+}
+
+function createNetworkItem(network) {
+    const item = document.createElement('div');
+    item.className = 'wifi-network-item';
+    if (network.connected) item.classList.add('connected');
+
+    // Signal bars
+    const signalBars = document.createElement('div');
+    signalBars.className = 'wifi-signal-bars';
+    const activeBars = network.signal < 33 ? 1 : network.signal <= 66 ? 2 : 3;
+    for (let i = 0; i < 3; i++) {
+        const bar = document.createElement('span');
+        bar.className = 'wifi-signal-bar';
+        if (i < activeBars) bar.classList.add('active');
+        signalBars.appendChild(bar);
+    }
+    item.appendChild(signalBars);
+
+    // SSID text
+    const name = document.createElement('span');
+    name.className = 'wifi-network-name';
+    name.textContent = network.ssid;
+    item.appendChild(name);
+
+    // Lock icon for secured networks
+    if (network.security && network.security !== 'open') {
+        const lock = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        lock.setAttribute('viewBox', '0 0 24 24');
+        lock.setAttribute('width', '16');
+        lock.setAttribute('height', '16');
+        lock.setAttribute('fill', 'currentColor');
+        lock.classList.add('wifi-network-lock');
+        const lockPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        lockPath.setAttribute('d', 'M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z');
+        lock.appendChild(lockPath);
+        item.appendChild(lock);
+    }
+
+    // Connected badge
+    if (network.connected) {
+        const badge = document.createElement('span');
+        badge.className = 'wifi-network-badge';
+        badge.textContent = 'Conectado';
+        item.appendChild(badge);
+    }
+
+    // Disconnect button for connected network
+    if (network.connected) {
+        const disconnectBtn = document.createElement('button');
+        disconnectBtn.type = 'button';
+        disconnectBtn.className = 'btn btn-danger btn-small wifi-disconnect-btn';
+        disconnectBtn.textContent = 'Desconectar';
+        disconnectBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            disconnectWifi();
+        });
+        item.appendChild(disconnectBtn);
+    }
+
+    // Click handler for the item
+    item.addEventListener('click', () => {
+        if (network.security && network.security !== 'open') {
+            openWifiConnectModal(network.ssid);
+        } else {
+            connectWifiDirect(network.ssid);
+        }
+    });
+
+    return item;
+}
+
+function openWifiConnectModal(ssid) {
+    selectedWifiSsid = ssid;
+    const modal = document.getElementById('wifi-connect-modal');
+    if (modal) modal.hidden = false;
+    const modalSsid = document.getElementById('wifi-modal-ssid');
+    if (modalSsid) modalSsid.textContent = 'Conectar a ' + ssid;
+    const passwordInput = document.getElementById('wifi-password');
+    if (passwordInput) {
+        passwordInput.value = '';
+        passwordInput.focus();
+    }
+    const errorEl = document.getElementById('wifi-connect-error');
+    if (errorEl) {
+        errorEl.classList.add('hidden');
+        errorEl.textContent = '';
+    }
+}
+
+function closeWifiConnectModal() {
+    selectedWifiSsid = null;
+    const modal = document.getElementById('wifi-connect-modal');
+    if (modal) modal.hidden = true;
+    const form = document.getElementById('wifi-connect-form');
+    if (form) form.reset();
+    const errorEl = document.getElementById('wifi-connect-error');
+    if (errorEl) {
+        errorEl.classList.add('hidden');
+        errorEl.textContent = '';
+    }
+}
+
+async function submitWifiConnect(event) {
+    event.preventDefault();
+    if (!selectedWifiSsid) return;
+    const ssid = selectedWifiSsid;
+    const password = document.getElementById('wifi-password').value;
+    const submitBtn = document.getElementById('wifi-connect-submit');
+    const errorEl = document.getElementById('wifi-connect-error');
+
+    try {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Conectando...';
+        if (errorEl) {
+            errorEl.classList.add('hidden');
+            errorEl.textContent = '';
+        }
+
+        const response = await fetch('/api/wifi/connect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ssid: ssid, password: password }),
+        });
+        const data = await response.json();
+
+        if (data.ok) {
+            closeWifiConnectModal();
+            showMessage('Conectado a ' + ssid, 'success');
+            fetchWifiStatus();
+            scanWifiNetworks();
+        } else {
+            let errorMsg;
+            if (data.error === 'connection_failed') {
+                errorMsg = 'No se pudo conectar';
+            } else if (data.error === 'ValueError') {
+                errorMsg = 'Contrasena incorrecta';
+            } else {
+                errorMsg = 'Error: ' + (data.error || 'desconocido');
+            }
+            if (errorEl) {
+                errorEl.textContent = errorMsg;
+                errorEl.classList.remove('hidden');
+            }
+        }
+    } catch (error) {
+        console.error('WiFi connect error:', error);
+        if (errorEl) {
+            errorEl.textContent = 'Error de conexion';
+            errorEl.classList.remove('hidden');
+        }
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Conectar';
+    }
+}
+
+async function connectWifiDirect(ssid) {
+    try {
+        const response = await fetch('/api/wifi/connect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ssid: ssid, password: '00000000' }),
+        });
+        const data = await response.json();
+        if (data.ok) {
+            showMessage('Conectado a ' + ssid, 'success');
+            fetchWifiStatus();
+            scanWifiNetworks();
+        } else {
+            showMessage('No se pudo conectar a ' + ssid, 'error');
+        }
+    } catch (error) {
+        console.error('WiFi direct connect error:', error);
+        showMessage('Error de conexion', 'error');
+    }
+}
+
+async function disconnectWifi() {
+    try {
+        const response = await fetch('/api/wifi/disconnect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+        });
+        const data = await response.json();
+        if (data.ok) {
+            showMessage('WiFi desconectado', 'success');
+            fetchWifiStatus();
+            scanWifiNetworks();
+        } else {
+            showMessage('Error al desconectar', 'error');
+        }
+    } catch (error) {
+        console.error('WiFi disconnect error:', error);
+        showMessage('Error al desconectar', 'error');
+    }
+}
+
+function scrollToWifiSection() {
+    const section = document.querySelector('.wifi-section');
+    if (!section) return;
+    section.scrollIntoView({behavior: 'smooth', block: 'start'});
+    if (!section.classList.contains('expanded')) {
+        toggleWifiSection();
+    }
+}
+
+function initWifiSection() {
+    const header = document.querySelector('.wifi-section-header');
+    if (header) header.addEventListener('click', toggleWifiSection);
+
+    const refreshBtn = document.getElementById('wifi-refresh-btn');
+    if (refreshBtn) refreshBtn.addEventListener('click', scanWifiNetworks);
+
+    const wifiStatus = document.getElementById('wifi-status');
+    if (wifiStatus) wifiStatus.addEventListener('click', scrollToWifiSection);
+
+    const connectForm = document.getElementById('wifi-connect-form');
+    if (connectForm) connectForm.addEventListener('submit', submitWifiConnect);
+
+    const cancelBtn = document.getElementById('wifi-connect-cancel');
+    if (cancelBtn) cancelBtn.addEventListener('click', closeWifiConnectModal);
+
+    fetchWifiStatus();
+}

@@ -30,6 +30,14 @@
                         <path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1l-.85.6V16h-4v-2.3l-.85-.6A4.997 4.997 0 0 1 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"/>
                     </svg>
                 </span>
+                <!-- WiFi Status -->
+                <span class="status-icon wifi-status-icon" id="wifi-status" title="WiFi: Comprobando...">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                        <!-- WiFi arc icon -->
+                        <path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/>
+                    </svg>
+                    <span id="wifi-ssid-text" class="wifi-ssid-text">Sin conexion</span>
+                </span>
             </div>
         </header>
 
@@ -152,6 +160,26 @@
             </div>
         </section>
 
+        <section class="wifi-section">
+            <div class="wifi-section-header">
+                <h2>Configuracion WiFi</h2>
+                <span id="wifi-header-summary" class="wifi-header-summary"></span>
+                <svg class="wifi-chevron" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                    <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
+                </svg>
+            </div>
+            <div class="wifi-section-body" id="wifi-section-body">
+                <div id="wifi-no-interface" class="wifi-no-interface hidden">
+                    <p>Sin interfaz WiFi</p>
+                </div>
+                <div class="wifi-toolbar">
+                    <button type="button" id="wifi-refresh-btn" class="btn btn-secondary btn-small">Actualizar</button>
+                </div>
+                <div id="wifi-network-list" class="wifi-network-list"></div>
+                <p id="wifi-scanning" class="wifi-scanning hidden">Buscando redes...</p>
+            </div>
+        </section>
+
         <!-- Card registration overlay -->
         <div id="card-registration-overlay" class="card-registration-overlay hidden">
             <div class="card-registration-form">
@@ -244,6 +272,23 @@
                     <div class="modal-actions">
                         <button type="button" class="btn btn-secondary" id="promote-cancel">Cancelar</button>
                         <button type="submit" class="btn btn-primary">Promover y asignar tarjeta</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div id="wifi-connect-modal" class="modal-overlay" hidden>
+            <div class="modal-content wifi-modal">
+                <h3 id="wifi-modal-ssid">Conectar a red</h3>
+                <form id="wifi-connect-form">
+                    <label>
+                        Contrasena WPA2
+                        <input type="password" id="wifi-password" placeholder="Contrasena WPA2" minlength="8" required autocomplete="off">
+                    </label>
+                    <p id="wifi-connect-error" class="wifi-connect-error hidden"></p>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" id="wifi-connect-cancel">Cancelar</button>
+                        <button type="submit" class="btn btn-primary" id="wifi-connect-submit">Conectar</button>
                     </div>
                 </form>
             </div>
