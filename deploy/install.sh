@@ -242,6 +242,32 @@ else
     echo "Step 6b: Skipping llama-server sudoers (stories-only mode)..."
 fi
 
+# Step 6c: Deploy polkit rule for passwordless WiFi management
+echo ""
+echo "Step 6c: Deploying polkit rule for WiFi management..."
+mkdir -p /etc/polkit-1/localauthority/50-local.d
+cat > /etc/polkit-1/localauthority/50-local.d/10-storybot-wifi.pkla << EOF
+[StoryBot WiFi Management]
+Identity=unix-user:${INSTALL_USER}
+Action=org.freedesktop.NetworkManager.wifi.scan;org.freedesktop.NetworkManager.enable-disable-wifi;org.freedesktop.NetworkManager.settings.modify.own;org.freedesktop.NetworkManager.settings.modify.system;org.freedesktop.NetworkManager.network-control
+ResultAny=yes
+ResultInactive=yes
+ResultActive=yes
+EOF
+chmod 0644 /etc/polkit-1/localauthority/50-local.d/10-storybot-wifi.pkla
+echo -e "${GREEN}Polkit WiFi rule installed${NC}"
+
+# Step 6d: Configure Ethernet never-default (prevents WiFi routing breakage)
+echo ""
+echo "Step 6d: Configuring Ethernet never-default..."
+ETH_CONN=$(nmcli -t -f NAME,TYPE connection show --active | grep 802-3-ethernet | cut -d: -f1)
+if [[ -n "$ETH_CONN" ]]; then
+    nmcli connection modify "$ETH_CONN" ipv4.never-default yes ipv6.never-default yes
+    echo -e "${GREEN}Ethernet never-default configured for '$ETH_CONN'${NC}"
+else
+    echo -e "${YELLOW}No active Ethernet connection found -- skipping never-default${NC}"
+fi
+
 # Step 7: Configure Nginx reverse proxy
 echo ""
 echo "Step 7: Configuring Nginx reverse proxy..."
@@ -370,6 +396,7 @@ echo "Installed:"
 echo "  - Python dependencies (uv sync)"
 echo "  - Nginx reverse proxy (port 80 -> 8000)"
 echo "  - StoryBot systemd service"
+echo "  - Polkit WiFi rule"
 if [[ "$AI_MODE" == true ]]; then
     echo "  - NVIDIA JetPack (GPU + CUDA)"
     if [[ "$DEV_MODE" == false ]]; then
