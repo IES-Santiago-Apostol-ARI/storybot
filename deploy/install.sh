@@ -406,7 +406,9 @@ fi
 echo ""
 echo "Step 11: Fixing file ownership..."
 chown -R "$INSTALL_USER:$INSTALL_USER" "$INSTALL_DIR"
-chown -R "$INSTALL_USER:$INSTALL_USER" "$USER_HOME/.config/autostart"
+if [[ -d "$USER_HOME/.config/autostart" ]]; then
+    chown -R "$INSTALL_USER:$INSTALL_USER" "$USER_HOME/.config/autostart"
+fi
 echo -e "${GREEN}File ownership fixed${NC}"
 
 # Step 12: Print TP-Link WiFi setup instructions
