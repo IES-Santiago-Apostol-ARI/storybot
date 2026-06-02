@@ -223,7 +223,11 @@ uv sync
 sudo apt install libpcsclite-dev
 uv sync --extra dev
 
-# Instalar dependencias de IA para Jetson (opcional)
+# Emular la pila de IA en una máquina x86 de desarrollo (opcional)
+# ⚠️ SOLO en x86. NO ejecutar en el Jetson real: allí CUDA/TensorRT/cuDNN
+#    vienen de `apt install nvidia-jetpack`, y este extra duplicaría/entraría
+#    en conflicto con esos paquetes del sistema (p. ej. tensorrt-cu13-libs).
+#    En el Jetson usa `uv sync` (el instalador ya lo hace automáticamente).
 uv sync --extra jetson
 ```
 

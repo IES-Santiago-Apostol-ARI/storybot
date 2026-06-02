@@ -93,7 +93,7 @@ chown "$INSTALL_USER:$INSTALL_USER" "$INSTALL_DIR/.env"
 echo ""
 echo "Step 1: Installing system dependencies..."
 apt-get update
-apt-get install -y nginx unclutter pcscd pcsc-tools libccid libpcsclite-dev swig uhubctl
+apt-get install -y nginx unclutter pcscd pcsc-tools libccid libpcsclite-dev swig uhubctl 
 
 # AI-specific: NVIDIA JetPack (GPU drivers + CUDA + TensorRT + cuDNN)
 if [[ "$AI_MODE" == true ]]; then
@@ -102,7 +102,7 @@ else
     echo -e "${YELLOW}Skipping nvidia-jetpack (stories-only mode)${NC}"
 fi
 # audio bluetooth:
-apt-get -y  install pipewire pipewire-pulse wireplumber libspa-0.2-bluetooth bluez bluez-tools cmake
+apt-get -y  install pipewire pipewire-pulse wireplumber libspa-0.2-bluetooth bluez bluez-tools cmake libasound2-dev
 
 # Audio: configure pipewire in the install user's session, not root's.
 # `systemctl --user` needs the target user's DBus session — run via sudo -u
@@ -161,9 +161,17 @@ else
     echo "Virtual environment already exists, skipping..."
 fi
 
-# Install dependencies (no jetson extras - CUDA comes from system apt on Jetson)
+# Install dependencies.
+# On the real Jetson (aarch64), CUDA/TensorRT/cuDNN come from system apt
+# (nvidia-jetpack) - never pip-install them, so always use a plain sync there.
+# On an x86 box in AI mode, pull the jetson extra to emulate the AI stack.
 echo "Installing Python packages..."
-sudo -u "$INSTALL_USER" /home/ari/.local/bin/uv sync
+if [[ "$AI_MODE" == true && "$(uname -m)" != "aarch64" ]]; then
+    echo "AI mode on x86 - installing jetson extra (dev emulation)..."
+    sudo -u "$INSTALL_USER" /home/ari/.local/bin/uv sync --extra jetson
+else
+    sudo -u "$INSTALL_USER" /home/ari/.local/bin/uv sync
+fi
 echo -e "${GREEN}Python dependencies installed${NC}"
 
 # Step 3: Download TTS models
