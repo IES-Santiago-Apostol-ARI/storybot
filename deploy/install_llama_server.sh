@@ -3,7 +3,7 @@
 # Target: Jetson Orin Nano Super 8GB, JetPack 6.2.1, aarch64
 #
 # Usage:
-#   bash scripts/install_llama_server.sh          (as ari — normal user)
+#   bash scripts/install_llama_server.sh          (as the target user)
 #   sudo bash scripts/install_llama_server.sh     (as root — TARGET_USER must be set)
 #
 set -euo pipefail
@@ -173,7 +173,10 @@ if [[ ! -f "$SERVICE_FILE" ]]; then
 fi
 if [[ -f "$SERVICE_FILE" ]]; then
   echo "  Installing from $SERVICE_FILE..."
-  sudo cp "$SERVICE_FILE" /etc/systemd/system/llama-server.service
+  # Substitute the template placeholders for the target user / home directory.
+  sudo sed -e "s|__INSTALL_USER__|$TARGET_USER|g" \
+           -e "s|__INSTALL_HOME__|/home/$TARGET_USER|g" \
+           "$SERVICE_FILE" | sudo tee /etc/systemd/system/llama-server.service >/dev/null
 else
   echo "  ⚠  Service file not found — copy manually:"
   echo "     sudo cp deploy/llama-server.service /etc/systemd/system/"

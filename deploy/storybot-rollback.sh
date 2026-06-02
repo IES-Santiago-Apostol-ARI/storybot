@@ -15,7 +15,9 @@
 # from starting the service.
 #
 
-WORK_DIR="/home/ari/storybot"
+# __INSTALL_DIR__ is substituted by deploy/install.sh (from INSTALL_USER in
+# .env) when this script is installed to /usr/local/bin.
+WORK_DIR="__INSTALL_DIR__"
 FLAG="$WORK_DIR/.update-state"
 
 # State 1: No flag file — normal boot, nothing to do

@@ -4,7 +4,12 @@
 #
 # This script sets up a complete StoryBot deployment on any Linux device.
 # It auto-detects AI capability (NVIDIA GPU) and adapts the installation.
-# The project should be cloned at /home/ari/storybot.
+#
+# The service account that owns the install is NOT hardcoded: it is read from
+# the INSTALL_USER variable in the project's .env file. Create .env (see
+# .env.example) with at least `INSTALL_USER=<user>` before running this script.
+# The project can be cloned anywhere owned by that user; the installer resolves
+# its location from this script's path.
 #
 # Usage:
 #   sudo bash deploy/install.sh [--dev] [--ai|--no-ai]
@@ -22,8 +27,19 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-INSTALL_USER="ari"
-INSTALL_DIR="/home/ari/storybot"
+# Resolve the repo location from this script's path so the installer works
+# regardless of where the project was cloned.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INSTALL_DIR="$(dirname "$SCRIPT_DIR")"
+ENV_FILE="$INSTALL_DIR/.env"
+
+# INSTALL_USER is the service account that owns the install. It is read from
+# .env (never hardcoded). Strip surrounding quotes and whitespace.
+INSTALL_USER="$(grep -E '^INSTALL_USER=' "$ENV_FILE" 2>/dev/null | tail -n1 | cut -d= -f2-)"
+INSTALL_USER="${INSTALL_USER//\"/}"
+INSTALL_USER="${INSTALL_USER//\'/}"
+INSTALL_USER="$(echo -n "$INSTALL_USER" | xargs)"
+
 DEV_MODE=false
 AI_FLAG=""
 
@@ -56,6 +72,20 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
+# INSTALL_USER must be defined in .env before running the installer.
+if [[ -z "$INSTALL_USER" ]]; then
+    echo -e "${RED}ERROR: INSTALL_USER is not set in $ENV_FILE${NC}"
+    echo "Add a line like 'INSTALL_USER=ari' to .env (see .env.example) and re-run."
+    exit 1
+fi
+
+# Resolve the user's home directory (used for uv, autostart, TTS models, etc.)
+USER_HOME="$(getent passwd "$INSTALL_USER" | cut -d: -f6)"
+if [[ -z "$USER_HOME" ]]; then
+    echo -e "${RED}ERROR: system user '$INSTALL_USER' (from .env) does not exist${NC}"
+    exit 1
+fi
+
 # Detect AI capability
 if [[ "$AI_FLAG" == "force-on" ]]; then
     AI_MODE=true
@@ -81,13 +111,18 @@ echo "Dev mode: $DEV_MODE"
 echo "AI mode: $AI_MODE"
 echo ""
 
-# Write AI mode to .env file
+# Write AI mode to .env file, preserving INSTALL_USER (and any other vars).
 if [[ "$AI_MODE" == true ]]; then
-    echo "STORYBOT_AI=1" > "$INSTALL_DIR/.env"
+    AI_VALUE=1
 else
-    echo "STORYBOT_AI=0" > "$INSTALL_DIR/.env"
+    AI_VALUE=0
 fi
-chown "$INSTALL_USER:$INSTALL_USER" "$INSTALL_DIR/.env"
+if grep -qE '^STORYBOT_AI=' "$ENV_FILE"; then
+    sed -i "s/^STORYBOT_AI=.*/STORYBOT_AI=$AI_VALUE/" "$ENV_FILE"
+else
+    echo "STORYBOT_AI=$AI_VALUE" >> "$ENV_FILE"
+fi
+chown "$INSTALL_USER:$INSTALL_USER" "$ENV_FILE"
 
 # Step 1: Install system dependencies
 echo ""
@@ -156,7 +191,7 @@ fi
 # Create virtualenv (idempotent - skips if exists)
 echo "Creating virtual environment..."
 if [[ ! -d "$INSTALL_DIR/.venv" ]]; then
-    sudo -u "$INSTALL_USER" /home/ari/.local/bin/uv venv "$INSTALL_DIR/.venv"
+    sudo -u "$INSTALL_USER" "$USER_HOME/.local/bin/uv" venv "$INSTALL_DIR/.venv"
 else
     echo "Virtual environment already exists, skipping..."
 fi
@@ -168,9 +203,9 @@ fi
 echo "Installing Python packages..."
 if [[ "$AI_MODE" == true && "$(uname -m)" != "aarch64" ]]; then
     echo "AI mode on x86 - installing jetson extra (dev emulation)..."
-    sudo -u "$INSTALL_USER" /home/ari/.local/bin/uv sync --extra jetson
+    sudo -u "$INSTALL_USER" "$USER_HOME/.local/bin/uv" sync --extra jetson
 else
-    sudo -u "$INSTALL_USER" /home/ari/.local/bin/uv sync
+    sudo -u "$INSTALL_USER" "$USER_HOME/.local/bin/uv" sync
 fi
 echo -e "${GREEN}Python dependencies installed${NC}"
 
@@ -179,7 +214,7 @@ if [[ "$AI_MODE" == true ]]; then
     if [[ "$DEV_MODE" == false ]]; then
         echo ""
         echo "Step 3: Downloading TTS models..."
-        sudo -u "$INSTALL_USER" bash "$INSTALL_DIR/deploy/download-models.sh" "/home/ari/.local/share/piper"
+        sudo -u "$INSTALL_USER" bash "$INSTALL_DIR/deploy/download-models.sh" "$USER_HOME/.local/share/piper"
         echo -e "${GREEN}Models downloaded${NC}"
     else
         echo ""
@@ -225,11 +260,15 @@ udevadm settle
 # Step 6: Install systemd service
 echo ""
 echo "Step 6: Installing systemd service..."
-cp "$INSTALL_DIR/deploy/storybot.service" /etc/systemd/system/
+# storybot.service and storybot-rollback.sh are templates: substitute the
+# install user and directory before installing them.
+sed -e "s|__INSTALL_USER__|$INSTALL_USER|g" -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" \
+    "$INSTALL_DIR/deploy/storybot.service" > /etc/systemd/system/storybot.service
 cp "$INSTALL_DIR/deploy/storybot-nfc-reset.service" /etc/systemd/system/
 cp "$INSTALL_DIR/deploy/storybot-reset-nfc.sh" /usr/local/bin/storybot-reset-nfc.sh
 chmod +x /usr/local/bin/storybot-reset-nfc.sh
-cp "$INSTALL_DIR/deploy/storybot-rollback.sh" /usr/local/bin/storybot-rollback.sh
+sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" \
+    "$INSTALL_DIR/deploy/storybot-rollback.sh" > /usr/local/bin/storybot-rollback.sh
 chmod +x /usr/local/bin/storybot-rollback.sh
 systemctl daemon-reload
 systemctl enable storybot.service
@@ -237,7 +276,7 @@ systemctl enable storybot-nfc-reset.service
 echo -e "${GREEN}Systemd service installed${NC}"
 
 # Step 6b: Configure passwordless sudo for llama-server control
-# The storybot service runs as user `ari` and must stop/start llama-server
+# The storybot service runs as $INSTALL_USER and must stop/start llama-server
 # during the SD cover swap cycle. Grant NOPASSWD for just those two commands.
 echo ""
 if [[ "$AI_MODE" == true ]]; then
@@ -303,10 +342,10 @@ echo -e "${GREEN}Nginx configured${NC}"
 echo ""
 if [[ "$AI_MODE" == true ]]; then
     echo "Step 8: Configuring GDM3 autologin..."
-    cat > /etc/gdm3/custom.conf << 'GDMEOF'
+    cat > /etc/gdm3/custom.conf << GDMEOF
 [daemon]
 AutomaticLoginEnable=true
-AutomaticLogin=ari
+AutomaticLogin=$INSTALL_USER
 
 [security]
 
@@ -325,9 +364,9 @@ fi
 echo ""
 if [[ "$AI_MODE" == true ]]; then
     echo "Step 9: Configuring kiosk autostart..."
-    sudo -u "$INSTALL_USER" mkdir -p /home/ari/.config/autostart
+    sudo -u "$INSTALL_USER" mkdir -p "$USER_HOME/.config/autostart"
 
-    cat > /home/ari/.config/autostart/storybot-kiosk.desktop << 'KIOSKEOF'
+    cat > "$USER_HOME/.config/autostart/storybot-kiosk.desktop" << 'KIOSKEOF'
 [Desktop Entry]
 Type=Application
 Name=StoryBot Kiosk
@@ -337,7 +376,7 @@ Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
 KIOSKEOF
-    chown "$INSTALL_USER:$INSTALL_USER" /home/ari/.config/autostart/storybot-kiosk.desktop
+    chown "$INSTALL_USER:$INSTALL_USER" "$USER_HOME/.config/autostart/storybot-kiosk.desktop"
     echo -e "${GREEN}Kiosk autostart configured${NC}"
 else
     echo "Step 9: Skipping Firefox kiosk autostart (stories-only mode)..."
@@ -347,7 +386,7 @@ fi
 echo ""
 if [[ "$AI_MODE" == true ]]; then
     echo "Step 10: Configuring screen settings..."
-    cat > /home/ari/.config/autostart/storybot-screen-setup.desktop << 'SCREENEOF'
+    cat > "$USER_HOME/.config/autostart/storybot-screen-setup.desktop" << 'SCREENEOF'
 [Desktop Entry]
 Type=Application
 Name=StoryBot Screen Setup
@@ -357,7 +396,7 @@ Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
 SCREENEOF
-    chown "$INSTALL_USER:$INSTALL_USER" /home/ari/.config/autostart/storybot-screen-setup.desktop
+    chown "$INSTALL_USER:$INSTALL_USER" "$USER_HOME/.config/autostart/storybot-screen-setup.desktop"
     echo -e "${GREEN}Screen settings configured${NC}"
 else
     echo "Step 10: Skipping screen settings (stories-only mode)..."
@@ -367,7 +406,7 @@ fi
 echo ""
 echo "Step 11: Fixing file ownership..."
 chown -R "$INSTALL_USER:$INSTALL_USER" "$INSTALL_DIR"
-chown -R "$INSTALL_USER:$INSTALL_USER" /home/ari/.config/autostart
+chown -R "$INSTALL_USER:$INSTALL_USER" "$USER_HOME/.config/autostart"
 echo -e "${GREEN}File ownership fixed${NC}"
 
 # Step 12: Print TP-Link WiFi setup instructions
@@ -420,9 +459,9 @@ echo "  - Polkit WiFi rule"
 if [[ "$AI_MODE" == true ]]; then
     echo "  - NVIDIA JetPack (GPU + CUDA)"
     if [[ "$DEV_MODE" == false ]]; then
-        echo "  - Piper TTS models at /home/ari/.local/share/piper"
+        echo "  - Piper TTS models at $USER_HOME/.local/share/piper"
     fi
-    echo "  - GDM3 autologin for user ari"
+    echo "  - GDM3 autologin for user $INSTALL_USER"
     echo "  - Firefox kiosk autostart"
     echo "  - Screen-never-blocks (activates on first login)"
     echo "  - Cursor hiding (unclutter)"

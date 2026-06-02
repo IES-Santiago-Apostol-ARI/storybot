@@ -231,28 +231,76 @@ uv sync --extra dev
 uv sync --extra jetson
 ```
 
-### Despliegue en Jetson
+### Despliegue
 
-Para desplegar StoryBot en un Jetson Orin Nano Super:
+El mismo script `deploy/install.sh` sirve para los dos tipos de despliegue.
+**Auto-detecta** si hay una GPU NVIDIA y adapta la instalación, pero el modo
+puede forzarse con `--ai` / `--no-ai`:
+
+| Despliegue | Hardware | Modo IA | `.env` |
+|------------|----------|---------|--------|
+| **Jetson** (producción completa) | Jetson Orin Nano Super (o PC con GPU NVIDIA) | Sí — LLM + TTS + portadas SD, kiosk Firefox, autologin | `STORYBOT_AI=1` |
+| **Sin Jetson** (solo cuentos) | Cualquier Linux sin GPU | No — solo cuentos narrados + panel admin | `STORYBOT_AI=0` |
+
+#### Paso previo: crear `.env`
+
+El instalador **no usa un usuario fijo**: lee `INSTALL_USER` desde `.env`. Antes
+de instalar, copia la plantilla y ajusta el usuario del sistema que será el
+propietario del despliegue:
 
 ```bash
-# Clonar el repositorio
-git clone <repo-url> /home/ari/storybot
-cd /home/ari/storybot
+# Clonar el repositorio (en el home del usuario de instalación)
+git clone <repo-url> ~/storybot
+cd ~/storybot
 
-# Ejecutar el script de instalación
-sudo bash deploy/install.sh
+# Crear .env a partir de la plantilla y definir INSTALL_USER
+cp .env.example .env
+# Edita .env y pon INSTALL_USER=<tu_usuario>
 ```
 
-El script de instalación realiza:
+`install.sh` escribe automáticamente `STORYBOT_AI` en `.env` (1 o 0) según el
+modo detectado o forzado, conservando la línea `INSTALL_USER`.
+
+#### Instalación en Jetson (con IA, `STORYBOT_AI=1`)
+
+```bash
+# Auto-detección de GPU (recomendado en el Jetson)
+sudo bash deploy/install.sh
+
+# O forzar el modo IA explícitamente
+sudo bash deploy/install.sh --ai
+```
+
+Además de lo común, en modo IA el script:
+- Instala `nvidia-jetpack` (drivers GPU + CUDA + TensorRT + cuDNN)
+- Descarga modelos Piper TTS (voz española)
+- Configura autologin GDM3 para el usuario de `INSTALL_USER`
+- Crea autostart GNOME para Firefox en modo kiosk (pantalla táctil)
+- Desactiva el apagado de pantalla y oculta el cursor
+- Configura `sudo` sin contraseña para controlar `llama-server`
+
+#### Instalación sin Jetson (solo cuentos, `STORYBOT_AI=0`)
+
+Para un equipo sin GPU, donde solo se reproducen cuentos narrados y se gestiona
+el contenido desde el panel de administración:
+
+```bash
+sudo bash deploy/install.sh --no-ai
+```
+
+En este modo se **omiten** `nvidia-jetpack`, los modelos TTS, el autologin GDM3,
+el kiosk de Firefox y los permisos de `llama-server`. El panel queda accesible
+en `http://localhost/admin`.
+
+#### Pasos comunes a ambos despliegues
+
+En cualquiera de los dos modos, el script:
 - Crea entorno virtual Python con uv e instala dependencias
 - Instala y habilita `pcscd` (daemon PC/SC para lector NFC ACR122U)
 - Desactiva módulos kernel conflictivos (`pn533_usb`, `pn533`, `nfc`) que impiden que pcscd acceda al ACR122U
-- Descarga modelos Piper TTS (voz española)
 - Configura servicio systemd para FastAPI (`storybot.service`, con dependencia en `pcscd`)
 - Instala Nginx como proxy inverso (puerto 80 -> 8000)
-- Configura autologin GDM3 para usuario `ari`
-- Crea autostart GNOME para Firefox en modo kiosk
+- Despliega la regla polkit para gestión WiFi
 - Imprime instrucciones para configurar el AP WiFi TP-Link
 
 > **Nota NFC:** El lector ACR122U usa la pila PC/SC estándar vía `pyscard` + `pcscd`. No se usa `nfcpy` (la propia documentación de nfcpy desaconseja el ACR122U por sus limitaciones de acceso directo al PN532).
@@ -281,22 +329,32 @@ sudo systemctl start storybot
 
 ### Configuración
 
-Crea un archivo `.env` en la raíz del proyecto con las variables de configuración necesarias. El servicio systemd lo carga automáticamente al arrancar.
+Crea un archivo `.env` en la raíz del proyecto (`cp .env.example .env`) con las variables de configuración necesarias. El servicio systemd lo carga automáticamente al arrancar.
+
+#### `INSTALL_USER`
+
+Usuario del sistema propietario del despliegue. **Obligatorio** antes de ejecutar `deploy/install.sh`: el instalador lo lee de `.env` (no hay usuario fijo por defecto) y lo usa para el usuario del servicio systemd, la propiedad de ficheros, el autologin GDM3, el autostart del kiosk, `uv` y los modelos TTS.
+
+```bash
+# .env
+INSTALL_USER=ari
+```
 
 #### `STORYBOT_AI`
 
-Controla la detección de capacidades de IA. Si no se define, el sistema auto-detecta el hardware al arrancar (CUDA + RAM).
+Controla la detección de capacidades de IA y distingue entre el despliegue en **Jetson** (`STORYBOT_AI=1`) y el despliegue **sin Jetson / solo cuentos** (`STORYBOT_AI=0`). Si no se define, el sistema auto-detecta el hardware al arrancar (CUDA + RAM). `deploy/install.sh` escribe este valor automáticamente.
 
 | Valor | Comportamiento |
 |-------|---------------|
 | *(no definida)* | Auto-detección: comprueba GPU CUDA y RAM disponible |
-| `1` | Forzar IA activada (ignora detección hardware) |
-| `0` | Forzar IA desactivada (omite todas las pruebas) |
+| `1` | Forzar IA activada (Jetson / GPU — ignora detección hardware) |
+| `0` | Forzar IA desactivada (sin Jetson — omite todas las pruebas) |
 
 Ejemplo:
 
 ```bash
 # .env
+INSTALL_USER=ari
 STORYBOT_AI=1
 ```
 

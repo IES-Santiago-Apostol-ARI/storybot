@@ -1,3 +1,5 @@
+# Template: __INSTALL_USER__ and __INSTALL_HOME__ are substituted by
+# deploy/install_llama_server.sh when this unit is installed.
 [Unit]
 Description=llama.cpp Server (Qwen 3.5 4B)
 After=network-online.target
@@ -5,10 +7,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=ari
-WorkingDirectory=/home/ari/llama.cpp
-ExecStart=/home/ari/llama.cpp/build/bin/llama-server \
-  -m /home/ari/llama.cpp/models/Qwen3.5-4B-GGUF/Qwen3.5-4B-Q4_K_M.gguf \
+User=__INSTALL_USER__
+WorkingDirectory=__INSTALL_HOME__/llama.cpp
+ExecStart=__INSTALL_HOME__/llama.cpp/build/bin/llama-server \
+  -m __INSTALL_HOME__/llama.cpp/models/Qwen3.5-4B-GGUF/Qwen3.5-4B-Q4_K_M.gguf \
   --alias qwen35-4b-local \
   -np 1 -t 6 -c 8192 --n-gpu-layers 32 \
   --batch-size 256 --ubatch-size 64 \
