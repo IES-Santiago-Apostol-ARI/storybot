@@ -8,6 +8,20 @@ resolution-markers = [
     "python_full_version < '3.11'",
 ]
 
+[manifest]
+
+[[manifest.dependency-metadata]]
+name = "tensorrt"
+
+[[manifest.dependency-metadata]]
+name = "tensorrt-cu13"
+
+[[manifest.dependency-metadata]]
+name = "tensorrt-cu13-bindings"
+
+[[manifest.dependency-metadata]]
+name = "tensorrt-cu13-libs"
+
 [[package]]
 name = "accelerate"
 version = "1.13.0"
@@ -2593,9 +2607,7 @@ dependencies = [
     { name = "jsonschema" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "onnxruntime" },
     { name = "pillow" },
-    { name = "piper-tts" },
     { name = "psutil" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -2610,15 +2622,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-dev = [
-    { name = "black" },
-    { name = "httpx" },
-    { name = "mypy" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-]
 jetson = [
     { name = "accelerate" },
     { name = "bitsandbytes", marker = "platform_machine == 'aarch64'" },
@@ -2629,10 +2632,12 @@ jetson = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "onnx" },
+    { name = "onnxruntime" },
     { name = "onnxruntime-gpu", marker = "platform_machine == 'aarch64'" },
     { name = "opencv-contrib-python" },
     { name = "opencv-python" },
     { name = "peft" },
+    { name = "piper-tts" },
     { name = "pycuda", marker = "platform_machine == 'aarch64'" },
     { name = "pygobject", marker = "platform_machine == 'aarch64'" },
     { name = "safetensors" },
@@ -2646,49 +2651,48 @@ jetson = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "black" },
+    { name = "httpx" },
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
     { name = "requests" },
+    { name = "ruff" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "accelerate", marker = "extra == 'jetson'", specifier = ">=0.25.0" },
     { name = "bitsandbytes", marker = "platform_machine == 'aarch64' and extra == 'jetson'", specifier = ">=0.41.0" },
-    { name = "black", marker = "extra == 'dev'", specifier = ">=23.12.0" },
     { name = "brother-ql", specifier = ">=0.9.0" },
     { name = "cuda-python", marker = "platform_machine == 'aarch64' and extra == 'jetson'", specifier = ">=12.6" },
     { name = "cupy-cuda12x", marker = "platform_machine == 'aarch64' and extra == 'jetson'", specifier = ">=12.0" },
     { name = "diffusers", marker = "extra == 'jetson'", specifier = ">=0.25.0" },
     { name = "fastapi", specifier = ">=0.109.0" },
     { name = "httpx", specifier = ">=0.26.0" },
-    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.26.0" },
     { name = "jetson-stats", marker = "platform_machine == 'aarch64' and extra == 'jetson'", specifier = ">=4.2" },
     { name = "jsonschema", specifier = ">=4.21.0" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8.0" },
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "numpy", marker = "extra == 'jetson'", specifier = ">=1.24.0" },
     { name = "onnx", marker = "extra == 'jetson'", specifier = ">=1.15.0" },
-    { name = "onnxruntime", specifier = ">=1.16.0,<1.20" },
+    { name = "onnxruntime", marker = "extra == 'jetson'", specifier = ">=1.16.0,<1.20" },
     { name = "onnxruntime-gpu", marker = "platform_machine == 'aarch64' and extra == 'jetson'", specifier = ">=1.16.0" },
     { name = "opencv-contrib-python", marker = "extra == 'jetson'", specifier = ">=4.8.0" },
     { name = "opencv-python", marker = "extra == 'jetson'", specifier = ">=4.8.0" },
     { name = "peft", marker = "extra == 'jetson'", specifier = ">=0.7.0" },
     { name = "pillow", specifier = ">=10.2.0" },
-    { name = "piper-tts", specifier = ">=1.4.1" },
+    { name = "piper-tts", marker = "extra == 'jetson'", specifier = ">=1.4.1" },
     { name = "psutil", specifier = ">=5.9.0" },
     { name = "pycuda", marker = "platform_machine == 'aarch64' and extra == 'jetson'", specifier = ">=2022.1" },
     { name = "pydantic", specifier = ">=2.5.0" },
     { name = "pydantic-settings", specifier = ">=2.1.0" },
     { name = "pydub", specifier = ">=0.25.0" },
     { name = "pygobject", marker = "platform_machine == 'aarch64' and extra == 'jetson'", specifier = ">=3.44.0" },
-    { name = "pyscard" },
     { name = "pyscard", specifier = ">=2.0.0" },
     { name = "pyserial", specifier = ">=3.5" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "python-multipart", specifier = ">=0.0.6" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "safetensors", marker = "extra == 'jetson'", specifier = ">=0.4.0" },
     { name = "simpleaudio", specifier = ">=1.0.4" },
     { name = "sse-starlette", specifier = ">=3.3.2" },
@@ -2700,10 +2704,19 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.27.0" },
     { name = "xformers", marker = "extra == 'jetson'", specifier = ">=0.0.23" },
 ]
-provides-extras = ["jetson", "dev"]
+provides-extras = ["jetson"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "requests", specifier = ">=2.32.5" }]
+dev = [
+    { name = "black", specifier = ">=23.12.0" },
+    { name = "httpx", specifier = ">=0.26.0" },
+    { name = "mypy", specifier = ">=1.8.0" },
+    { name = "pytest", specifier = ">=7.4.0" },
+    { name = "pytest-asyncio", specifier = ">=0.23.0" },
+    { name = "pytest-cov", specifier = ">=4.1.0" },
+    { name = "requests", specifier = ">=2.32.5" },
+    { name = "ruff", specifier = ">=0.1.0" },
+]
 
 [[package]]
 name = "sympy"
@@ -2721,37 +2734,7 @@ wheels = [
 name = "tensorrt"
 version = "10.15.1.29"
 source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "tensorrt-cu13" },
-]
 sdist = { url = "https://files.pythonhosted.org/packages/29/8d/1b3ea6493ee07d221fdf655a936f6b9d7c4bebfad7c0fdb879440a4172ad/tensorrt-10.15.1.29.tar.gz", hash = "sha256:a78fb34aee9695b81a7485ac0648859b802ff1faaac4bde743d9c51d7493204b", size = 16701, upload-time = "2026-01-30T07:40:25.93Z" }
-
-[[package]]
-name = "tensorrt-cu13"
-version = "10.15.1.29"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "tensorrt-cu13-bindings" },
-    { name = "tensorrt-cu13-libs" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/1b/0b/ff3683ddf1960227fb2c6210e92ab83c26eda92091046c123d8dfc1adc93/tensorrt_cu13-10.15.1.29.tar.gz", hash = "sha256:60edcdf1a68526732ea613c309283af036f418f6ebcbc8e18d24566b74d776e0", size = 19084, upload-time = "2026-01-30T07:42:55.055Z" }
-
-[[package]]
-name = "tensorrt-cu13-bindings"
-version = "10.15.1.29"
-source = { registry = "https://pypi.org/simple" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/08/ac/11352689bb6562a41cdd0d1a6671e36cd8d2bdc55b651078868ea1b82ef0/tensorrt_cu13_bindings-10.15.1.29-cp310-none-manylinux_2_35_aarch64.whl", hash = "sha256:04f4db7e418c24d913bb5c21a745b066747d80ec8fabe0921b70a259af284b83", size = 1152064, upload-time = "2026-01-29T21:00:55.526Z" },
-    { url = "https://files.pythonhosted.org/packages/bb/4a/48ebb0e49d77a2efccd454347f0d083d439a319c2cf4686c878e96dd2981/tensorrt_cu13_bindings-10.15.1.29-cp311-none-manylinux_2_35_aarch64.whl", hash = "sha256:4e80e6e1bee6e6437cf60496a18132a3853ea0d8c591bf2f9838df130fa93a68", size = 1153205, upload-time = "2026-01-29T21:00:19.174Z" },
-    { url = "https://files.pythonhosted.org/packages/0c/26/2c78ff712ec9da3aa4851ad86999dae6c5aa927de53a75aa5255cbcdd9c1/tensorrt_cu13_bindings-10.15.1.29-cp312-none-manylinux_2_35_aarch64.whl", hash = "sha256:503a623a015cfce5bf00477162be2e872fdf2397acaf840f75c9dd22f41d6672", size = 1144656, upload-time = "2026-01-29T20:59:50.421Z" },
-    { url = "https://files.pythonhosted.org/packages/fc/90/ab65253fc12057de36b8626f676c015a6c6d47fafa765f5b9852b03902ff/tensorrt_cu13_bindings-10.15.1.29-cp313-none-manylinux_2_35_aarch64.whl", hash = "sha256:5372daece50818dca9805a26ea3384d1acc3b5a84720e739646869367bfff331", size = 1144646, upload-time = "2026-01-29T21:00:46.732Z" },
-]
-
-[[package]]
-name = "tensorrt-cu13-libs"
-version = "10.15.1.29"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/1a/dd/745dacecd032db5720e8bacfbbb436319eb49b621142414b3abf19cafd9a/tensorrt_cu13_libs-10.15.1.29.tar.gz", hash = "sha256:d07fe8b65ce7edb94e805d0b6e9653afe742610b7d5e1b270c918bc9e58a36b1", size = 681, upload-time = "2026-01-29T20:58:43.318Z" }
 
 [[package]]
 name = "tokenizers"

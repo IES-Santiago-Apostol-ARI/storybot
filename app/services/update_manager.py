@@ -23,18 +23,46 @@ async def _run_git(*args: str) -> tuple[str, str, int]:
     )
 
 
-async def _run_uv(*args: str) -> int:
-    """Run uv command and return returncode only."""
+def _find_uv() -> str:
+    """Locate the uv binary, accounting for systemd's restricted PATH.
+
+    Under systemd (storybot.service) PATH does not include ~/.local/bin, where
+    deploy/install.sh installs uv, so shutil.which("uv") returns None there.
+    Fall back to the known install locations before giving up.
+    """
     uv_bin = shutil.which("uv")
-    if not uv_bin:
-        # Fallback for venv scenarios
-        uv_bin = str(Path(sys.prefix).parent / "bin" / "uv")
-    proc = await asyncio.create_subprocess_exec(
-        uv_bin,
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    if uv_bin:
+        return uv_bin
+    candidates = [
+        Path.home() / ".local" / "bin" / "uv",  # install.sh location
+        Path(sys.prefix) / "bin" / "uv",  # .venv/bin/uv, if installed there
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    # Nothing found: return the most likely path so the caller's spawn raises a
+    # clear FileNotFoundError, which _run_uv turns into a non-zero return code.
+    return str(candidates[0])
+
+
+async def _run_uv(*args: str) -> int:
+    """Run uv command and return returncode only.
+
+    Returns a non-zero code (rather than raising) when the uv binary cannot be
+    spawned, so apply_update can emit a clean error event instead of crashing
+    the SSE stream mid-transfer.
+    """
+    uv_bin = _find_uv()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            uv_bin,
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        _log_event("uv_not_found", uv_bin=uv_bin)
+        return -1
     await proc.communicate()
     return proc.returncode if proc.returncode is not None else -1
 

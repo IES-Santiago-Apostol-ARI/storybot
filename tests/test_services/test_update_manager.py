@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -11,9 +12,10 @@ from app.services.update_manager import (
     MockUpdateManager,
     RealUpdateManager,
     UpdateManager,
+    _find_uv,
+    _run_uv,
     create_update_manager,
 )
-
 
 # ---------------------------------------------------------------------------
 # Subprocess mock helper (same pattern as test_wifi_manager.py)
@@ -442,3 +444,54 @@ class TestUpdateManagerBaseClass:
         mgr = UpdateManager()
         with pytest.raises(NotImplementedError):
             await mgr.get_version()
+
+
+# ---------------------------------------------------------------------------
+# uv binary resolution (regression: systemd PATH lacks ~/.local/bin)
+# ---------------------------------------------------------------------------
+
+
+class TestFindUv:
+    """_find_uv locates the uv binary despite the restricted systemd PATH."""
+
+    @patch("app.services.update_manager.shutil.which", return_value="/custom/uv")
+    def test_uses_which_when_available(self, mock_which):
+        assert _find_uv() == "/custom/uv"
+
+    @patch("app.services.update_manager.shutil.which", return_value=None)
+    def test_falls_back_to_local_bin(self, mock_which, tmp_path, monkeypatch):
+        """When uv is not on PATH, resolve ~/.local/bin/uv (install.sh location)."""
+        local_uv = tmp_path / ".local" / "bin" / "uv"
+        local_uv.parent.mkdir(parents=True)
+        local_uv.write_text("")
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+        assert _find_uv() == str(local_uv)
+
+
+class TestRunUvMissingBinary:
+    """_run_uv degrades gracefully when the uv binary cannot be spawned."""
+
+    @patch("app.services.update_manager.asyncio.create_subprocess_exec")
+    async def test_returns_nonzero_instead_of_raising(self, mock_exec):
+        mock_exec.side_effect = FileNotFoundError("no such file: uv")
+        rc = await _run_uv("sync")
+        assert rc != 0
+
+    @patch("app.services.update_manager.asyncio.create_subprocess_exec")
+    async def test_apply_emits_error_event_when_uv_missing(self, mock_exec):
+        """Missing uv at the sync stage yields a clean error event, not a crash."""
+        mock_exec.side_effect = [
+            _make_subprocess_mock(stdout=b"abc1234\n"),  # rev-parse HEAD
+            _make_subprocess_mock(returncode=0),  # git fetch
+            _make_subprocess_mock(returncode=0),  # git reset
+            FileNotFoundError("no such file: uv"),  # uv sync
+            _make_subprocess_mock(returncode=0),  # rollback: git reset
+            FileNotFoundError("no such file: uv"),  # rollback: uv sync
+        ]
+        mgr = RealUpdateManager()
+        events = []
+        async for event in mgr.apply_update():
+            events.append(event)
+        error_events = [e for e in events if e.get("stage") == "error"]
+        assert len(error_events) == 1
+        assert "syncing" in [e["stage"] for e in events]
