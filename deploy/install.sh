@@ -128,7 +128,7 @@ chown "$INSTALL_USER:$INSTALL_USER" "$ENV_FILE"
 echo ""
 echo "Step 1: Installing system dependencies..."
 apt-get update
-apt-get install -y nginx unclutter pcscd pcsc-tools libccid libpcsclite-dev swig uhubctl 
+apt-get install -y nginx unclutter pcscd pcsc-tools libccid libpcsclite-dev swig uhubctl avahi-daemon avahi-utils
 
 # AI-specific: NVIDIA JetPack (GPU drivers + CUDA + TensorRT + cuDNN)
 if [[ "$AI_MODE" == true ]]; then
@@ -310,12 +310,25 @@ echo -e "${GREEN}Polkit WiFi rule installed${NC}"
 echo ""
 echo "Step 6d: Configuring Ethernet never-default..."
 ETH_CONN=$(nmcli -t -f NAME,TYPE connection show --active | grep 802-3-ethernet | cut -d: -f1)
+ETH_IFACE=""
 if [[ -n "$ETH_CONN" ]]; then
     nmcli connection modify "$ETH_CONN" ipv4.never-default yes ipv6.never-default yes
+    ETH_IFACE=$(nmcli -t -f GENERAL.DEVICES connection show "$ETH_CONN" | cut -d: -f2)
     echo -e "${GREEN}Ethernet never-default configured for '$ETH_CONN'${NC}"
 else
     echo -e "${YELLOW}No active Ethernet connection found -- skipping never-default${NC}"
 fi
+
+# Loosen reverse-path filtering so replies on the WiFi interface aren't
+# dropped just because the routing table prefers the Ethernet link for
+# the matching subnet (classic dual-interface "WiFi internet stops
+# working when Ethernet is plugged in" issue).
+cat > /etc/sysctl.d/99-storybot-routing.conf << 'EOF'
+net.ipv4.conf.all.rp_filter=2
+net.ipv4.conf.default.rp_filter=2
+EOF
+sysctl --system >/dev/null
+echo -e "${GREEN}Loose reverse-path filtering configured${NC}"
 
 # Step 6e: Configure passwordless sudo for service restart (OTA updates)
 echo ""
@@ -326,6 +339,44 @@ EOF
 chmod 0440 /etc/sudoers.d/storybot-updates
 visudo -c -f /etc/sudoers.d/storybot-updates
 echo -e "${GREEN}Sudoers entry for OTA updates installed${NC}"
+
+# Step 6f: Configure Avahi (mDNS) so devices on the TP-Link AP can reach
+# the device as storybot.local without knowing its IP address.
+echo ""
+echo "Step 6f: Configuring Avahi mDNS announcement..."
+if grep -q "^#host-name=" /etc/avahi/avahi-daemon.conf; then
+    sed -i "s/^#host-name=.*/host-name=storybot/" /etc/avahi/avahi-daemon.conf
+elif ! grep -q "^host-name=" /etc/avahi/avahi-daemon.conf; then
+    sed -i "/^\[server\]/a host-name=storybot" /etc/avahi/avahi-daemon.conf
+fi
+if [[ -n "$ETH_IFACE" ]]; then
+    if grep -q "^#allow-interfaces=" /etc/avahi/avahi-daemon.conf; then
+        sed -i "s/^#allow-interfaces=.*/allow-interfaces=$ETH_IFACE/" /etc/avahi/avahi-daemon.conf
+    elif grep -q "^allow-interfaces=" /etc/avahi/avahi-daemon.conf; then
+        sed -i "s/^allow-interfaces=.*/allow-interfaces=$ETH_IFACE/" /etc/avahi/avahi-daemon.conf
+    else
+        sed -i "/^\[server\]/a allow-interfaces=$ETH_IFACE" /etc/avahi/avahi-daemon.conf
+    fi
+    echo -e "${GREEN}Avahi restricted to interface '$ETH_IFACE'${NC}"
+else
+    echo -e "${YELLOW}No Ethernet interface detected -- Avahi will announce on all interfaces${NC}"
+fi
+
+cat > /etc/avahi/services/storybot.service << 'EOF'
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+  <name replace-wildcards="yes">StoryBot on %h</name>
+  <service>
+    <type>_http._tcp</type>
+    <port>80</port>
+  </service>
+</service-group>
+EOF
+
+systemctl enable --now avahi-daemon
+systemctl restart avahi-daemon
+echo -e "${GREEN}Avahi configured -- device reachable at http://storybot.local${NC}"
 
 # Step 7: Configure Nginx reverse proxy
 echo ""
@@ -441,6 +492,7 @@ echo "    ipv4.method manual \\"
 echo "    ipv4.addresses 192.168.12.1/24"
 echo ""
 echo "Teachers access the admin panel at: http://192.168.12.1/admin"
+echo "Or via mDNS (no IP needed): http://storybot.local/admin"
 echo ""
 
 # Completion summary
@@ -458,6 +510,7 @@ echo "  - Python dependencies (uv sync)"
 echo "  - Nginx reverse proxy (port 80 -> 8000)"
 echo "  - StoryBot systemd service"
 echo "  - Polkit WiFi rule"
+echo "  - Avahi mDNS (http://storybot.local)"
 if [[ "$AI_MODE" == true ]]; then
     echo "  - NVIDIA JetPack (GPU + CUDA)"
     if [[ "$DEV_MODE" == false ]]; then
