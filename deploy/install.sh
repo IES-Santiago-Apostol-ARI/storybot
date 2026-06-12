@@ -309,14 +309,34 @@ echo -e "${GREEN}Polkit WiFi rule installed${NC}"
 # Step 6d: Configure Ethernet never-default (prevents WiFi routing breakage)
 echo ""
 echo "Step 6d: Configuring Ethernet never-default..."
-ETH_CONN=$(nmcli -t -f NAME,TYPE connection show --active | grep 802-3-ethernet | cut -d: -f1)
+# Topology: Ethernet -> TP-Link AP (local kiosk LAN, NO internet);
+#           WiFi      -> upstream router (internet, used for OTA updates).
+# For internet via WiFi to survive Ethernet being plugged in, three things
+# must hold on EVERY Ethernet profile (not just the one active right now):
+#   1. never-default  -> Ethernet never installs a default route.
+#   2. route-metric    -> if it ever does, WiFi (metric 600) still wins.
+#   3. DNS de-priority -> the TP-Link's DNS (no internet) must not be queried
+#      first, otherwise lookups fail even when routing is correct.
 ETH_IFACE=""
-if [[ -n "$ETH_CONN" ]]; then
-    nmcli connection modify "$ETH_CONN" ipv4.never-default yes ipv6.never-default yes
-    ETH_IFACE=$(nmcli -t -f GENERAL.DEVICES connection show "$ETH_CONN" | cut -d: -f2)
-    echo -e "${GREEN}Ethernet never-default configured for '$ETH_CONN'${NC}"
+mapfile -t ETH_CONNS < <(nmcli -t -f NAME,TYPE connection show | grep ':802-3-ethernet$' | cut -d: -f1)
+if [[ ${#ETH_CONNS[@]} -gt 0 ]]; then
+    for ETH_CONN in "${ETH_CONNS[@]}"; do
+        nmcli connection modify "$ETH_CONN" \
+            ipv4.never-default yes ipv6.never-default yes \
+            ipv4.route-metric 700 ipv6.route-metric 700 \
+            ipv4.dns-priority 200 ipv6.dns-priority 200 \
+            ipv4.ignore-auto-dns yes ipv6.ignore-auto-dns yes
+        echo -e "${GREEN}Ethernet routing/DNS de-prioritised for '$ETH_CONN'${NC}"
+    done
+    # Re-apply on the active Ethernet connection so it takes effect now
+    # rather than only after the next reboot.
+    ACTIVE_ETH=$(nmcli -t -f NAME,TYPE connection show --active | grep ':802-3-ethernet$' | cut -d: -f1)
+    if [[ -n "$ACTIVE_ETH" ]]; then
+        ETH_IFACE=$(nmcli -t -f GENERAL.DEVICES connection show "$ACTIVE_ETH" | cut -d: -f2)
+        nmcli connection up "$ACTIVE_ETH" >/dev/null 2>&1 || true
+    fi
 else
-    echo -e "${YELLOW}No active Ethernet connection found -- skipping never-default${NC}"
+    echo -e "${YELLOW}No Ethernet connection profile found -- skipping never-default${NC}"
 fi
 
 # Loosen reverse-path filtering so replies on the WiFi interface aren't
