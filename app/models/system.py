@@ -23,3 +23,7 @@ class SystemStatus(BaseModel):
     )
     uptime_seconds: float = Field(..., description="Server uptime in seconds")
     version: str = Field(..., description="StoryBot version")
+    platform: Optional[str] = Field(
+        None,
+        description="Detected hardware platform: jetson|rpi|generic (informational)",
+    )

@@ -37,6 +37,7 @@ from app.routers.generate import router as generate_router
 from app.routers.generated import router as generated_router
 from app.routers.printer import router as printer_router
 from app.routers.wifi import router as wifi_router
+from app.routers.bt import router as bt_router
 from app.routers.updates import router as updates_router
 from app.services.hardware_manager import HardwareManager
 from app.services.story_manager import StoryManager
@@ -213,6 +214,7 @@ app.include_router(generate_router, tags=["generate"])
 app.include_router(generated_router)
 app.include_router(printer_router)
 app.include_router(wifi_router)
+app.include_router(bt_router)
 app.include_router(updates_router)
 
 # Mount static files for story content (with no-cache for audio)

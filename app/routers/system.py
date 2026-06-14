@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.dependencies import get_hardware
 from app.models.system import SystemStatus
 from app.services.hardware_manager import HardwareManager
+from app.services.platform_detect import detect_platform
 
 
 router = APIRouter()
@@ -52,6 +53,7 @@ async def get_system_status(
         SystemStatus with hardware states, uptime, and version
     """
     status_dict = await hardware.get_status()
+    status_dict["platform"] = detect_platform()
     return SystemStatus(**status_dict)
 
 
@@ -65,6 +67,7 @@ async def rescan_hardware(
         Updated SystemStatus after rescan
     """
     status_dict = await hardware.rescan()
+    status_dict["platform"] = detect_platform()
     return SystemStatus(**status_dict)
 
 
