@@ -209,6 +209,7 @@ __marimo__/
 .planning/
 .gsd/
 content/stories/
+content/bt_devices.json
 .update-state
 .paul/
 .gitnexus
