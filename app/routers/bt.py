@@ -58,4 +58,6 @@ async def get_status() -> dict:
         "platform": detect_platform(),
         "adapter_present": _bt_adapter_present(),
         "error_message": base.get("error_message"),
+        "connected_mac": base.get("connected_mac"),
+        "sink": base.get("sink", "wired"),
     }

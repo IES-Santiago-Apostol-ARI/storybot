@@ -2,6 +2,11 @@
 
 from pydantic import BaseModel, Field
 
+# Strict MAC regex — the V5 input-validation control for the whole phase. The MAC is
+# the ONLY safe source for D-Bus object paths and pactl card/sink names downstream
+# (T-27-01): a regex-validated MAC can never break out into a path or a shell arg.
+_MAC = r"^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$"
+
 
 class BtDevice(BaseModel):
     """A discovered Bluetooth audio device from a scan.
@@ -30,6 +35,13 @@ class BtStatus(BaseModel):
     error_message: str | None = Field(
         None, description="Optional error detail; None when status is ok"
     )
+    connected_mac: str | None = Field(
+        None,
+        description="MAC of the currently connected speaker; None when none",
+    )
+    sink: str = Field(
+        ..., description="Current default audio sink: 'wired' or the BT sink name"
+    )
 
 
 class LastSpeaker(BaseModel):
@@ -40,3 +52,22 @@ class LastSpeaker(BaseModel):
     last_connected: str = Field(
         ..., description="ISO-8601 timestamp of the last connection"
     )
+
+
+class BtPairRequest(BaseModel):
+    """Request body for pairing a new speaker (BT-02)."""
+
+    mac: str = Field(..., pattern=_MAC, description="Speaker MAC to pair")
+    name: str | None = Field(None, description="Optional friendly name for the speaker")
+
+
+class BtConnectRequest(BaseModel):
+    """Request body for connecting a previously paired speaker (BT-03)."""
+
+    mac: str = Field(..., pattern=_MAC, description="Speaker MAC to connect")
+
+
+class BtForgetText(BaseModel):
+    """Request body for forgetting a paired speaker (BT-04)."""
+
+    mac: str = Field(..., pattern=_MAC, description="Speaker MAC to forget")

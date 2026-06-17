@@ -56,6 +56,7 @@ class TestBtStatusModel:
             status="ok",
             platform="generic",
             adapter_present=False,
+            sink="wired",
         )
         assert st.is_mock is True
         assert st.error_message is None
@@ -68,6 +69,7 @@ class TestBtStatusModel:
             platform="generic",
             adapter_present=True,
             error_message="no adapter",
+            sink="wired",
         )
         assert st.error_message == "no adapter"
 
