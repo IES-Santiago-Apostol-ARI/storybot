@@ -156,7 +156,10 @@ async def test_route_to_wired_selects_first_alsa_sink(monkeypatch):
 
     monkeypatch.setattr(bt_audio, "_run_pactl", fake_run)
     result = await bt_audio.route_to_wired()
-    assert calls[-1] == ("set-default-sink", "alsa_output.pci-0000_00_1b.0.analog-stereo")
+    assert calls[-1] == (
+        "set-default-sink",
+        "alsa_output.pci-0000_00_1b.0.analog-stereo",
+    )
     assert result is True
 
 

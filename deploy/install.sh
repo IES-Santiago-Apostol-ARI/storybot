@@ -160,6 +160,47 @@ else
     echo -e "${YELLOW}No active user session for $INSTALL_USER — skipping pipewire user-unit setup${NC}"
 fi
 
+# Step 1b: Jetson A2DP override drop-in (PLAT-04)
+# JetPack ships bluetoothd with --noplugin=audio,a2dp,avrcp in NVIDIA's
+# nv-bluetooth-service.conf, so without an override NO A2DP sink ever appears
+# on Jetson (RESEARCH PLAT-04 — no runtime fallback). Ship an ADDITIVE override
+# drop-in that resets ExecStart= and re-sets bluetoothd without --noplugin; this
+# survives JetPack updates better than editing NVIDIA's conf in place. Gated on
+# the Jetson marker so dev/x86/RPi installs are unaffected.
+if [ -f /etc/nv_tegra_release ]; then
+    BT_DROPIN=/etc/systemd/system/bluetooth.service.d/override-a2dp.conf
+    mkdir -p "$(dirname "$BT_DROPIN")"
+    cat > "$BT_DROPIN" << 'EOF'
+[Service]
+ExecStart=
+ExecStart=/usr/lib/bluetooth/bluetoothd
+EOF
+    chmod 0644 "$BT_DROPIN"
+    systemctl daemon-reload
+    systemctl restart bluetooth
+    echo -e "${GREEN}Jetson A2DP override drop-in installed (bluetoothd --noplugin removed)${NC}"
+else
+    echo -e "${YELLOW}Not a Jetson — skipping A2DP override drop-in${NC}"
+fi
+
+# Step 1c: BlueZ permission grant (all platforms)
+# The service user must be allowed to call org.bluez pair/connect without a
+# password prompt (mirrors the WiFi INFRA-09 polkit precedent). Grant the
+# bluetooth group AND a polkit rule (belt-and-suspenders, distro-dependent).
+usermod -aG bluetooth "$INSTALL_USER" || true
+echo -e "${GREEN}Added $INSTALL_USER to bluetooth group${NC}"
+mkdir -p /etc/polkit-1/localauthority/50-local.d
+cat > /etc/polkit-1/localauthority/50-local.d/10-storybot-bt.pkla << EOF
+[StoryBot Bluetooth Management]
+Identity=unix-user:${INSTALL_USER}
+Action=org.bluez.device.pair;org.bluez.device.connect;org.bluez.device.disconnect;org.bluez.device.remove;org.bluez.adapter.set-powered;org.bluez.adapter.set-discoverable;org.bluez.agent.register
+ResultAny=yes
+ResultInactive=yes
+ResultActive=yes
+EOF
+chmod 0644 /etc/polkit-1/localauthority/50-local.d/10-storybot-bt.pkla
+echo -e "${GREEN}Polkit Bluetooth rule installed${NC}"
+
 echo -e "${GREEN}System dependencies installed${NC}"
 
 # Enable pcscd socket (PC/SC daemon for NFC reader)
