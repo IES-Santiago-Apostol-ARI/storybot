@@ -105,6 +105,13 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
 
+# bt_agent.py exports the BlueZ org.bluez.Agent1 D-Bus interface: method names
+# MUST be PascalCase to match the BlueZ spec verbatim (N802), and parameters
+# use dbus-fast's D-Bus signature-string annotations ("o"/"s"/"u"/"q") which
+# ruff reads as undefined names (F821). Both are protocol-mandated, not style.
+[tool.ruff.lint.per-file-ignores]
+"app/services/bt_agent.py" = ["N802", "F821"]
+
 [tool.black]
 line-length = 88
 target-version = ["py310"]
