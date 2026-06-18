@@ -69,3 +69,18 @@ class BtDeviceStore:
         tmp = self.path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(data, indent=2))
         os.replace(tmp, self.path)
+
+    def clear(self) -> None:
+        """Forget the last speaker, atomically (BT-03).
+
+        Writes ``{"last_speaker": null}`` via the same tmp+``os.replace``
+        pattern as ``save_last_speaker`` so a crash mid-write never leaves a
+        truncated file. No-op safe on a missing file (parent mkdir guarded).
+        ``get_last_speaker`` reads ``data.get("last_speaker")`` which yields
+        ``None`` for either an absent key or an explicit null value.
+        """
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        data = {"last_speaker": None}
+        tmp = self.path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, indent=2))
+        os.replace(tmp, self.path)

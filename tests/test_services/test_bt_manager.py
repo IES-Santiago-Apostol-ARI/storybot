@@ -21,7 +21,6 @@ from app.services.bt_manager import (
     create_bt_manager,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers — fake dbus-fast Variant (Pitfall 2: GetManagedObjects wraps every
 # property value in a Variant; _to_entries must unwrap via .value).
@@ -118,7 +117,7 @@ class TestAudioFilter:
         # 0x000400 (major 0x04 IS audio — sanity check we don't false-negative):
         # adjust to a real phone CoD: 0x7a020c major = (0x7a020c >> 8) & 0x1F
         # = 0x02 (Phone). Phone should NOT be treated as audio by CoD alone.
-        assert _is_audio({"Class": 0x7a020c}) is False
+        assert _is_audio({"Class": 0x7A020C}) is False
 
     def test_a2dp_sink_uuid(self):
         assert _is_audio({"UUIDs": [A2DP_SINK_UUID]}) is True
@@ -413,7 +412,7 @@ class TestIntegrationFixture:
                 "11:22:33:44:55:04",
                 alias="Móvil Profe",
                 rssi=-50,
-                cls=0x7a020c,
+                cls=0x7A020C,
             ),
             # Non-Device1 — filtered out.
             "/org/bluez/hci0/dev_11_22_33_44_55_05": {
@@ -468,7 +467,7 @@ def _real_scan_fixture():
             "11:22:33:44:55:03",
             alias="Móvil Profe",
             rssi=-50,
-            cls=0x7a020c,
+            cls=0x7A020C,
         ),
     }
 
@@ -685,20 +684,14 @@ class TestFactory:
     def test_factory_returns_mock_when_dbus_fast_unavailable(self, monkeypatch):
         # Even without TESTING, missing dbus-fast → Mock.
         monkeypatch.delenv("TESTING", raising=False)
-        monkeypatch.setattr(
-            "app.services.bt_manager._DBUS_FAST_AVAILABLE", False
-        )
-        monkeypatch.setattr(
-            "app.services.bt_manager._bt_adapter_present", lambda: True
-        )
+        monkeypatch.setattr("app.services.bt_manager._DBUS_FAST_AVAILABLE", False)
+        monkeypatch.setattr("app.services.bt_manager._bt_adapter_present", lambda: True)
         mgr = create_bt_manager()
         assert isinstance(mgr, MockBtManager)
 
     def test_factory_returns_mock_when_adapter_absent(self, monkeypatch):
         monkeypatch.delenv("TESTING", raising=False)
-        monkeypatch.setattr(
-            "app.services.bt_manager._DBUS_FAST_AVAILABLE", True
-        )
+        monkeypatch.setattr("app.services.bt_manager._DBUS_FAST_AVAILABLE", True)
         monkeypatch.setattr(
             "app.services.bt_manager._bt_adapter_present", lambda: False
         )
@@ -707,12 +700,8 @@ class TestFactory:
 
     def test_factory_returns_real_when_all_gates_open(self, monkeypatch):
         monkeypatch.delenv("TESTING", raising=False)
-        monkeypatch.setattr(
-            "app.services.bt_manager._DBUS_FAST_AVAILABLE", True
-        )
-        monkeypatch.setattr(
-            "app.services.bt_manager._bt_adapter_present", lambda: True
-        )
+        monkeypatch.setattr("app.services.bt_manager._DBUS_FAST_AVAILABLE", True)
+        monkeypatch.setattr("app.services.bt_manager._bt_adapter_present", lambda: True)
         mgr = create_bt_manager()
         assert isinstance(mgr, RealBtManager)
         assert mgr.is_mock is False
@@ -727,15 +716,11 @@ class TestFactory:
         """PLAT-03: every fallback path must return, never raise."""
         monkeypatch.delenv("TESTING", raising=False)
         # All three negative branches.
-        monkeypatch.setattr(
-            "app.services.bt_manager._DBUS_FAST_AVAILABLE", False
-        )
+        monkeypatch.setattr("app.services.bt_manager._DBUS_FAST_AVAILABLE", False)
         m1 = create_bt_manager()
         assert isinstance(m1, MockBtManager)
 
-        monkeypatch.setattr(
-            "app.services.bt_manager._DBUS_FAST_AVAILABLE", True
-        )
+        monkeypatch.setattr("app.services.bt_manager._DBUS_FAST_AVAILABLE", True)
         monkeypatch.setattr(
             "app.services.bt_manager._bt_adapter_present", lambda: False
         )
@@ -745,12 +730,8 @@ class TestFactory:
     def test_factory_testing_takes_precedence_over_real(self, monkeypatch):
         """TESTING beats everything — even if hardware is present."""
         monkeypatch.setenv("TESTING", "1")
-        monkeypatch.setattr(
-            "app.services.bt_manager._DBUS_FAST_AVAILABLE", True
-        )
-        monkeypatch.setattr(
-            "app.services.bt_manager._bt_adapter_present", lambda: True
-        )
+        monkeypatch.setattr("app.services.bt_manager._DBUS_FAST_AVAILABLE", True)
+        monkeypatch.setattr("app.services.bt_manager._bt_adapter_present", lambda: True)
         mgr = create_bt_manager()
         assert isinstance(mgr, MockBtManager)
 
@@ -776,9 +757,7 @@ class TestBtAdapterPresent:
         assert _bt_adapter_present() is True
 
     def test_false_when_glob_empty(self, monkeypatch):
-        monkeypatch.setattr(
-            "app.services.bt_manager.glob.glob", lambda pattern: []
-        )
+        monkeypatch.setattr("app.services.bt_manager.glob.glob", lambda pattern: [])
         assert _bt_adapter_present() is False
 
     def test_false_on_oserror(self, monkeypatch):
@@ -816,3 +795,451 @@ def _async_raising(exc):
         raise exc
 
     return _stub
+
+
+def _seam_returning(value):
+    """Build an awaitable that accepts arbitrary args and returns ``value``.
+
+    For the lifecycle seams (``_pair_device(bus, mac)``, ``_connect_device``,
+    ``_disconnect_device``, ``_forget_device``) which are called with extra
+    positional args — the existing ``_async_returning`` only accepts ``self``.
+    """
+
+    async def _stub(*args, **kwargs):
+        return value
+
+    return _stub
+
+
+def _seam_raising(exc):
+    """Build an awaitable that accepts arbitrary args and raises ``exc``."""
+
+    async def _stub(*args, **kwargs):
+        raise exc
+
+    return _stub
+
+
+# ===========================================================================
+# Task 1 (27-05): base contract pair/connect/disconnect/forget,
+# MockBtManager state machine (BT-02/03/04/05 + AUDIO-02 fallback),
+# BtDeviceStore.clear()
+# ===========================================================================
+
+
+class TestBaseContractLifecycle:
+    """BtManager base raises NotImplementedError on the four lifecycle methods."""
+
+    async def test_base_pair_raises(self):
+        mgr = BtManager()
+        with pytest.raises(NotImplementedError):
+            await mgr.pair("AA:BB:CC:00:11:22")
+
+    async def test_base_connect_raises(self):
+        mgr = BtManager()
+        with pytest.raises(NotImplementedError):
+            await mgr.connect("AA:BB:CC:00:11:22")
+
+    async def test_base_disconnect_raises(self):
+        mgr = BtManager()
+        with pytest.raises(NotImplementedError):
+            await mgr.disconnect()
+
+    async def test_base_forget_raises(self):
+        mgr = BtManager()
+        with pytest.raises(NotImplementedError):
+            await mgr.forget("AA:BB:CC:00:11:22")
+
+
+class TestMockPair:
+    """MockBtManager.pair connects + remembers (BT-02)."""
+
+    async def test_pair_returns_ok(self):
+        mgr = MockBtManager()
+        result = await mgr.pair("AA:BB:CC:00:11:22", "JBL")
+        assert result == {"ok": True}
+
+    async def test_pair_remembers_speaker(self):
+        mgr = MockBtManager()
+        await mgr.pair("AA:BB:CC:00:11:22", "JBL")
+        last = await mgr.get_last_speaker()
+        assert last is not None
+        assert last["mac"] == "AA:BB:CC:00:11:22"
+        assert last["name"] == "JBL"
+
+    async def test_pair_sets_connected_and_bt_sink(self):
+        mgr = MockBtManager()
+        await mgr.pair("AA:BB:CC:00:11:22", "JBL")
+        status = await mgr.get_status()
+        assert status["connected_mac"] == "AA:BB:CC:00:11:22"
+        assert status["sink"] == "bt"
+
+    async def test_pair_without_name_uses_fallback(self):
+        mgr = MockBtManager()
+        await mgr.pair("AA:BB:CC:00:11:22")
+        last = await mgr.get_last_speaker()
+        assert last is not None
+        assert last["mac"] == "AA:BB:CC:00:11:22"
+        assert last["name"]  # non-empty fallback
+
+
+class TestMockConnect:
+    """MockBtManager.connect sets connected + sink='bt' (BT-04)."""
+
+    async def test_connect_returns_ok(self):
+        mgr = MockBtManager()
+        result = await mgr.connect("DD:EE:FF:33:44:55")
+        assert result == {"ok": True}
+
+    async def test_connect_sets_connected_and_bt_sink(self):
+        mgr = MockBtManager()
+        await mgr.connect("DD:EE:FF:33:44:55")
+        status = await mgr.get_status()
+        assert status["connected_mac"] == "DD:EE:FF:33:44:55"
+        assert status["sink"] == "bt"
+
+
+class TestMockDisconnectWiredFallback:
+    """MockBtManager.disconnect clears connected AND falls back to wired.
+
+    This is the TEST-BT-03 / AUDIO-02 fallback assertion target
+    (RESEARCH Pattern 4 line 325).
+    """
+
+    async def test_disconnect_returns_ok(self):
+        mgr = MockBtManager()
+        await mgr.connect("DD:EE:FF:33:44:55")
+        result = await mgr.disconnect()
+        assert result == {"ok": True}
+
+    async def test_disconnect_sets_wired_sink(self):
+        mgr = MockBtManager()
+        await mgr.connect("DD:EE:FF:33:44:55")
+        await mgr.disconnect()
+        status = await mgr.get_status()
+        assert status["sink"] == "wired"
+
+    async def test_disconnect_clears_connected_mac(self):
+        mgr = MockBtManager()
+        await mgr.connect("DD:EE:FF:33:44:55")
+        await mgr.disconnect()
+        status = await mgr.get_status()
+        assert status["connected_mac"] is None
+
+
+class TestMockForget:
+    """MockBtManager.forget clears memory + wired fallback if connected (BT-03)."""
+
+    async def test_forget_returns_ok(self):
+        mgr = MockBtManager()
+        await mgr.pair("AA:BB:CC:00:11:22", "JBL")
+        result = await mgr.forget("AA:BB:CC:00:11:22")
+        assert result == {"ok": True}
+
+    async def test_forget_clears_last_speaker(self):
+        mgr = MockBtManager()
+        await mgr.pair("AA:BB:CC:00:11:22", "JBL")
+        await mgr.forget("AA:BB:CC:00:11:22")
+        assert await mgr.get_last_speaker() is None
+
+    async def test_forget_connected_falls_back_to_wired(self):
+        mgr = MockBtManager()
+        await mgr.pair("AA:BB:CC:00:11:22", "JBL")
+        await mgr.forget("AA:BB:CC:00:11:22")
+        status = await mgr.get_status()
+        assert status["sink"] == "wired"
+        assert status["connected_mac"] is None
+
+    async def test_forget_different_mac_does_not_clear_memory(self):
+        """Open Question 2: forgetting a different MAC than stored must NOT
+        clear the remembered speaker (only clears when forgotten == stored).
+        """
+        mgr = MockBtManager()
+        await mgr.pair("AA:BB:CC:00:11:22", "JBL")
+        await mgr.forget("DD:EE:FF:33:44:55")  # different MAC
+        last = await mgr.get_last_speaker()
+        assert last is not None
+        assert last["mac"] == "AA:BB:CC:00:11:22"
+
+
+class TestMockGetStatusExtended:
+    """MockBtManager.get_status carries connected_mac + sink (Pitfall 7)."""
+
+    async def test_status_has_connected_mac_and_sink_keys(self):
+        mgr = MockBtManager()
+        status = await mgr.get_status()
+        assert "connected_mac" in status
+        assert "sink" in status
+
+    async def test_status_default_wired_disconnected(self):
+        mgr = MockBtManager()
+        status = await mgr.get_status()
+        assert status["connected_mac"] is None
+        assert status["sink"] == "wired"
+
+
+class TestBtDeviceStoreClear:
+    """BtDeviceStore.clear() resets last_speaker to None atomically."""
+
+    def test_clear_after_save(self, tmp_path):
+        from app.services.bt_store import BtDeviceStore
+
+        store = BtDeviceStore(tmp_path / "bt.json")
+        store.save_last_speaker("Seed", "AA:BB:CC:00:11:22")
+        assert store.get_last_speaker() is not None
+        store.clear()
+        assert store.get_last_speaker() is None
+
+    def test_clear_when_empty_is_noop(self, tmp_path):
+        from app.services.bt_store import BtDeviceStore
+
+        store = BtDeviceStore(tmp_path / "bt.json")
+        store.clear()  # must not raise on missing file
+        assert store.get_last_speaker() is None
+
+    def test_clear_persists_across_instances(self, tmp_path):
+        from app.services.bt_store import BtDeviceStore
+
+        path = tmp_path / "bt.json"
+        store = BtDeviceStore(path)
+        store.save_last_speaker("Seed", "AA:BB:CC:00:11:22")
+        store.clear()
+        # A fresh store reading the same file must also see None.
+        store2 = BtDeviceStore(path)
+        assert store2.get_last_speaker() is None
+
+
+# ===========================================================================
+# Task 2 (27-05): RealBtManager pair/connect/disconnect/forget one-seam
+# discipline + bt_audio routing delegation + extended get_status
+#
+# Each Real method hides its dbus chain behind ONE patchable async seam
+# (_pair_device/_connect_device/_disconnect_device/_forget_device) and the
+# pactl chain behind bt_audio.route_to_bt/route_to_wired. Tests patch those
+# seams + the routing functions — never the real dbus/pactl chain.
+# ===========================================================================
+
+
+def _make_real(tmp_path):
+    """RealBtManager with a tmp-path store so tests never touch content/."""
+    from app.services.bt_store import BtDeviceStore
+
+    return RealBtManager(store=BtDeviceStore(tmp_path / "bt.json"))
+
+
+class _RouteRecorder:
+    """Replace ``bt_audio.route_to_bt`` / ``route_to_wired`` and record calls.
+
+    A simple awaitable callable that stores the args it was called with so a
+    test can assert routing was reached (and with which MAC). Returns True to
+    mimic the real router's success shape (manager ignores the bool anyway).
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+
+    async def __call__(self, *args):
+        self.calls.append(args)
+        return True
+
+
+class TestRealPair:
+    """RealBtManager.pair: register_agent + _pair_device seam + route_to_bt."""
+
+    async def test_pair_ok_returns_dict(self, tmp_path, monkeypatch):
+        mgr = _make_real(tmp_path)
+        # Patch the ONE dbus seam + the agent register + the router.
+        mgr._pair_device = _seam_returning(None)
+        monkeypatch.setattr(
+            "app.services.bt_manager.bt_audio.route_to_bt", _RouteRecorder()
+        )
+        # register_agent lives in bt_agent; pair must call it on the same bus.
+        # Patch at the bt_manager module's import binding.
+        registered = []
+
+        async def _fake_register(bus):
+            registered.append(bus)
+
+        monkeypatch.setattr("app.services.bt_manager.register_agent", _fake_register)
+        result = await mgr.pair("AA:BB:CC:00:11:22", "JBL")
+        assert result == {"ok": True}
+
+    async def test_pair_persists_speaker(self, tmp_path, monkeypatch):
+        mgr = _make_real(tmp_path)
+        mgr._pair_device = _seam_returning(None)
+        monkeypatch.setattr(
+            "app.services.bt_manager.bt_audio.route_to_bt", _RouteRecorder()
+        )
+
+        async def _no_register(bus):
+            return None
+
+        monkeypatch.setattr("app.services.bt_manager.register_agent", _no_register)
+        await mgr.pair("AA:BB:CC:00:11:22", "JBL")
+        last = await mgr.get_last_speaker()
+        assert last is not None
+        assert last["mac"] == "AA:BB:CC:00:11:22"
+        assert last["name"] == "JBL"
+
+    async def test_pair_invokes_route_to_bt_with_mac(self, tmp_path, monkeypatch):
+        mgr = _make_real(tmp_path)
+        mgr._pair_device = _seam_returning(None)
+        router = _RouteRecorder()
+        monkeypatch.setattr("app.services.bt_manager.bt_audio.route_to_bt", router)
+
+        async def _no_register(bus):
+            return None
+
+        monkeypatch.setattr("app.services.bt_manager.register_agent", _no_register)
+        await mgr.pair("AA:BB:CC:00:11:22", "JBL")
+        assert router.calls == [("AA:BB:CC:00:11:22",)]
+
+    async def test_pair_never_500_on_seam_error(self, tmp_path, monkeypatch):
+        """Never-500: a raising _pair_device seam → {ok:False,error:...}."""
+        mgr = _make_real(tmp_path)
+        mgr._pair_device = _seam_raising(RuntimeError("dbus down"))
+        result = await mgr.pair("AA:BB:CC:00:11:22", "JBL")
+        assert result["ok"] is False
+        assert result["error"] == "RuntimeError"
+
+    async def test_pair_registers_agent_on_shared_bus(self, tmp_path, monkeypatch):
+        """Pitfall 1: register_agent must be called (on the pair bus)."""
+        mgr = _make_real(tmp_path)
+        mgr._pair_device = _seam_returning(None)
+        monkeypatch.setattr(
+            "app.services.bt_manager.bt_audio.route_to_bt", _RouteRecorder()
+        )
+        registered = []
+
+        async def _fake_register(bus):
+            registered.append(bus)
+
+        monkeypatch.setattr("app.services.bt_manager.register_agent", _fake_register)
+        await mgr.pair("AA:BB:CC:00:11:22", "JBL")
+        assert len(registered) == 1
+
+
+class TestRealConnect:
+    """RealBtManager.connect: _connect_device seam + route_to_bt."""
+
+    async def test_connect_ok_returns_dict(self, tmp_path, monkeypatch):
+        mgr = _make_real(tmp_path)
+        mgr._connect_device = _seam_returning(None)
+        monkeypatch.setattr(
+            "app.services.bt_manager.bt_audio.route_to_bt", _RouteRecorder()
+        )
+        result = await mgr.connect("DD:EE:FF:33:44:55")
+        assert result == {"ok": True}
+
+    async def test_connect_invokes_route_to_bt(self, tmp_path, monkeypatch):
+        mgr = _make_real(tmp_path)
+        mgr._connect_device = _seam_returning(None)
+        router = _RouteRecorder()
+        monkeypatch.setattr("app.services.bt_manager.bt_audio.route_to_bt", router)
+        await mgr.connect("DD:EE:FF:33:44:55")
+        assert router.calls == [("DD:EE:FF:33:44:55",)]
+
+    async def test_connect_never_500_on_seam_error(self, tmp_path, monkeypatch):
+        mgr = _make_real(tmp_path)
+        mgr._connect_device = _seam_raising(RuntimeError("dbus down"))
+        result = await mgr.connect("DD:EE:FF:33:44:55")
+        assert result["ok"] is False
+        assert result["error"] == "RuntimeError"
+
+
+class TestRealDisconnect:
+    """RealBtManager.disconnect: _disconnect_device seam + route_to_wired."""
+
+    async def test_disconnect_ok_returns_dict(self, tmp_path, monkeypatch):
+        mgr = _make_real(tmp_path)
+        mgr._disconnect_device = _seam_returning(None)
+        monkeypatch.setattr(
+            "app.services.bt_manager.bt_audio.route_to_wired", _RouteRecorder()
+        )
+        result = await mgr.disconnect()
+        assert result == {"ok": True}
+
+    async def test_disconnect_invokes_route_to_wired(self, tmp_path, monkeypatch):
+        """AUDIO-02 fallback: disconnect routes back to wired."""
+        mgr = _make_real(tmp_path)
+        mgr._disconnect_device = _seam_returning(None)
+        router = _RouteRecorder()
+        monkeypatch.setattr("app.services.bt_manager.bt_audio.route_to_wired", router)
+        await mgr.disconnect()
+        assert router.calls == [()]
+
+    async def test_disconnect_never_500_on_seam_error(self, tmp_path, monkeypatch):
+        mgr = _make_real(tmp_path)
+        # Put the manager into a connected state so disconnect reaches the
+        # _disconnect_device seam (disconnect only calls it when something is
+        # connected).
+        mgr._connected_mac = "DD:EE:FF:33:44:55"
+        mgr._disconnect_device = _seam_raising(RuntimeError("dbus down"))
+        result = await mgr.disconnect()
+        assert result["ok"] is False
+        assert result["error"] == "RuntimeError"
+
+
+class TestRealForget:
+    """RealBtManager.forget: _forget_device seam + clear() when MAC matches."""
+
+    async def test_forget_ok_returns_dict(self, tmp_path, monkeypatch):
+        mgr = _make_real(tmp_path)
+        mgr._forget_device = _seam_returning(None)
+        result = await mgr.forget("AA:BB:CC:00:11:22")
+        assert result == {"ok": True}
+
+    async def test_forget_clears_store_when_mac_matches(self, tmp_path, monkeypatch):
+        mgr = _make_real(tmp_path)
+        # Seed the store so clear() has something to clear.
+        await mgr.remember_speaker("JBL", "AA:BB:CC:00:11:22")
+        mgr._forget_device = _seam_returning(None)
+        await mgr.forget("AA:BB:CC:00:11:22")
+        assert await mgr.get_last_speaker() is None
+
+    async def test_forget_does_not_clear_when_mac_differs(self, tmp_path, monkeypatch):
+        """Open Question 2: forgetting a different MAC keeps memory."""
+        mgr = _make_real(tmp_path)
+        await mgr.remember_speaker("JBL", "AA:BB:CC:00:11:22")
+        mgr._forget_device = _seam_returning(None)
+        await mgr.forget("DD:EE:FF:33:44:55")
+        last = await mgr.get_last_speaker()
+        assert last is not None
+        assert last["mac"] == "AA:BB:CC:00:11:22"
+
+    async def test_forget_never_500_on_seam_error(self, tmp_path, monkeypatch):
+        mgr = _make_real(tmp_path)
+        mgr._forget_device = _seam_raising(RuntimeError("dbus down"))
+        result = await mgr.forget("AA:BB:CC:00:11:22")
+        assert result["ok"] is False
+        assert result["error"] == "RuntimeError"
+
+
+class TestRealGetStatusExtended:
+    """RealBtManager.get_status carries connected_mac + sink (Pitfall 7)."""
+
+    async def test_status_has_connected_mac_and_sink_keys(self, tmp_path):
+        mgr = _make_real(tmp_path)
+        status = await mgr.get_status()
+        assert "connected_mac" in status
+        assert "sink" in status
+
+    async def test_status_default_disconnected_wired(self, tmp_path):
+        mgr = _make_real(tmp_path)
+        status = await mgr.get_status()
+        assert status["connected_mac"] is None
+        assert status["sink"] == "wired"
+
+
+class TestRealRoutingIsolation:
+    """PLAT-02/AUDIO-06: routing reached ONLY via bt_audio fns (no real pactl)."""
+
+    async def test_connect_routing_is_patchable(self, tmp_path, monkeypatch):
+        """Patching bt_audio.route_to_bt fully isolates connect from pactl."""
+        mgr = _make_real(tmp_path)
+        mgr._connect_device = _seam_returning(None)
+        router = _RouteRecorder()
+        monkeypatch.setattr("app.services.bt_manager.bt_audio.route_to_bt", router)
+        await mgr.connect("DD:EE:FF:33:44:55")
+        # The patched router ran instead of any real pactl subprocess.
+        assert len(router.calls) == 1

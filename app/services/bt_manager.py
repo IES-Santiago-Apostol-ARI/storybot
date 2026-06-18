@@ -14,6 +14,8 @@ import os
 import sys
 from datetime import datetime, timezone
 
+from app.services import bt_audio
+from app.services.bt_agent import register_agent
 from app.services.bt_store import BtDeviceStore
 
 # Lazy hardware import — module stays importable where dbus-fast is absent
@@ -163,6 +165,18 @@ class BtManager:
     async def remember_speaker(self, name: str, mac: str) -> None:
         raise NotImplementedError
 
+    async def pair(self, mac: str, name: str | None = None) -> dict:
+        raise NotImplementedError
+
+    async def connect(self, mac: str) -> dict:
+        raise NotImplementedError
+
+    async def disconnect(self) -> dict:
+        raise NotImplementedError
+
+    async def forget(self, mac: str) -> dict:
+        raise NotImplementedError
+
     async def get_status(self) -> dict:
         raise NotImplementedError
 
@@ -188,6 +202,10 @@ class RealBtManager(BtManager):
         # BtDeviceStore is cheap to construct and never raises on a missing
         # file (load-with-defaults). Default path = content/bt_devices.json.
         self._store = store if store is not None else BtDeviceStore()
+        # Connection state for get_status (Pitfall 7). Updated on a successful
+        # connect/pair (sink="bt") and reset on disconnect/forget (sink="wired").
+        self._connected_mac: str | None = None
+        self._current_sink = "wired"
 
     async def _get_managed_objects(self) -> dict:
         """Run the blocking ~8-10s BlueZ discovery window, return managed objs.
@@ -253,14 +271,176 @@ class RealBtManager(BtManager):
         """BT-06: delegate to BtDeviceStore (D-01 single-slot overwrite)."""
         self._store.save_last_speaker(name, mac)
 
-    async def get_status(self) -> dict:
-        """HardwareService Protocol status dict (PLAT-03).
+    # ------------------------------------------------------------------
+    # Pair / Connect / Disconnect / Forget (BT-02/04/05/03).
+    #
+    # Each public method wraps ONE private async seam in try/except →
+    # ``{"ok": False, "error": type(exc).__name__}`` (never 500 — wifi router
+    # precedent, RESEARCH line 324, threat T-26-05). The seams hide the full
+    # dbus object graph so tests patch ONE attribute per method (Pitfall 6).
+    # Routing is delegated to ``bt_audio`` so pactl never appears in tests.
+    # ------------------------------------------------------------------
 
-        ``platform`` and ``adapter_present`` are optional extensions; the
-        router plan composes BtStatus. Here we return the minimal required
-        shape so the manager satisfies the protocol standalone.
+    async def _pair_device(self, bus, mac: str) -> None:
+        """Pair + Trust + Connect on ``bus`` (BT-02 + Trusted + BT-04).
+
+        Pitfall 1: runs on the SAME bus the caller used for
+        ``register_agent`` so BlueZ routes the pairing handshake to our agent.
+        Builds the device object path defensively from the validated MAC
+        (Pitfall 5). Treats ``org.bluez.Error.AlreadyExists`` from Pair as
+        success (device already paired — RESEARCH line 243).
         """
-        return {"name": "bt", "is_mock": False, "status": "ok"}
+        path = _device_path(mac)
+        intro = await bus.introspect(_BLUEZ_SERVICE, path)
+        obj = bus.get_proxy_object(_BLUEZ_SERVICE, path, intro)
+        dev = obj.get_interface("org.bluez.Device1")
+        props = obj.get_interface("org.freedesktop.DBus.Properties")
+        try:
+            await dev.call_pair()
+        except Exception as exc:
+            # AlreadyExists == already paired: not an error (RESEARCH line 243).
+            if "AlreadyExists" not in type(exc).__name__:
+                raise
+        # Belt-and-suspenders with the agent's AuthorizeService (Pitfall 2):
+        # trusting the device auto-authorizes future A2DP service connections.
+        await props.call_set("org.bluez.Device1", "Trusted", _variant_wrap(True))
+        await dev.call_connect()
+
+    async def pair(self, mac: str, name: str | None = None) -> dict:
+        """BT-02: register the headless agent, pair+trust+connect, route, remember.
+
+        Holds ONE system ``MessageBus`` for the whole pair sequence (Pitfall 1)
+        so ``register_agent`` and ``Device1.Pair`` share a connection. On
+        success: persists the speaker via ``remember_speaker`` and routes audio
+        to the BT sink via ``bt_audio.route_to_bt`` (AUDIO-06/01).
+        """
+        try:
+            bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+            try:
+                await register_agent(bus)
+                await self._pair_device(bus, mac)
+            finally:
+                bus.disconnect()
+            await self.remember_speaker(name or mac, mac)
+            await bt_audio.route_to_bt(mac)
+            self._connected_mac = mac
+            self._current_sink = "bt"
+            return {"ok": True}
+        except Exception as exc:
+            _log_event("bt_pair_failed", reason=type(exc).__name__)
+            return {"ok": False, "error": type(exc).__name__}
+
+    async def _connect_device(self, bus, mac: str) -> None:
+        """Connect an already-paired device (BT-04)."""
+        path = _device_path(mac)
+        intro = await bus.introspect(_BLUEZ_SERVICE, path)
+        obj = bus.get_proxy_object(_BLUEZ_SERVICE, path, intro)
+        dev = obj.get_interface("org.bluez.Device1")
+        await dev.call_connect()
+
+    async def connect(self, mac: str) -> dict:
+        """BT-04: connect a known speaker + route audio to BT."""
+        try:
+            bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+            try:
+                await self._connect_device(bus, mac)
+            finally:
+                bus.disconnect()
+            await bt_audio.route_to_bt(mac)
+            self._connected_mac = mac
+            self._current_sink = "bt"
+            return {"ok": True}
+        except Exception as exc:
+            _log_event("bt_connect_failed", reason=type(exc).__name__)
+            return {"ok": False, "error": type(exc).__name__}
+
+    async def _disconnect_device(self, bus, mac: str) -> None:
+        """Disconnect the currently connected device (BT-05)."""
+        path = _device_path(mac)
+        intro = await bus.introspect(_BLUEZ_SERVICE, path)
+        obj = bus.get_proxy_object(_BLUEZ_SERVICE, path, intro)
+        dev = obj.get_interface("org.bluez.Device1")
+        await dev.call_disconnect()
+
+    async def disconnect(self) -> dict:
+        """BT-05 / AUDIO-02: disconnect + fall back to the wired sink."""
+        try:
+            mac = self._connected_mac
+            if mac is not None:
+                bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+                try:
+                    await self._disconnect_device(bus, mac)
+                finally:
+                    bus.disconnect()
+            await bt_audio.route_to_wired()
+            self._connected_mac = None
+            self._current_sink = "wired"
+            return {"ok": True}
+        except Exception as exc:
+            _log_event("bt_disconnect_failed", reason=type(exc).__name__)
+            return {"ok": False, "error": type(exc).__name__}
+
+    async def _forget_device(self, bus, mac: str) -> None:
+        """RemoveDevice on the adapter (BT-03) — needs the device object path."""
+        path = _device_path(mac)
+        adapter_intro = await bus.introspect(_BLUEZ_SERVICE, _ADAPTER_PATH)
+        adapter_obj = bus.get_proxy_object(_BLUEZ_SERVICE, _ADAPTER_PATH, adapter_intro)
+        adapter = adapter_obj.get_interface("org.bluez.Adapter1")
+        await adapter.call_remove_device(path)
+
+    async def forget(self, mac: str) -> dict:
+        """BT-03: remove the device from BlueZ, clear memory + wired fallback.
+
+        Memory is cleared ONLY when the forgotten MAC matches the stored
+        speaker (Open Question 2). Falls back to the wired sink only when the
+        forgotten MAC was the connected one.
+        """
+        try:
+            bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+            try:
+                await self._forget_device(bus, mac)
+            finally:
+                bus.disconnect()
+            stored = self._store.get_last_speaker()
+            if stored is not None and stored.get("mac") == mac:
+                self._store.clear()
+            if self._connected_mac == mac:
+                await bt_audio.route_to_wired()
+                self._connected_mac = None
+                self._current_sink = "wired"
+            return {"ok": True}
+        except Exception as exc:
+            _log_event("bt_forget_failed", reason=type(exc).__name__)
+            return {"ok": False, "error": type(exc).__name__}
+
+    async def get_status(self) -> dict:
+        """HardwareService Protocol status dict (PLAT-03, Pitfall 7).
+
+        ``connected_mac`` + ``sink`` mirror MockBtManager's shape so the router
+        composes one response and tests pass under Mock.
+        """
+        return {
+            "name": "bt",
+            "is_mock": False,
+            "status": "ok",
+            "connected_mac": self._connected_mac,
+            "sink": self._current_sink,
+        }
+
+
+def _device_path(mac: str) -> str:
+    """Build the BlueZ Device1 object path from a validated MAC (Pitfall 5).
+
+    ``AA:BB:CC:00:11:22`` → ``/org/bluez/hci0/dev_AA_BB_CC_00_11_22``.
+    Defensive: the pydantic request model (plan 03) already enforces the
+    ``^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$`` shape, but we never trust
+    callers — a non-conforming MAC must not produce a traversable path.
+    """
+    import re
+
+    if not re.fullmatch(r"([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}", mac):
+        raise ValueError(f"invalid MAC: {mac!r}")
+    return f"{_ADAPTER_PATH}/dev_{mac.upper().replace(':', '_')}"
 
 
 def _variant_wrap(value):  # pragma: no cover — exercised on hardware only
@@ -299,6 +479,11 @@ class MockBtManager(BtManager):
             "mac": "AA:BB:CC:00:11:22",
             "last_connected": "2026-06-12T17:00:00+00:00",
         }
+        # Lifecycle state (RESEARCH Pattern 4 lines 300-303). AUDIO-02 default
+        # is the wired sink; pair/connect flip to "bt", disconnect/forget fall
+        # back to "wired" (TEST-BT-03 fallback target, line 325).
+        self._connected_mac: str | None = None
+        self._current_sink = "wired"
 
     async def scan(self) -> list[dict]:
         # Return a fresh list so callers can't mutate the class constant.
@@ -316,8 +501,46 @@ class MockBtManager(BtManager):
             "last_connected": datetime.now(timezone.utc).isoformat(),
         }
 
+    async def pair(self, mac: str, name: str | None = None) -> dict:
+        """BT-02: pair + remember + connect. Mock sets state in one step."""
+        self._connected_mac = mac
+        self._current_sink = "bt"
+        await self.remember_speaker(name or "Mock Speaker", mac)
+        return {"ok": True}
+
+    async def connect(self, mac: str) -> dict:
+        """BT-04: connect an already-paired speaker (Mock sets state)."""
+        self._connected_mac = mac
+        self._current_sink = "bt"
+        return {"ok": True}
+
+    async def disconnect(self) -> dict:
+        """BT-05 / AUDIO-02 / TEST-BT-03: disconnect → wired fallback."""
+        self._connected_mac = None
+        self._current_sink = "wired"
+        return {"ok": True}
+
+    async def forget(self, mac: str) -> dict:
+        """BT-03: forget a speaker. Clears memory; wired fallback only when
+        the forgotten MAC was the connected one (Open Question 2).
+        """
+        if self._connected_mac == mac:
+            self._connected_mac = None
+            self._current_sink = "wired"
+        # Clear remembered speaker only when forgotten MAC == stored MAC
+        # (Open Question 2 — don't wipe a different speaker's memory).
+        if self._last is not None and self._last.get("mac") == mac:
+            self._last = None
+        return {"ok": True}
+
     async def get_status(self) -> dict:
-        return {"name": "bt", "is_mock": True, "status": "ok"}
+        return {
+            "name": "bt",
+            "is_mock": True,
+            "status": "ok",
+            "connected_mac": self._connected_mac,
+            "sink": self._current_sink,
+        }
 
 
 def create_bt_manager() -> BtManager:
