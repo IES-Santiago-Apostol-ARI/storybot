@@ -7,7 +7,13 @@ caching, RESEARCH Assumption A2) and pydantic response_model on scan/status.
 
 from fastapi import APIRouter
 
-from app.models.bt import BtDevice, BtStatus
+from app.models.bt import (
+    BtConnectRequest,
+    BtDevice,
+    BtForgetText,
+    BtPairRequest,
+    BtStatus,
+)
 from app.services.bt_manager import create_bt_manager
 from app.services.platform_detect import detect_platform
 
@@ -61,3 +67,34 @@ async def get_status() -> dict:
         "connected_mac": base.get("connected_mac"),
         "sink": base.get("sink", "wired"),
     }
+
+
+@router.post("/pair")
+async def pair_speaker(body: BtPairRequest) -> dict:
+    """Pair a new Bluetooth speaker (BT-02).
+
+    Delegates to the per-request manager's ``pair(mac, name)``; the bt
+    manager already returns the ``{ok: ...}`` shape directly (unlike wifi
+    where the router wraps it), so it is returned unchanged. A malformed
+    MAC never reaches this handler: the pydantic ``_MAC`` pattern on
+    ``BtPairRequest`` yields HTTP 422 first (Pitfall 5, T-27-01).
+    """
+    return await create_bt_manager().pair(body.mac, body.name)
+
+
+@router.post("/connect")
+async def connect_speaker(body: BtConnectRequest) -> dict:
+    """Connect a previously paired speaker (BT-04)."""
+    return await create_bt_manager().connect(body.mac)
+
+
+@router.post("/disconnect")
+async def disconnect_speaker() -> dict:
+    """Disconnect the current speaker and fall back to wired (BT-05)."""
+    return await create_bt_manager().disconnect()
+
+
+@router.post("/forget")
+async def forget_speaker(body: BtForgetText) -> dict:
+    """Forget a paired speaker (BT-03)."""
+    return await create_bt_manager().forget(body.mac)

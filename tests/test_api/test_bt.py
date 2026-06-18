@@ -148,3 +148,82 @@ class TestBtRouterRegistration:
         """GET /api/bt/status is registered (not 404)."""
         response = client.get("/api/bt/status")
         assert response.status_code != 404
+
+
+class TestBtPair:
+    """POST /api/bt/pair (BT-02)."""
+
+    def test_pair_returns_200_ok(self, client):
+        """POST /api/bt/pair with a valid MAC+name → 200 {ok:true} under Mock."""
+        response = client.post(
+            "/api/bt/pair",
+            json={"mac": "AA:BB:CC:00:11:22", "name": "JBL"},
+        )
+        assert response.status_code == 200
+        assert response.json() == {"ok": True}
+
+    def test_pair_invalid_mac_returns_422(self, client):
+        """Pitfall 5: malformed MAC → 422 (pydantic pattern, not 200/500)."""
+        response = client.post("/api/bt/pair", json={"mac": "not-a-mac"})
+        assert response.status_code == 422
+
+    def test_pair_missing_mac_returns_422(self, client):
+        """Missing MAC field → 422."""
+        response = client.post("/api/bt/pair", json={"name": "JBL"})
+        assert response.status_code == 422
+
+
+class TestBtConnect:
+    """POST /api/bt/connect (BT-04)."""
+
+    def test_connect_returns_200_ok(self, client):
+        """POST /api/bt/connect with valid MAC → 200 {ok:true}."""
+        response = client.post("/api/bt/connect", json={"mac": "DD:EE:FF:33:44:55"})
+        assert response.status_code == 200
+        assert response.json() == {"ok": True}
+
+    def test_connect_invalid_mac_returns_422(self, client):
+        """Pitfall 5: short MAC → 422."""
+        response = client.post("/api/bt/connect", json={"mac": "AA:BB"})
+        assert response.status_code == 422
+
+
+class TestBtDisconnect:
+    """POST /api/bt/disconnect (BT-05)."""
+
+    def test_disconnect_returns_200_ok(self, client):
+        """POST /api/bt/disconnect (no body) → 200 {ok:true}."""
+        response = client.post("/api/bt/disconnect")
+        assert response.status_code == 200
+        assert response.json() == {"ok": True}
+
+
+class TestBtForget:
+    """POST /api/bt/forget (BT-03)."""
+
+    def test_forget_returns_200_ok(self, client):
+        """POST /api/bt/forget with valid MAC → 200 {ok:true}."""
+        response = client.post("/api/bt/forget", json={"mac": "AA:BB:CC:00:11:22"})
+        assert response.status_code == 200
+        assert response.json() == {"ok": True}
+
+    def test_forget_invalid_mac_returns_422(self, client):
+        """Pitfall 5: bad MAC → 422."""
+        response = client.post("/api/bt/forget", json={"mac": "x"})
+        assert response.status_code == 422
+
+
+class TestBtStatusExtended:
+    """Pitfall 7: GET /api/bt/status carries connected_mac + sink."""
+
+    def test_status_has_connected_mac_key(self, client):
+        response = client.get("/api/bt/status")
+        data = response.json()
+        assert "connected_mac" in data
+
+    def test_status_has_sink_key(self, client):
+        response = client.get("/api/bt/status")
+        data = response.json()
+        assert "sink" in data
+        # Under fresh Mock, default sink is "wired".
+        assert data["sink"] in {"wired", "bt"}
