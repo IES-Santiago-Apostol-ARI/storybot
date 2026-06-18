@@ -190,14 +190,8 @@ fi
 usermod -aG bluetooth "$INSTALL_USER" || true
 echo -e "${GREEN}Added $INSTALL_USER to bluetooth group${NC}"
 mkdir -p /etc/polkit-1/localauthority/50-local.d
-cat > /etc/polkit-1/localauthority/50-local.d/10-storybot-bt.pkla << EOF
-[StoryBot Bluetooth Management]
-Identity=unix-user:${INSTALL_USER}
-Action=org.bluez.device.pair;org.bluez.device.connect;org.bluez.device.disconnect;org.bluez.device.remove;org.bluez.adapter.set-powered;org.bluez.adapter.set-discoverable;org.bluez.agent.register
-ResultAny=yes
-ResultInactive=yes
-ResultActive=yes
-EOF
+sed -e "s|__INSTALL_USER__|$INSTALL_USER|g" \
+    "$INSTALL_DIR/deploy/10-storybot-bt.pkla" > /etc/polkit-1/localauthority/50-local.d/10-storybot-bt.pkla
 chmod 0644 /etc/polkit-1/localauthority/50-local.d/10-storybot-bt.pkla
 echo -e "${GREEN}Polkit Bluetooth rule installed${NC}"
 

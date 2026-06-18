@@ -1,5 +1,5 @@
 [StoryBot Bluetooth Management]
-Identity=unix-user:ari
+Identity=unix-user:__INSTALL_USER__
 Action=org.bluez.device.pair;org.bluez.device.connect;org.bluez.device.disconnect;org.bluez.device.remove;org.bluez.adapter.set-powered;org.bluez.adapter.set-discoverable;org.bluez.agent.register
 ResultAny=yes
 ResultInactive=yes
