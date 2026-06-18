@@ -89,9 +89,9 @@ async def connect_speaker(body: BtConnectRequest) -> dict:
 
 
 @router.post("/disconnect")
-async def disconnect_speaker() -> dict:
+async def disconnect_speaker(body: BtConnectRequest | None = None) -> dict:
     """Disconnect the current speaker and fall back to wired (BT-05)."""
-    return await create_bt_manager().disconnect()
+    return await create_bt_manager().disconnect(body.mac if body else None)
 
 
 @router.post("/forget")

@@ -1180,6 +1180,54 @@ class TestRealDisconnect:
         assert result["error"] == "RuntimeError"
 
 
+    async def test_disconnect_invokes_device_disconnect_across_instances(
+        self, tmp_path, monkeypatch
+    ):
+        """CR-01 regression: disconnect on a fresh manager instance still calls
+        _disconnect_device when given an explicit MAC (models the per-request
+        factory in the /api/bt router where each POST builds a new manager).
+
+        Instance A = /connect request sets _connected_mac.
+        Instance B = /disconnect request has _connected_mac=None but receives
+        the MAC from the request body.
+        """
+        from app.services.bt_store import BtDeviceStore
+
+        store = BtDeviceStore(tmp_path / "bt.json")
+        mgr_a = RealBtManager(store=store)
+        mgr_b = RealBtManager(store=store)
+
+        # Instance A: simulates /connect — sets _connected_mac
+        mgr_a._connected_mac = "AA:BB:CC:00:11:22"
+
+        # Instance B: simulates /disconnect — fresh instance, _connected_mac=None
+        # (this is the per-request factory pattern that causes CR-01)
+        assert mgr_b._connected_mac is None
+
+        # Record _disconnect_device calls on instance B
+        disconnect_calls = []
+
+        async def _record_disconnect(*args, **kwargs):
+            disconnect_calls.append((args, kwargs))
+
+        mgr_b._disconnect_device = _record_disconnect
+
+        # Monkeypatch route_to_wired so no real pactl runs
+        monkeypatch.setattr(
+            "app.services.bt_manager.bt_audio.route_to_wired", _RouteRecorder()
+        )
+
+        # Disconnect on instance B with explicit MAC (as the router will pass)
+        result = await mgr_b.disconnect("AA:BB:CC:00:11:22")
+        assert result == {"ok": True}
+
+        # Assert _disconnect_device WAS invoked with the MAC
+        assert len(disconnect_calls) == 1
+        args, kwargs = disconnect_calls[0]
+        # The call should include the MAC as the second positional arg (bus, mac)
+        assert "AA:BB:CC:00:11:22" in args
+
+
 class TestRealForget:
     """RealBtManager.forget: _forget_device seam + clear() when MAC matches."""
 

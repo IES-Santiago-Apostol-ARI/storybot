@@ -171,7 +171,7 @@ class BtManager:
     async def connect(self, mac: str) -> dict:
         raise NotImplementedError
 
-    async def disconnect(self) -> dict:
+    async def disconnect(self, mac: str | None = None) -> dict:
         raise NotImplementedError
 
     async def forget(self, mac: str) -> dict:
@@ -362,14 +362,14 @@ class RealBtManager(BtManager):
         dev = obj.get_interface("org.bluez.Device1")
         await dev.call_disconnect()
 
-    async def disconnect(self) -> dict:
+    async def disconnect(self, mac: str | None = None) -> dict:
         """BT-05 / AUDIO-02: disconnect + fall back to the wired sink."""
         try:
-            mac = self._connected_mac
-            if mac is not None:
+            target = mac or self._connected_mac
+            if target is not None:
                 bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
                 try:
-                    await self._disconnect_device(bus, mac)
+                    await self._disconnect_device(bus, target)
                 finally:
                     bus.disconnect()
             await bt_audio.route_to_wired()
@@ -514,7 +514,7 @@ class MockBtManager(BtManager):
         self._current_sink = "bt"
         return {"ok": True}
 
-    async def disconnect(self) -> dict:
+    async def disconnect(self, mac: str | None = None) -> dict:
         """BT-05 / AUDIO-02 / TEST-BT-03: disconnect → wired fallback."""
         self._connected_mac = None
         self._current_sink = "wired"
