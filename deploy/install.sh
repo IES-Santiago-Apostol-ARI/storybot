@@ -308,6 +308,23 @@ chmod +x /usr/local/bin/storybot-rollback.sh
 systemctl daemon-reload
 systemctl enable storybot.service
 systemctl enable storybot-nfc-reset.service
+
+# Install boot-reconnect unit (D-02)
+sed -e "s|__INSTALL_USER__|$INSTALL_USER|g" -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" -e "s|__USER_UID__|$USER_UID|g" \\
+    "$INSTALL_DIR/deploy/storybot-bt-boot.service" > /etc/systemd/system/storybot-bt-boot.service
+loginctl enable-linger "$INSTALL_USER" || true
+
+# Disarm old bluetooth-audio unit (Pitfall 5)
+if systemctl list-unit-files | grep -q "bluetooth-audio.service"; then
+    systemctl disable bluetooth-audio.service 2>/dev/null || true
+    if [[ -d "/run/user/$USER_UID" ]]; then
+        sudo -u "$INSTALL_USER" XDG_RUNTIME_DIR="/run/user/$USER_UID" \
+            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$USER_UID/bus" \
+            systemctl --user disable bluetooth-audio.service 2>/dev/null || true
+    fi
+fi
+
+systemctl enable storybot-bt-boot.service
 echo -e "${GREEN}Systemd service installed${NC}"
 
 # Step 6b: Configure passwordless sudo for llama-server control

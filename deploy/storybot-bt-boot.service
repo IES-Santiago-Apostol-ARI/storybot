@@ -1,0 +1,22 @@
+# Template: __INSTALL_USER__, __INSTALL_DIR__, and __USER_UID__ are substituted by
+# deploy/install.sh when this unit is installed.
+# This unit replaces deploy/bluetooth-audio.service (removed in Phase 30).
+[Unit]
+Description=StoryBot Bluetooth boot reconnect (one-time)
+After=bluetooth.service network-online.target
+Wants=bluetooth.service
+Conflicts=bluetooth-audio.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=__INSTALL_USER__
+Group=__INSTALL_USER__
+WorkingDirectory=__INSTALL_DIR__
+EnvironmentFile=-__INSTALL_DIR__/.env
+Environment="XDG_RUNTIME_DIR=/run/user/__USER_UID__"
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=__INSTALL_DIR__/.venv/bin/python -m app.bt_boot_reconnect
+
+[Install]
+WantedBy=multi-user.target
