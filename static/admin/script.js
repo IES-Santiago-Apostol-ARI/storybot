@@ -1085,6 +1085,7 @@ function stopStatusPolling() {
 function cleanup() {
     closeNFCConnection();
     stopStatusPolling();  // NEW: Stop polling on page unload
+    stopBtStatusPolling();  // Phase 29: stop the expanded-only BT poll on unload
 }
 
 /**
@@ -1493,6 +1494,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (promoteCancel) promoteCancel.addEventListener('click', closePromoteModal);
     if (window.aiEnabled) { loadGeneratedStories(); }
     initWifiSection();
+    initBtSection();
 
     // Phase 25 (OTA-02): one-shot update check + version footer on load (D-02, no polling)
     checkForUpdate();
@@ -2219,4 +2221,356 @@ function initWifiSection() {
     if (cancelBtn) cancelBtn.addEventListener('click', closeWifiConnectModal);
 
     fetchWifiStatus();
+}
+
+// === Phase 29: Bluetooth Management (UIBT-01..04, AUDIO-03, D-03 through D-11) ===
+// Vanilla-JS controller cloning the Phase 24 WiFi section. Consumes the IDs/classes
+// from 29-02 and the existing /api/bt/* backend (Phases 26-28).
+
+// Separate poll state from the global hardware poll (statusPollId) — the BT poll runs
+// ONLY while the section is expanded (D-05), so it must clear independently.
+let btStatusPollId = null;
+const BT_STATUS_POLL_INTERVAL = 3000;
+
+// Scan for nearby speakers, mark the remembered/connected one, and render rows.
+async function scanBtDevices() {
+    const scanning = document.getElementById('bt-scanning');
+    const deviceList = document.getElementById('bt-device-list');
+    const noAdapter = document.getElementById('bt-no-adapter');
+    try {
+        if (scanning) scanning.classList.remove('hidden');
+        if (deviceList) deviceList.innerHTML = '';
+        // Fetch scan + remembered speaker + live status together so each row can show
+        // the correct action set: connected / paired-remembered / discovered (D-04).
+        const [scanRes, lastRes, statusRes] = await Promise.all([
+            fetch('/api/bt/scan'),
+            fetch('/api/bt/last'),
+            fetch('/api/bt/status'),
+        ]);
+        if (!scanRes.ok) throw new Error('BT scan failed');
+        const devices = await scanRes.json();
+        const last = lastRes.ok ? await lastRes.json() : null;
+        const status = statusRes.ok ? await statusRes.json() : {};
+        status.last_mac = last && last.mac ? last.mac : null;
+
+        if (status.adapter_present === false) {
+            if (noAdapter) noAdapter.classList.remove('hidden');
+            return;
+        }
+        if (noAdapter) noAdapter.classList.add('hidden');
+
+        if (!devices || !devices.length) {
+            if (deviceList) {
+                const empty = document.createElement('p');
+                empty.className = 'empty';
+                empty.textContent = 'No se encontraron altavoces.';
+                deviceList.appendChild(empty);
+            }
+            return;
+        }
+        for (const device of devices) {
+            if (deviceList) deviceList.appendChild(createBtDeviceItem(device, status));
+        }
+    } catch (error) {
+        console.error('Error scanning Bluetooth devices:', error);
+        showMessage('Error al buscar altavoces Bluetooth', 'error');
+    } finally {
+        if (scanning) scanning.classList.add('hidden');
+    }
+}
+
+// Build one device row. Pairing state is computed ONCE at function scope so the
+// row-level click handler can reference it safely.
+function createBtDeviceItem(device, status) {
+    const item = document.createElement('div');
+    item.className = 'bt-device-item';
+
+    const isConnected = !!status.connected_mac && status.connected_mac === device.mac;
+    // A remembered speaker (from /api/bt/last) that is not currently connected offers
+    // Connect + Forget; an unknown device offers one-tap Emparejar (D-03/D-04).
+    const isPaired = !isConnected && !!status.last_mac && status.last_mac === device.mac;
+
+    if (isConnected) item.classList.add('connected');
+
+    // Signal bars from RSSI dBm (D-09): null -> 0, >= -55 -> 3, >= -75 -> 2, else 1.
+    const signalBars = document.createElement('div');
+    signalBars.className = 'bt-signal-bars';
+    let activeBars = 0;
+    if (device.rssi != null) {
+        if (device.rssi >= -55) activeBars = 3;
+        else if (device.rssi >= -75) activeBars = 2;
+        else activeBars = 1;
+    }
+    for (let i = 0; i < 3; i++) {
+        const bar = document.createElement('span');
+        bar.className = 'bt-signal-bar';
+        if (i < activeBars) bar.classList.add('active');
+        signalBars.appendChild(bar);
+    }
+    item.appendChild(signalBars);
+
+    // Device name via textContent ONLY — a BT advertisement name is attacker-controlled
+    // and must never be interpolated as HTML (T-29-03 XSS).
+    const name = document.createElement('span');
+    name.className = 'bt-device-name';
+    name.textContent = device.name;
+    item.appendChild(name);
+
+    const actions = document.createElement('div');
+    actions.className = 'bt-device-actions';
+
+    if (isConnected) {
+        const discBtn = document.createElement('button');
+        discBtn.type = 'button';
+        discBtn.className = 'btn btn-danger btn-small';
+        discBtn.textContent = 'Desconectar';
+        discBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            disconnectBt(device.mac);
+        });
+        actions.appendChild(discBtn);
+    } else if (isPaired) {
+        const connBtn = document.createElement('button');
+        connBtn.type = 'button';
+        connBtn.className = 'btn btn-primary btn-small';
+        connBtn.textContent = 'Conectar';
+        connBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            pairAndConnectBt(device.mac, device.name);
+        });
+        actions.appendChild(connBtn);
+
+        const forgetBtn = document.createElement('button');
+        forgetBtn.type = 'button';
+        forgetBtn.className = 'btn btn-danger btn-small';
+        forgetBtn.textContent = 'Olvidar';
+        forgetBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            forgetBt(device.mac);
+        });
+        actions.appendChild(forgetBtn);
+    } else {
+        const pairBtn = document.createElement('button');
+        pairBtn.type = 'button';
+        pairBtn.className = 'btn btn-primary btn-small';
+        pairBtn.textContent = 'Emparejar';
+        pairBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            pairAndConnectBt(device.mac, device.name);
+        });
+        actions.appendChild(pairBtn);
+    }
+    item.appendChild(actions);
+
+    // Row click = the primary one-tap action for a non-connected device.
+    item.addEventListener('click', () => {
+        if (!isConnected) {
+            pairAndConnectBt(device.mac, device.name);
+        }
+    });
+
+    return item;
+}
+
+// One-tap pair THEN connect with staged in-place labels; toast on failure. No PIN
+// modal — pairing is headless/agent-driven (Phase 27, D-03).
+async function pairAndConnectBt(mac, name) {
+    // Find the row for in-place staged labels by matching the rendered device name.
+    let targetLabel = null;
+    for (const item of document.querySelectorAll('.bt-device-item')) {
+        const label = item.querySelector('.bt-device-name');
+        if (label && label.textContent === name) {
+            targetLabel = label;
+            break;
+        }
+    }
+    const setLabel = (text) => { if (targetLabel) targetLabel.textContent = text; };
+
+    try {
+        setLabel('Emparejando ' + name + '...');
+        const pairRes = await fetch('/api/bt/pair', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mac: mac, name: name }),
+        });
+        const pairData = await pairRes.json();
+        if (!pairData.ok) throw new Error(pairData.error || 'Error al emparejar');
+
+        setLabel('Conectando ' + name + '...');
+        const connRes = await fetch('/api/bt/connect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mac: mac }),
+        });
+        const connData = await connRes.json();
+        if (!connData.ok) throw new Error(connData.error || 'Error al conectar');
+
+        showMessage('Conectado a ' + name, 'success');
+        await fetchBtStatus();
+        scanBtDevices();
+    } catch (error) {
+        console.error('BT pair/connect failed:', error);
+        showMessage((error && error.message) || 'Error al conectar', 'error');
+        setLabel(name);
+    }
+}
+
+async function forgetBt(mac) {
+    try {
+        const response = await fetch('/api/bt/forget', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mac: mac }),
+        });
+        const data = await response.json();
+        if (data.ok) {
+            showMessage('Dispositivo olvidado', 'success');
+            fetchBtStatus();
+            scanBtDevices();
+        } else {
+            showMessage(data.error || 'Error al olvidar dispositivo', 'error');
+        }
+    } catch (error) {
+        console.error('forgetBt error:', error);
+        showMessage('Error al olvidar dispositivo', 'error');
+    }
+}
+
+async function disconnectBt(mac) {
+    try {
+        const response = await fetch('/api/bt/disconnect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mac: mac }),
+        });
+        const data = await response.json();
+        if (data.ok) {
+            showMessage('Bluetooth desconectado', 'success');
+            fetchBtStatus();
+            scanBtDevices();
+        } else {
+            showMessage(data.error || 'Error al desconectar', 'error');
+        }
+    } catch (error) {
+        console.error('disconnectBt error:', error);
+        showMessage('Error al desconectar', 'error');
+    }
+}
+
+// Poll the live status and drive the header icon, section summary, and output label.
+async function fetchBtStatus() {
+    try {
+        const response = await fetch('/api/bt/status');
+        if (!response.ok) throw new Error('BT status fetch failed');
+        const data = await response.json();
+        updateBtHeaderIcon(data);
+        updateBtSectionSummary(data);
+        // Inline output label (AUDIO-03, D-07): show the speaker name when a BT sink is
+        // active, otherwise "Cableado".
+        const currentOutput = document.getElementById('bt-current-output');
+        if (currentOutput) {
+            const label = (data.sink && data.sink !== 'wired' && data.device_name)
+                ? data.device_name
+                : 'Cableado';
+            currentOutput.textContent = 'Salida: ' + label;
+        }
+    } catch (error) {
+        console.error('Failed to fetch BT status:', error);
+        updateBtHeaderIcon({ adapter_present: true, health_state: 'disconnected', device_name: null });
+        updateBtSectionSummary({ health_state: 'disconnected', device_name: null });
+    }
+}
+
+// Header BT icon + output text. Connection-state styling from health_state (D-06):
+// connected / reconnecting / wired-fallback; adapter absent -> "Sin Bluetooth" (D-11).
+function updateBtHeaderIcon(status) {
+    const icon = document.getElementById('bt-status');
+    if (!icon) return;
+    const outputText = document.getElementById('bt-output-text');
+
+    if (status.adapter_present === false) {
+        icon.className = 'status-icon bt-status-icon disconnected';
+        icon.title = 'Bluetooth: Sin Bluetooth';
+        if (outputText) outputText.textContent = 'Sin Bluetooth';
+        return;
+    }
+
+    if (status.health_state === 'connected') {
+        icon.className = 'status-icon bt-status-icon connected';
+        icon.title = 'Bluetooth: Conectado a ' + (status.device_name || 'altavoz');
+        if (outputText) outputText.textContent = status.device_name || 'Altavoz';
+    } else if (status.health_state === 'reconnecting') {
+        icon.className = 'status-icon bt-status-icon reconnecting';
+        icon.title = 'Bluetooth: Reconectando...';
+        if (outputText) outputText.textContent = 'Reconectando...';
+    } else if (status.health_state === 'wired-fallback') {
+        icon.className = 'status-icon bt-status-icon wired-fallback';
+        icon.title = 'Bluetooth: Salida cableada';
+        if (outputText) outputText.textContent = 'Cableado';
+    } else {
+        icon.className = 'status-icon bt-status-icon disconnected';
+        icon.title = 'Bluetooth: Sin altavoz';
+        if (outputText) outputText.textContent = 'Cableado';
+    }
+}
+
+// Collapsed-header summary text (D-08).
+function updateBtSectionSummary(status) {
+    const summary = document.getElementById('bt-header-summary');
+    if (!summary) return;
+    if (status.health_state === 'connected' && status.device_name) {
+        summary.textContent = '— Conectado a ' + status.device_name;
+    } else if (status.health_state === 'reconnecting') {
+        summary.textContent = '— Reconectando...';
+    } else {
+        summary.textContent = '— Sin altavoz';
+    }
+}
+
+function startBtStatusPolling() {
+    fetchBtStatus();
+    btStatusPollId = setInterval(fetchBtStatus, BT_STATUS_POLL_INTERVAL);
+}
+
+function stopBtStatusPolling() {
+    if (btStatusPollId) {
+        clearInterval(btStatusPollId);
+        btStatusPollId = null;
+    }
+}
+
+// Accordion: poll only while expanded (D-05).
+function toggleBtSection() {
+    const section = document.querySelector('.bt-section');
+    if (!section) return;
+    section.classList.toggle('expanded');
+    if (section.classList.contains('expanded')) {
+        scanBtDevices();
+        startBtStatusPolling();
+    } else {
+        stopBtStatusPolling();
+    }
+}
+
+function scrollToBtSection() {
+    const section = document.querySelector('.bt-section');
+    if (!section) return;
+    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!section.classList.contains('expanded')) {
+        toggleBtSection();
+    }
+}
+
+function initBtSection() {
+    const header = document.querySelector('.bt-section-header');
+    if (header) header.addEventListener('click', toggleBtSection);
+
+    const refreshBtn = document.getElementById('bt-refresh-btn');
+    if (refreshBtn) refreshBtn.addEventListener('click', scanBtDevices);
+
+    const btStatus = document.getElementById('bt-status');
+    if (btStatus) btStatus.addEventListener('click', scrollToBtSection);
+
+    // Populate the header icon once while the section is still collapsed.
+    fetchBtStatus();
 }
