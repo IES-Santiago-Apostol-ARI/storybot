@@ -310,7 +310,7 @@ systemctl enable storybot.service
 systemctl enable storybot-nfc-reset.service
 
 # Install boot-reconnect unit (D-02)
-sed -e "s|__INSTALL_USER__|$INSTALL_USER|g" -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" -e "s|__USER_UID__|$USER_UID|g" \\
+sed -e "s|__INSTALL_USER__|$INSTALL_USER|g" -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" -e "s|__USER_UID__|$USER_UID|g" \
     "$INSTALL_DIR/deploy/storybot-bt-boot.service" > /etc/systemd/system/storybot-bt-boot.service
 loginctl enable-linger "$INSTALL_USER" || true
 
