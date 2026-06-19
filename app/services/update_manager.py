@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -261,8 +262,15 @@ def create_update_manager() -> UpdateManager:
     """Create appropriate update manager based on git availability.
 
     Returns:
-        RealUpdateManager if git is available, else MockUpdateManager.
+        - MockUpdateManager when ``TESTING`` env is set (mirrors
+          create_bt_manager) — prevents tests that exercise the real
+          ``/api/updates/apply`` endpoint from running destructive
+          ``git reset --hard`` against the working repo.
+        - RealUpdateManager if git is available.
+        - MockUpdateManager otherwise.
     """
+    if os.environ.get("TESTING"):
+        return MockUpdateManager()
     if shutil.which("git"):
         return RealUpdateManager()
     return MockUpdateManager()

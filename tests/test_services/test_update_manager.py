@@ -398,7 +398,10 @@ class TestFactory:
     """create_update_manager() returns Real or Mock based on git availability."""
 
     @patch("app.services.update_manager.shutil.which", return_value="/usr/bin/git")
-    def test_factory_returns_real_when_git_available(self, mock_which):
+    def test_factory_returns_real_when_git_available(self, mock_which, monkeypatch):
+        # The conftest sets TESTING=1 globally, which the factory now honors by
+        # returning a mock. Clear it here to exercise the git-availability branch.
+        monkeypatch.delenv("TESTING", raising=False)
         mgr = create_update_manager()
         assert isinstance(mgr, RealUpdateManager)
         assert mgr.is_mock is False
@@ -414,6 +417,17 @@ class TestFactory:
         mgr1 = create_update_manager()
         mgr2 = create_update_manager()
         assert mgr1 is not mgr2
+
+    def test_factory_returns_mock_under_testing_env(self, monkeypatch):
+        """TESTING forces the mock even when git is available, so the suite never
+        runs real destructive git (reset --hard) against the working repo."""
+        monkeypatch.setenv("TESTING", "1")
+        with patch(
+            "app.services.update_manager.shutil.which", return_value="/usr/bin/git"
+        ):
+            mgr = create_update_manager()
+        assert isinstance(mgr, MockUpdateManager)
+        assert mgr.is_mock is True
 
 
 # ---------------------------------------------------------------------------
