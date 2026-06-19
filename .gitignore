@@ -213,3 +213,6 @@ content/bt_devices.json
 .update-state
 .paul/
 .gitnexus
+.planning.backup-pre-reconcile-20260612/
+.claude/worktrees/
+content/generated/

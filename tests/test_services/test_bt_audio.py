@@ -115,7 +115,23 @@ async def test_route_to_bt_isolated_by_patching_run_pactl(monkeypatch):
 
     monkeypatch.setattr(bt_audio, "_run_pactl", fake_run)
     await bt_audio.route_to_bt("11:22:33:44:55:66")
-    assert len(invoked) == 2  # set-card-profile + set-default-sink, nothing else
+    assert len(invoked) == 3  # set-card-profile + set-default-sink + set-sink-volume
+
+
+async def test_route_to_bt_sets_sink_volume_to_max_on_connect(monkeypatch):
+    """D-01: Assert set-sink-volume 100% is called after successful route_to_bt."""
+    calls = []
+
+    async def fake_run(*args):
+        calls.append(args)
+        return ("", "", 0)
+
+    monkeypatch.setattr(bt_audio, "_run_pactl", fake_run)
+    mac = "aa:bb:cc:00:11:22"
+    result = await bt_audio.route_to_bt(mac)
+
+    assert result is True
+    assert ("set-sink-volume", bt_audio._bt_sink(mac), "100%") in calls
 
 
 def test_first_alsa_sink_returns_name_of_first_alsa_line():

@@ -86,7 +86,10 @@ async def route_to_bt(mac: str) -> bool:
     await _run_pactl("set-card-profile", _bt_card(mac), "a2dp-sink")
     # AUDIO-01: make the BT speaker the default output.
     _, _, rc = await _run_pactl("set-default-sink", _bt_sink(mac))
-    if rc != 0:
+    if rc == 0:
+        # D-01: drive output sink to 100% volume on connect.
+        await _run_pactl("set-sink-volume", _bt_sink(mac), "100%")
+    else:
         _log_event("bt_route_failed", mac=mac, rc=rc, target=_bt_sink(mac))
     return rc == 0
 
