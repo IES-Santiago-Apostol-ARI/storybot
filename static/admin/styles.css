@@ -927,6 +927,19 @@ input[type="color"] {
     cursor: pointer;
 }
 
+/* Reconnecting: amber + pulse to signal an in-progress transition (D-06). */
+.bt-status-icon.reconnecting {
+    background: rgba(245, 158, 11, 0.3);  /* amber */
+    color: #f59e0b;
+    animation: pulse-status 1.5s ease-in-out infinite;
+}
+
+/* Wired fallback: muted neutral — audio is on the wired output, no BT speaker (D-06). */
+.bt-status-icon.wired-fallback {
+    background: rgba(148, 163, 184, 0.3);  /* slate */
+    color: #94a3b8;
+}
+
 .bt-output-text {
     font-size: 0.7rem;
     max-width: 80px;
