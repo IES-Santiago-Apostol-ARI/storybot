@@ -38,6 +38,13 @@
                     </svg>
                     <span id="wifi-ssid-text" class="wifi-ssid-text">Sin conexion</span>
                 </span>
+                <!-- Bluetooth Status -->
+                <span class="status-icon bt-status-icon" id="bt-status" title="Bluetooth: Comprobando...">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                        <path d="M17.71 7.71L12 2h-1v7.59L6.29 7.71C4.5 9.5 3 12 3 15c0 4.97 4.03 9 9 9s9-4.03 9-9c0-3-1.5-5.5-3.29-7.29zM13 17h-2v-6h2v6z"/>
+                    </svg>
+                    <span id="bt-output-text" class="bt-output-text">Cableado</span>
+                </span>
                 <!-- Update Available Status (Phase 25 / D-01) -->
                 <span class="status-icon update-status-icon hidden" id="update-status" title="Actualizacion disponible">
                     <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
@@ -193,6 +200,27 @@
             <h2>Actualizaciones</h2>
             <p id="updates-info"></p>
             <button type="button" class="btn btn-primary" id="updates-install-btn">Instalar</button>
+        </section>
+
+        <section class="bt-section">
+            <div class="bt-section-header">
+                <h2>Bluetooth</h2>
+                <span id="bt-header-summary" class="bt-header-summary"></span>
+                <svg class="bt-chevron" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                    <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
+                </svg>
+            </div>
+            <div class="bt-section-body" id="bt-section-body">
+                <div id="bt-no-adapter" class="bt-no-adapter hidden">
+                    <p>Sin Bluetooth</p>
+                </div>
+                <div id="bt-current-output" class="bt-current-output">Salida: Cableado</div>
+                <div class="bt-toolbar">
+                    <button type="button" id="bt-refresh-btn" class="btn btn-secondary btn-small">Actualizar</button>
+                </div>
+                <div id="bt-device-list" class="bt-device-list"></div>
+                <p id="bt-scanning" class="bt-scanning hidden">Buscando altavoces...</p>
+            </div>
         </section>
 
         <!-- Card registration overlay -->
