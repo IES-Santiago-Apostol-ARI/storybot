@@ -184,10 +184,34 @@ async def lifespan(app: FastAPI):
             file=sys.stderr,
         )
 
+    # Phase 28 BOOT-04: start health monitor in background (skip during testing).
+    bt_monitor_task = None
+    if not os.environ.get("TESTING"):
+        try:
+            from app.services.bt_monitor import BtMonitor
+            from app.services.bt_manager import create_bt_manager
+            from app.services.bt_audio import route_to_wired
+
+            app.state.bt_monitor = BtMonitor(
+                manager=create_bt_manager(), route_to_wired=route_to_wired
+            )
+            bt_monitor_task = asyncio.create_task(app.state.bt_monitor.run())
+        except Exception as e:
+            print(
+                json.dumps({"event": "bt_monitor_init_failed", "reason": type(e).__name__}),
+                file=sys.stderr,
+            )
+
     yield
 
     # Shutdown
     await hardware.shutdown()
+
+    # Phase 28 BOOT-04: clean cancel of health monitor.
+    if bt_monitor_task:
+        bt_monitor_task.cancel()
+        await asyncio.gather(bt_monitor_task, return_exceptions=True)
+
 
 
 app = FastAPI(

@@ -5,7 +5,7 @@ Mirrors app/routers/wifi.py: per-request create_bt_manager() (no app.state
 caching, RESEARCH Assumption A2) and pydantic response_model on scan/status.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from app.models.bt import (
     BtConnectRequest,
@@ -46,7 +46,7 @@ async def get_last_speaker() -> dict | None:
 
 
 @router.get("/status", response_model=BtStatus)
-async def get_status() -> dict:
+async def get_status(request: Request) -> dict:
     """Return current Bluetooth service status (BT-06 informational).
 
     Composes the manager's get_status() dict with detect_platform() and an
@@ -57,7 +57,7 @@ async def get_status() -> dict:
     base = await manager.get_status()
     from app.services.bt_manager import _bt_adapter_present
 
-    return {
+    status_dict = {
         "name": base.get("name", "bt"),
         "is_mock": manager.is_mock,
         "status": base.get("status", "ok"),
@@ -66,7 +66,22 @@ async def get_status() -> dict:
         "error_message": base.get("error_message"),
         "connected_mac": base.get("connected_mac"),
         "sink": base.get("sink", "wired"),
+        "health_state": "unknown",
+        "device_name": None,
     }
+
+    # Overlay live monitor state if present (D-14)
+    monitor = getattr(request.app.state, "bt_monitor", None)
+    if monitor:
+        m_status = monitor.status()
+        status_dict.update({
+            "sink": m_status.get("sink", status_dict["sink"]),
+            "health_state": m_status.get("health_state", status_dict["health_state"]),
+            "device_name": m_status.get("device_name", status_dict["device_name"]),
+            "connected_mac": m_status.get("device_mac", status_dict["connected_mac"]),
+        })
+
+    return status_dict
 
 
 @router.post("/pair")

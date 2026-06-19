@@ -39,6 +39,13 @@ class BtStatus(BaseModel):
         None,
         description="MAC of the currently connected speaker; None when none",
     )
+    health_state: str = Field(
+        "unknown",
+        description="D-14 health state (connected, reconnecting, wired-fallback)",
+    )
+    device_name: str | None = Field(
+        None, description="D-14 connected speaker display name"
+    )
     sink: str = Field(
         ..., description="Current default audio sink: 'wired' or the BT sink name"
     )

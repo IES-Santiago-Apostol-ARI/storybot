@@ -15,7 +15,7 @@ class BtMonitor:
     def __init__(
         self, 
         manager, 
-        route_to_wired: Callable[[], Awaitable[None]], 
+        route_to_wired: Callable[[], Awaitable[Any]], 
         probe: Optional[Callable[[str], Awaitable[bool]]] = None,
         sleep: Optional[Callable[[float], Awaitable[None]]] = None
     ):
