@@ -1,6 +1,8 @@
 """Tests for LED controller service."""
 
 import pytest
+import platform
+from unittest.mock import patch
 
 from app.services.led_controller import (
     MockLEDService,
@@ -173,8 +175,71 @@ class TestCreateLEDService:
     """Test LED service factory function."""
 
     def test_create_led_service_returns_mock(self):
-        """Test that create_led_service returns MockLEDService."""
+        """Test that create_led_service returns MockLEDService when the probe fails (TESTING=1 in conftest, D-07 deliberate update)."""
         service = create_led_service()
-        # Currently always returns mock until hardware is verified
         assert isinstance(service, MockLEDService)
         assert service.is_mock is True
+
+    def test_factory_returns_mock_on_x86(self, monkeypatch):
+        """Test that factory returns mock on x86 architecture."""
+        with patch("platform.machine", return_value="x86_64"):
+            service = create_led_service()
+            assert isinstance(service, MockLEDService)
+
+    def test_factory_returns_mock_when_node_missing(self, monkeypatch):
+        """Test that factory returns mock when SPI device node is missing."""
+        with patch("platform.machine", return_value="aarch64"), \
+             patch("os.path.exists", return_value=False):
+            service = create_led_service()
+            assert isinstance(service, MockLEDService)
+
+    def test_factory_returns_mock_when_not_writable(self, monkeypatch):
+        """Test that factory returns mock when SPI device node is not writable."""
+        with patch("platform.machine", return_value="aarch64"), \
+             patch("os.path.exists", return_value=True), \
+             patch("os.access", return_value=False):
+            service = create_led_service()
+            assert isinstance(service, MockLEDService)
+
+    def test_factory_returns_real_when_all_gates_open(self, monkeypatch):
+        """
+        Test that factory returns RealLEDService when all gates are open.
+        Strategy: patch the probe helper _real_led_available and mock SpiWriter 
+        to avoid spidev import errors on x86.
+        """
+        monkeypatch.delenv("TESTING", raising=False)
+        with patch("app.services.led_controller._real_led_available", return_value=True), \
+             patch("app.services.led_controller.SpiWriter", return_value=None):
+            service = create_led_service()
+            assert isinstance(service, RealLEDService)
+
+    def test_factory_creates_new_instance_each_call(self):
+        """Test that each factory call returns a distinct instance."""
+        s1 = create_led_service()
+        s2 = create_led_service()
+        assert s1 is not s2
+
+    def test_factory_never_raises_on_any_path(self, monkeypatch):
+        """PLAT-03: Every monkeypatch combination returns without raising."""
+        # Case 1: x86
+        with patch("platform.machine", return_value="x86_64"):
+            assert isinstance(create_led_service(), MockLEDService)
+        
+        # Case 2: aarch64 but missing node
+        with patch("platform.machine", return_value="aarch64"), \
+             patch("os.path.exists", return_value=False):
+            assert isinstance(create_led_service(), MockLEDService)
+            
+        # Case 3: aarch64, node exists, not writable
+        with patch("platform.machine", return_value="aarch64"), \
+             patch("os.path.exists", return_value=True), \
+             patch("os.access", return_value=False):
+            assert isinstance(create_led_service(), MockLEDService)
+
+    def test_factory_testing_takes_precedence_over_real(self, monkeypatch):
+        """TESTING beats everything — even if hardware is present."""
+        monkeypatch.setenv("TESTING", "1")
+        with patch("app.services.led_controller._real_led_available", return_value=True), \
+             patch("app.services.led_controller.SpiWriter", return_value=None):
+            service = create_led_service()
+            assert isinstance(service, MockLEDService)
