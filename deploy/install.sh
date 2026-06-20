@@ -488,18 +488,65 @@ echo ""
 if [[ "$AI_MODE" == true ]]; then
     echo "Step 9: Configuring kiosk autostart..."
     sudo -u "$INSTALL_USER" mkdir -p "$USER_HOME/.config/autostart"
+    # Pre-create the Firefox kiosk profile directory. Launching firefox with
+    # -profile pointing at a non-existent path fails with "Your Firefox profile
+    # cannot be loaded. It may be missing or inaccessible."
+    sudo -u "$INSTALL_USER" mkdir -p "$USER_HOME/.storybot-kiosk-profile"
 
     cat > "$USER_HOME/.config/autostart/storybot-kiosk.desktop" << 'KIOSKEOF'
 [Desktop Entry]
 Type=Application
 Name=StoryBot Kiosk
 Comment=Launch Firefox kiosk for StoryBot
-Exec=bash -c "unclutter -idle 0.5 & sleep 5 && MOZ_DISABLE_CONTENT_SANDBOX=1 firefox --kiosk --purgecaches --no-remote -P kiosk http://localhost/"
+Exec=bash -c "unclutter -idle 0.5 & sleep 5 && firefox --kiosk --purgecaches --no-remote -profile $HOME/.storybot-kiosk-profile http://localhost/"
 Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
 KIOSKEOF
     chown "$INSTALL_USER:$INSTALL_USER" "$USER_HOME/.config/autostart/storybot-kiosk.desktop"
+
+    # Rotate the kiosk display 180 degrees at login. mutter's monitors.xml
+    # persistence is unreliable on this JetPack build, so a login autostart
+    # applies the rotation via the same D-Bus interface mutter uses (idempotent).
+    sudo -u "$INSTALL_USER" mkdir -p "$USER_HOME/.local/bin"
+    cat > "$USER_HOME/.local/bin/storybot-rotate.sh" << 'ROTEOF'
+#!/usr/bin/env bash
+# Rotate the StoryBot kiosk display 180 degrees on GNOME/Wayland login.
+set -u
+DEST=org.gnome.Mutter.DisplayConfig
+OBJ=/org/gnome/Mutter/DisplayConfig
+CONNECTOR=DP-1
+TRANSFORM=2          # 0=normal 1=90 2=180 3=270
+for _ in $(seq 1 30); do
+  state=$(gdbus call --session --dest "$DEST" --object-path "$OBJ" \
+    --method "$DEST".GetCurrentState 2>/dev/null) && [ -n "$state" ] && break
+  sleep 1
+done
+[ -n "${state:-}" ] || { echo "DisplayConfig not available" >&2; exit 1; }
+serial=$(printf '%s' "$state" | sed -n 's/^(uint32 \([0-9]*\),.*/\1/p')
+mode=$(printf '%s' "$state" \
+  | grep -oE "'[0-9]+x[0-9]+@[0-9.]+'[^{]*\{'is-current': <true>" \
+  | grep -oE "^'[0-9]+x[0-9]+@[0-9.]+'" | tr -d "'" | head -1)
+[ -n "$mode" ] || mode=1024x600@60.05108642578125
+gdbus call --session --dest "$DEST" --object-path "$OBJ" \
+  --method "$DEST".ApplyMonitorsConfig \
+  "$serial" 1 \
+  "[(0, 0, 1.0, uint32 $TRANSFORM, true, [('$CONNECTOR', '$mode', @a{sv} {})])]" \
+  "@a{sv} {}"
+ROTEOF
+    chmod +x "$USER_HOME/.local/bin/storybot-rotate.sh"
+    chown "$INSTALL_USER:$INSTALL_USER" "$USER_HOME/.local/bin/storybot-rotate.sh"
+    cat > "$USER_HOME/.config/autostart/storybot-rotate.desktop" << ROTDESKEOF
+[Desktop Entry]
+Type=Application
+Name=StoryBot Display Rotate
+Comment=Rotate the kiosk display 180 degrees at login
+Exec=$USER_HOME/.local/bin/storybot-rotate.sh
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+ROTDESKEOF
+    chown "$INSTALL_USER:$INSTALL_USER" "$USER_HOME/.config/autostart/storybot-rotate.desktop"
     echo -e "${GREEN}Kiosk autostart configured${NC}"
 else
     echo "Step 9: Skipping Firefox kiosk autostart (stories-only mode)..."

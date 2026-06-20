@@ -216,3 +216,5 @@ content/bt_devices.json
 .planning.backup-pre-reconcile-20260612/
 .claude/worktrees/
 content/generated/
+.claude/
+.opencode/
