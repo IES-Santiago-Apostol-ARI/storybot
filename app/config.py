@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Optional
+
 from pydantic import BaseModel
 
 
@@ -10,11 +10,23 @@ class Settings(BaseModel):
     """Application settings."""
 
     led_brightness: int = 255
+    led_count: int = 21  # D-10: wired strip length (within 8–30 spec)
+    led_max_brightness: float = (
+        0.30  # D-09: ~75/255 child-safe baseline (cap applied before gamma)
+    )
+    led_spi_bus: int = (
+        0  # D-12: spidev0.0 default; node confirmed after jetson-io in Phase 34
+    )
+    led_spi_dev: int = 0  # D-12
+    led_spi_speed_hz: int = 6_400_000  # D-11: Option A, 8 SPI bits per WS bit
+    led_color_order: str = "GRB"  # D-13: WS2812B standard
+    led_gamma: float = (
+        2.2  # sRGB approx; deterministic LUT (see app.services.led_spi._gamma_lut)
+    )
     audio_volume: float = 1.0
     tts_voice: str = "es_ES-glow_tenor"
     nfc_reader_device: str = "usb:072f:2200"
     printer_model: str = "QL-800"
-    led_strip_device: str = "/dev/ttyUSB0"
 
     class Config:
         json_encoders = {Path: str}
@@ -24,7 +36,7 @@ class Settings(BaseModel):
 class ConfigManager:
     """Manage application configuration."""
 
-    def __init__(self, config_path: Optional[Path | str] = None) -> None:
+    def __init__(self, config_path: Path | str | None = None) -> None:
         """Initialize config manager.
 
         Args:
@@ -35,7 +47,7 @@ class ConfigManager:
             project_root = Path(__file__).parent.parent
             config_path = project_root / "content" / "config.json"
         self.config_path = Path(config_path)
-        self._settings: Optional[Settings] = None
+        self._settings: Settings | None = None
 
     def load(self) -> Settings:
         """Load settings from config file.
@@ -50,7 +62,7 @@ class ConfigManager:
             try:
                 data = json.loads(self.config_path.read_text())
                 self._settings = Settings(**data)
-            except (json.JSONDecodeError, TypeError) as e:
+            except (json.JSONDecodeError, TypeError):
                 # If config is invalid, use defaults
                 self._settings = Settings()
         else:
