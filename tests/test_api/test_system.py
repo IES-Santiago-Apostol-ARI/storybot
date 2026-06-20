@@ -140,3 +140,39 @@ class TestLEDEndpoints:
             assert response.status_code == 200
             data = response.json()
             assert data["rgb"] == expected_rgb
+
+    @pytest.mark.xfail(strict=False, reason="engine wiring lands in 32-03")
+    def test_led_routes_through_engine_not_service(self, client):
+        """
+        LED-06: Verify /api/system/led routes through the animator, not the driver.
+        Selector: -k routes_through_engine
+        """
+        from unittest.mock import MagicMock
+        
+        # Spy on animator and service
+        animator = app.state.led_animator
+        service = animator._led_service if hasattr(animator, "_led_service") else None
+        
+        if animator is None or service is None:
+            pytest.fail("Animator or service missing from state")
+
+        animator.set_base = MagicMock(side_effect=animator.set_base)
+        service.set_color = MagicMock(side_effect=service.set_color)
+
+        client.post("/api/system/led", json={"color": "#FF0000"})
+
+        # Assert animator was called, but driver was NOT called directly by the route
+        assert animator.set_base.called
+        assert not service.set_color.called
+
+    @pytest.mark.xfail(strict=False, reason="engine wiring lands in 32-03")
+    def test_led_returns_503_when_animator_missing(self, client, monkeypatch):
+        """
+        LED-09: Verify /api/system/led returns 503 when animator is not initialized.
+        Selector: -k animator_missing
+        """
+        # Temporarily remove animator from state
+        monkeypatch.setattr(app.state, "led_animator", None)
+        
+        response = client.post("/api/system/led", json={"color": "#FF0000"})
+        assert response.status_code == 503
