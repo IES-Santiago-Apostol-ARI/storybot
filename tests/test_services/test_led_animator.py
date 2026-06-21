@@ -220,3 +220,229 @@ class TestLedAnimatorContract:
         await animator.tick_once()
         assert len(new._writer.frames) == 1
         assert len(old._writer.frames) == 1  # old driver untouched after re-point
+
+# ============================================================
+# Phase 33 RED tests — engine extensions (set_mode, set_health)
+# These reference not-yet-existing APIs and are expected to FAIL
+# until plan 03 lands.
+# ============================================================
+
+class TestLedAnimatorMode:
+    """Phase 33 engine extension tests (RED until plan 03)."""
+
+    @pytest.mark.asyncio
+    async def test_flash_rate_limit(self, led_animator, fake_clock):
+        """LED-23: Flash rate limit — second flash within 333ms is dropped.
+
+        Fire flash at t=0; advance to t=0.332s, fire again — assert dropped.
+        Advance past 0.333s, fire again — assert accepted.
+        """
+        led_animator.flash(255, 0, 0, ms=100)
+        await led_animator.tick_once()
+        assert led_animator.get_color() == (255, 0, 0)
+
+        # Second flash within rate limit — should be dropped
+        fake_clock.advance(0.332)
+        led_animator.flash(0, 255, 0, ms=100)
+        await led_animator.tick_once()
+        # Should still show the first flash (or base), NOT the second
+        assert led_animator.get_color() != (0, 255, 0)
+
+        # Past rate limit — should be accepted
+        fake_clock.advance(0.002)  # now 0.334s from first flash
+        led_animator.flash(0, 0, 255, ms=100)
+        await led_animator.tick_once()
+        assert led_animator.get_color() == (0, 0, 255)
+
+    @pytest.mark.asyncio
+    async def test_idle_static_no_rewrite(self, led_animator, mock_led_service, fake_clock):
+        """LED-16: Idle mode is static — dirty-check suppresses bus traffic.
+
+        Set idle mode; tick many times; assert _write.call_count == 1
+        (only the first paint, no subsequent writes).
+        """
+        led_animator.set_mode("idle")
+        # Spy on _write
+        led_animator._write = MagicMock(wraps=led_animator._write)
+
+        await led_animator.tick_once()
+        first_count = led_animator._write.call_count
+
+        # Advance clock and tick many more times
+        for _ in range(10):
+            fake_clock.advance(0.1)
+            await led_animator.tick_once()
+
+        # Static idle should not rewrite
+        assert led_animator._write.call_count == first_count
+
+    @pytest.mark.asyncio
+    async def test_pause_hold_resume(self, led_animator, fake_clock):
+        """LED-11: Pause holds frame steady; resume is phase-continuous.
+
+        Set playback mode; tick to mid-breath; pause — assert frame holds
+        steady (no oscillation); resume — assert breathing resumes without
+        a hard-cut jump to full brightness.
+        """
+        led_animator.set_mode("playback", color=(255, 0, 0))
+        await led_animator.tick_once()
+        color_before_pause = led_animator.get_color()
+
+        # Pause — frame should hold steady
+        led_animator.set_mode("pause")
+        await led_animator.tick_once()
+        color_after_pause = led_animator.get_color()
+
+        # Advance clock — frame should NOT change while paused
+        fake_clock.advance(2.0)
+        await led_animator.tick_once()
+        color_while_paused = led_animator.get_color()
+        assert color_while_paused == color_after_pause, "Pause should hold frame steady"
+
+        # Resume — breathing should resume phase-continuous (no hard-cut)
+        led_animator.set_mode("resume")
+        await led_animator.tick_once()
+        color_after_resume = led_animator.get_color()
+        # Should not jump to full brightness
+        assert color_after_resume != (255, 0, 0), "Resume should be phase-continuous"
+
+    @pytest.mark.asyncio
+    async def test_ended_crossfade_to_idle(self, led_animator, fake_clock):
+        """LED-12, LED-22: Ended mode crossfades to idle, not hard-cut.
+
+        Set playback; set ended — assert intermediate blended value
+        (not the destination immediately).
+        """
+        led_animator.set_mode("playback", color=(255, 0, 0))
+        await led_animator.tick_once()
+        playback_color = led_animator.get_color()
+
+        # Set ended — should crossfade, not hard-cut
+        led_animator.set_mode("ended")
+        await led_animator.tick_once()
+        ended_color = led_animator.get_color()
+
+        # Should be a blended value (not idle glow yet, not playback)
+        assert ended_color != playback_color, "Should not be playback color"
+        # Should not be idle glow yet (crossfade in progress)
+        led_animator.set_mode("idle")
+        await led_animator.tick_once()
+        idle_color = led_animator.get_color()
+        assert ended_color != idle_color, "Should not be idle glow yet"
+
+    @pytest.mark.asyncio
+    async def test_crossfade_intermediate(self, led_animator, fake_clock):
+        """LED-22: Generic mode change yields blended intermediate.
+
+        idle → thinking should produce a blended framebuffer at midpoint.
+        """
+        led_animator.set_mode("idle")
+        await led_animator.tick_once()
+        idle_color = led_animator.get_color()
+
+        led_animator.set_mode("thinking")
+        await led_animator.tick_once()
+        intermediate_color = led_animator.get_color()
+
+        # Should be between idle and thinking colors
+        assert intermediate_color != idle_color, "Should not be idle color"
+
+    @pytest.mark.asyncio
+    async def test_beacon_idle_only(self, led_animator, fake_clock):
+        """LED-21: Beacon only renders in idle mode, suppressed in playback.
+
+        Call set_health(down=True); idle → beacon appears; playback → suppressed.
+        """
+        led_animator.set_health(down=True)
+
+        # Idle mode — beacon should appear
+        led_animator.set_mode("idle")
+        await led_animator.tick_once()
+        idle_with_beacon = led_animator.get_color()
+
+        # Playback mode — beacon suppressed
+        led_animator.set_mode("playback", color=(255, 0, 0))
+        await led_animator.tick_once()
+        playback_color = led_animator.get_color()
+
+        # Beacon should be different from idle (suppressed in playback)
+        assert playback_color != idle_with_beacon, "Beacon should be suppressed in playback"
+
+        # Return to idle — beacon reappears
+        led_animator.set_mode("idle")
+        await led_animator.tick_once()
+        idle_beacon_again = led_animator.get_color()
+        assert idle_beacon_again == idle_with_beacon, "Beacon should reappear in idle"
+
+    @pytest.mark.asyncio
+    async def test_tap_flash_overlay(self, led_animator, fake_clock):
+        """LED-13: Tap flash uses neutral/white confirm color."""
+        led_animator.flash_tap()
+        await led_animator.tick_once()
+        color = led_animator.get_color()
+        # Tap flash should be white/neutral
+        assert color[0] > 200 and color[1] > 200 and color[2] > 200
+
+    @pytest.mark.asyncio
+    async def test_go_flash_distinct(self, led_animator, fake_clock):
+        """LED-14: GO flash uses distinct green color, longer duration."""
+        led_animator.flash_go()
+        await led_animator.tick_once()
+        color = led_animator.get_color()
+        # GO flash should be green-dominant
+        assert color[1] > color[0] and color[1] > color[2]
+
+    @pytest.mark.asyncio
+    async def test_error_overrides_then_autofades(self, led_animator, fake_clock):
+        """LED-15: Error overrides playback, then auto-fades to idle.
+
+        Set playback; set error — assert amber; advance past auto-fade —
+        assert settled to idle. Also: error cleared by new action.
+        """
+        led_animator.set_mode("playback", color=(255, 0, 0))
+        await led_animator.tick_once()
+
+        # Error overrides playback
+        led_animator.set_mode("error")
+        await led_animator.tick_once()
+        error_color = led_animator.get_color()
+        # Should be amber (not red, not blue)
+        assert error_color[0] > error_color[2], "Error should be amber, not blue"
+        assert error_color[1] > error_color[2], "Error should have green component"
+
+        # Advance past auto-fade duration — should settle to idle
+        fake_clock.advance(5.0)
+        await led_animator.tick_once()
+        faded_color = led_animator.get_color()
+        assert faded_color != error_color, "Error should auto-fade"
+
+        # Error cleared by new action
+        led_animator.set_mode("playback", color=(0, 255, 0))
+        await led_animator.tick_once()
+        new_color = led_animator.get_color()
+        assert new_color[1] > new_color[0], "New action should clear error"
+
+    @pytest.mark.asyncio
+    async def test_boot_sweep_then_idle(self, led_animator, fake_clock):
+        """LED-18: Boot sweep renders then auto-settles to idle.
+
+        Fresh engine on first ticks renders boot wipe (increasing lit prefix),
+        then auto-settles to idle once wipe duration elapses.
+        """
+        # Fresh engine — should start with boot sweep
+        led_animator.set_mode("boot")
+        await led_animator.tick_once()
+        boot_color_1 = led_animator.get_color()
+
+        # Advance — should light more pixels
+        fake_clock.advance(0.3)
+        await led_animator.tick_once()
+        boot_color_2 = led_animator.get_color()
+
+        # After wipe duration — should settle to idle
+        fake_clock.advance(1.0)
+        await led_animator.tick_once()
+        settled_color = led_animator.get_color()
+
+        # Should have changed from boot to idle
+        assert settled_color != boot_color_1, "Should settle from boot to idle"
