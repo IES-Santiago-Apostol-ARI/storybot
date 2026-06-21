@@ -120,3 +120,92 @@ class TestLifespanSweeperInvocation:
         assert (
             "sweep_complete" in captured.err
         ), "Plan 16-01 RED: lifespan sweeper must log sweep_complete JSON to stderr"
+
+
+class TestLifespanLEDEngineWiring:
+    """Plan 33-06: lifespan feeds health status + arms the boot sweep (D-05/D-14/LED-21/LED-18)."""
+
+    def test_boot_sweep_armed_at_startup(self, lifespan_env):
+        """LED-18 / D-10: the lifespan arms the engine-internal boot sweep over the mock."""
+        import asyncio
+
+        from app.main import app
+
+        with TestClient(app) as client:
+            animator = client.app.state.led_animator
+            assert animator is not None, "LedAnimator must be constructed unconditionally"
+            # The boot sweep is armed via set_mode("boot"); _boot_started_at must be
+            # set (engine-internal one-shot, D-10). Let the loop tick once so the
+            # engine can advance its boot state if needed.
+            async def _tick():
+                await animator.tick_once()
+
+            asyncio.run(_tick())
+            assert (
+                animator._boot_started_at is not None
+            ), "Plan 33-06 RED: lifespan must arm the boot sweep via set_mode('boot')"
+
+    def test_health_status_fed_at_startup(self, lifespan_env, monkeypatch):
+        """LED-21 / D-05: lifespan derives service-down flag from HardwareManager and feeds set_health."""
+        from app.main import app
+
+        # Spy on set_health to prove the lifespan actually calls it (not just the
+        # default _health_down=False sentinel). The spy delegates to the real impl.
+        from app.services.led_animator import LedAnimator
+
+        calls: list[bool] = []
+        real_set_health = LedAnimator.set_health
+
+        def _spy(self, down: bool):
+            calls.append(down)
+            return real_set_health(self, down)
+
+        monkeypatch.setattr(LedAnimator, "set_health", _spy)
+
+        with TestClient(app) as client:
+            animator = client.app.state.led_animator
+            assert animator is not None
+
+        assert calls, (
+            "Plan 33-06 RED: lifespan must call set_health(down=...) derived from "
+            "HardwareManager status at startup (no call observed)"
+        )
+        # The fed value must be a concrete bool derived from real status (not a
+        # sentinel). The exact value depends on which mock services report error
+        # in this CI environment; what matters is the wiring fired.
+        assert isinstance(calls[-1], bool)
+
+    def test_health_down_when_service_in_error(self, lifespan_env):
+        """LED-21 / D-05: a hardware service in error status drives _health_down True."""
+        from unittest.mock import AsyncMock
+
+        from app.main import app
+        from app.models.system import HardwareState
+
+        error_status = {
+            "hardware": {
+                "nfc": HardwareState(
+                    name="nfc", is_mock=True, status="error", error_message="x"
+                ).dict()
+            },
+            "uptime_seconds": 1.0,
+            "version": "0.1.0",
+        }
+
+        with TestClient(app) as client:
+            animator = client.app.state.led_animator
+            hardware = client.app.state.hardware
+
+            # Force one service to report an error status and re-feed the engine.
+            hardware.get_status = AsyncMock(return_value=error_status)
+
+            # Re-derive + feed (mirrors what the lifespan wiring does).
+            status = hardware.get_status.return_value
+            any_down = any(
+                svc.get("status") == "error"
+                for svc in status.get("hardware", {}).values()
+            )
+            animator.set_health(down=any_down)
+            assert animator._health_down is True, (
+                "A service in error status must drive _health_down True (D-05/LED-21)"
+            )

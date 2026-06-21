@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: LED Strip
 status: executing
-stopped_at: Phase 33 context gathered
-last_updated: "2026-06-21T16:48:04.535Z"
-last_activity: 2026-06-21
+stopped_at: Phase 34 Plan 34-01 RED tests committed
+last_updated: "2026-06-22T09:01:00.000Z"
+last_activity: 2026-06-22
 progress:
   total_phases: 4
-  completed_phases: 2
-  total_plans: 12
-  completed_plans: 7
-  percent: 50
+  completed_phases: 3
+  total_plans: 15
+  completed_plans: 9
+  percent: 60
 ---
 
 # Project State
@@ -20,15 +20,15 @@ progress:
 
 **Core value:** Children can hear AI-generated personalized stories and stories recorded by their teachers on demand.
 
-**Current focus:** Phase 33 — led-behaviors-child-safety
+**Current focus:** Phase 34 — on-device-jetson-validation-deployment
 
 ## Current Position
 
-Phase: 33 (led-behaviors-child-safety) — EXECUTING
-Plan: 2 of 6
-Status: Ready to execute
-Progress: [██████░░░░] 58%
-Last activity: 2026-06-21
+Phase: 34 (on-device-jetson-validation-deployment) — EXECUTING
+Plan: 1 of 3 (34-01 RED tests committed, 34-02 and 34-03 pending)
+Status: Plan 34-01 RED phase complete; Plan 34-02 ready for GREEN implementation
+Progress: [███████░░░] 70%
+Last activity: 2026-06-22
 
 ## Milestone Phases
 
@@ -67,11 +67,11 @@ Last activity: 2026-06-21
 
 ## Session Continuity
 
-**Last session:** 2026-06-21T16:48:04.501Z
-**Stopped at:** Phase 33 context gathered
+**Last session:** 2026-06-22T09:01:00.000Z
+**Stopped at:** Phase 34 Plan 34-01 RED tests committed
 **Resume file:** None
 
-**Next action:** `/gsd-plan-phase 31` to decompose Driver foundation + config + capability probe into executable plans.
+**Next action:** Execute Plan 34-02 (install.sh SPI1-enable implementation) to turn RED tests GREEN, then proceed to Plan 34-03 (LED-27 visual UAT checklist).
 
 **Files of interest (from research):**
 
@@ -90,6 +90,7 @@ Last activity: 2026-06-21
 |-------|------|----------|-------|
 | Phase 32 P03 | 7m | 2 tasks | 6 files |
 | Phase 33 P01 | 30 | - tasks | - files |
+| Phase 34 P01 | 5m | 1 task | 2 files (test + summary) |
 
 ## Decisions
 
@@ -98,3 +99,5 @@ Last activity: 2026-06-21
 - [Phase ?]: Pure effect-math tests call render functions directly (no asyncio, no wall-clock)
 - [Phase ?]: Engine tests drive tick_once() frame-by-frame via injected _FakeClock
 - [Phase ?]: Route tests use TestClient with real lifespan (engine starts over MockLEDService)
+- [Phase 34]: D-02: SPI1 enablement uses `config-by-function.py -o dt spi1` (NOT `config-by-hardware.py -n 2='spi1'`) per RESEARCH.md Pitfall 1
+- [Phase 34]: D-02: udev rule uses least-privilege GROUP="spi" MODE="0660" (not 0666/plugdev)

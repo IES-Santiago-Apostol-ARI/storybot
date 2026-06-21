@@ -164,6 +164,37 @@ async def lifespan(app: FastAPI):
         led_animator_task = asyncio.create_task(app.state.led_animator.run())
         # Expose the task on the engine for lifecycle observation (LED-06 test).
         app.state.led_animator._run_task = led_animator_task
+
+        # Phase 33 D-10 / LED-18: arm the engine-internal boot sweep one-shot so
+        # it exercises the SPI/MockLEDService path once on startup, then settles
+        # to idle. The sweep is engine-internal; the lifespan only arms it.
+        app.state.led_animator.set_mode("boot")
+
+        # Phase 33 D-05 / LED-21: feed the idle-only health-beacon status sink.
+        # Derive a "a hardware service is down" flag from HardwareManager status
+        # (a service is down when its HardwareState.status == "error") and feed
+        # it via set_health. The beacon's idle-only SUPPRESSION lives in the
+        # engine (D-14) — the lifespan only supplies status.
+        try:
+            hw_status = await hardware.get_status()
+            any_down = any(
+                svc.get("status") == "error"
+                for svc in hw_status.get("hardware", {}).values()
+            )
+            app.state.led_animator.set_health(down=any_down)
+        except Exception as e:
+            import json
+            import sys
+
+            print(
+                json.dumps(
+                    {
+                        "event": "led_health_feed_failed",
+                        "reason": type(e).__name__,
+                    }
+                ),
+                file=sys.stderr,
+            )
     except Exception as e:
         import json
         import sys
