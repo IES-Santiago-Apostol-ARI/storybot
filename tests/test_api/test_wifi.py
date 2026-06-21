@@ -240,28 +240,39 @@ class TestWifiStatus:
         assert data["interface"] == "wlxabc"
 
 
+@patch("app.routers.wifi.create_wifi_manager")
 class TestWifiRouterRegistration:
-    """Test that WiFi router is registered and accessible."""
+    """Test that WiFi router is registered and accessible.
 
-    def test_wifi_scan_endpoint_exists(self, client):
+    The factory is mocked so these registration checks never reach the real
+    RealWifiManager: on a host where nmcli exists, an unmocked POST to
+    /api/wifi/disconnect runs `nmcli connection down <conn>` and drops the
+    machine's actual WiFi.
+    """
+
+    def test_wifi_scan_endpoint_exists(self, mock_factory, client):
         """GET /api/wifi/scan is registered (not 404)."""
+        mock_factory.return_value = _mock_wifi_manager()
         response = client.get("/api/wifi/scan")
         assert response.status_code != 404
 
-    def test_wifi_connect_endpoint_exists(self, client):
+    def test_wifi_connect_endpoint_exists(self, mock_factory, client):
         """POST /api/wifi/connect is registered (not 404)."""
+        mock_factory.return_value = _mock_wifi_manager()
         response = client.post(
             "/api/wifi/connect",
             json={"ssid": "test", "password": "testpass12"},
         )
         assert response.status_code != 404
 
-    def test_wifi_disconnect_endpoint_exists(self, client):
+    def test_wifi_disconnect_endpoint_exists(self, mock_factory, client):
         """POST /api/wifi/disconnect is registered (not 404)."""
+        mock_factory.return_value = _mock_wifi_manager()
         response = client.post("/api/wifi/disconnect")
         assert response.status_code != 404
 
-    def test_wifi_status_endpoint_exists(self, client):
+    def test_wifi_status_endpoint_exists(self, mock_factory, client):
         """GET /api/wifi/status is registered (not 404)."""
+        mock_factory.return_value = _mock_wifi_manager()
         response = client.get("/api/wifi/status")
         assert response.status_code != 404

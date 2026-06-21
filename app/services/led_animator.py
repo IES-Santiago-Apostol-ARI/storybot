@@ -111,6 +111,19 @@ class LedAnimator:
         self._overlay = (self._clamp(r), self._clamp(g), self._clamp(b))
         self._overlay_until = self._now() + ms / 1000.0
 
+    def set_driver(self, led_service) -> None:
+        """Re-point the engine at a freshly-probed driver (CR-02).
+
+        ``hardware.rescan()`` -> ``detect_hardware`` replaces the registered
+        ``"led"`` service with a NEW instance. Without this the engine would keep
+        writing to the orphaned old driver while a new ``RealLEDService`` could
+        contend for the same SPI bus (split-brain / dual owners). The dirty-check
+        cache is cleared so the next tick re-writes the current frame to the new
+        driver instead of being skipped by value-equality against the old one.
+        """
+        self._led_service = led_service
+        self._last_written = None
+
     def get_color(self) -> tuple[int, int, int]:
         """Status read: return the active rendered color.
 

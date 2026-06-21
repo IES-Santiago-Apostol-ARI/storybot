@@ -152,6 +152,30 @@ async def lifespan(app: FastAPI):
     # Initialize hardware detection — D-15: pass ai_enabled explicitly.
     await hardware.detect_hardware(ai_enabled=profile.ai_enabled)
 
+    # Phase 32 LED-06: construct the LedAnimator render engine on the
+    # already-probed led driver and start its loop UNCONDITIONALLY (D-12 /
+    # Pitfall 1 — NO TESTING guard, so the loop runs over MockLEDService in CI
+    # and /led can route through the engine). The engine is the sole writer.
+    led_animator_task = None
+    try:
+        from app.services.led_animator import LedAnimator
+
+        app.state.led_animator = LedAnimator(hardware._services.get("led"))
+        led_animator_task = asyncio.create_task(app.state.led_animator.run())
+        # Expose the task on the engine for lifecycle observation (LED-06 test).
+        app.state.led_animator._run_task = led_animator_task
+    except Exception as e:
+        import json
+        import sys
+
+        print(
+            json.dumps(
+                {"event": "led_animator_init_failed", "reason": type(e).__name__}
+            ),
+            file=sys.stderr,
+        )
+        app.state.led_animator = None
+
     # Wire TTS pipeline to loaded engine (D-12 step 8: skip when ai disabled or testing)
     if profile.ai_enabled and not os.environ.get("TESTING"):
         tts_engine = hardware._services.get("tts")
@@ -205,6 +229,15 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    # Phase 32 LED-06 / CR-01: stop the animation loop BEFORE closing hardware.
+    # The animator is a *continuous* ~30 FPS writer (unlike bt_monitor), so it
+    # must be cancelled + gathered first; otherwise the loop keeps issuing SPI
+    # writes against the device that hardware.shutdown() just closed and repaints
+    # over the shutdown turn_off(), leaving the strip lit.
+    if led_animator_task:
+        led_animator_task.cancel()
+        await asyncio.gather(led_animator_task, return_exceptions=True)
+
     await hardware.shutdown()
 
     # Phase 28 BOOT-04: clean cancel of health monitor.

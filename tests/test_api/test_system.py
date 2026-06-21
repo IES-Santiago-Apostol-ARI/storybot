@@ -141,7 +141,6 @@ class TestLEDEndpoints:
             data = response.json()
             assert data["rgb"] == expected_rgb
 
-    @pytest.mark.xfail(strict=False, reason="engine wiring lands in 32-03")
     def test_led_routes_through_engine_not_service(self, client):
         """
         LED-06: Verify /api/system/led routes through the animator, not the driver.
@@ -165,7 +164,6 @@ class TestLEDEndpoints:
         assert animator.set_base.called
         assert not service.set_color.called
 
-    @pytest.mark.xfail(strict=False, reason="engine wiring lands in 32-03")
     def test_led_returns_503_when_animator_missing(self, client, monkeypatch):
         """
         LED-09: Verify /api/system/led returns 503 when animator is not initialized.

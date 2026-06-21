@@ -58,7 +58,6 @@ class TestLedAnimatorContract:
     """Tests for LedAnimator requirements (LED-06, LED-08)."""
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(strict=False, reason="lifespan wiring lands in 32-03")
     async def test_startup_shutdown_lifecycle(self):
         """
         LED-06: Test the animator's lifecycle within the app lifespan.
@@ -147,3 +146,77 @@ class TestLedAnimatorContract:
         led_animator.flash(500, 100, -100, ms=100)
         await led_animator.tick_once()
         assert led_animator.get_color() == (255, 100, 0)
+
+    @pytest.mark.asyncio
+    async def test_shutdown_cancels_loop_before_closing_hardware(self, monkeypatch):
+        """CR-01: the animation loop is cancelled+gathered BEFORE
+        hardware.shutdown() closes the SPI device.
+
+        Selector: -k shutdown_cancels_loop
+
+        The animator is a *continuous* writer, so if hardware.shutdown() (which
+        closes the SPI ``_writer``) ran first, the loop would keep writing to a
+        closed device and repaint over the shutdown turn_off(). We record, at the
+        moment the LED driver is shut down, whether the animator run-task has
+        already stopped — it must have.
+        """
+        captured = {}
+
+        class _RecordingLED(MockLEDService):
+            async def shutdown(self) -> None:
+                animator = getattr(app.state, "led_animator", None)
+                run_task = getattr(animator, "_run_task", None)
+                captured["loop_stopped_at_hw_shutdown"] = (
+                    run_task is None or run_task.done()
+                )
+                await super().shutdown()
+
+        # detect_hardware does `from app.services.led_controller import
+        # create_led_service`, so patch the source module attribute.
+        monkeypatch.setattr(
+            "app.services.led_controller.create_led_service",
+            lambda: _RecordingLED(),
+        )
+
+        with TestClient(app):
+            assert app.state.led_animator is not None
+
+        assert captured.get("loop_stopped_at_hw_shutdown") is True
+
+    @pytest.mark.asyncio
+    async def test_set_driver_repoints_engine_and_resets_dirty_cache(self, fake_clock):
+        """CR-02: set_driver re-points the engine at a freshly-probed driver
+        (after /rescan) and clears the dirty-check cache so the next tick writes
+        to the NEW driver instead of the orphaned old one.
+
+        Selector: -k set_driver
+        """
+
+        class _Writer:
+            def __init__(self) -> None:
+                self.frames: list[bytes] = []
+
+            def write(self, encoded: bytes) -> None:
+                self.frames.append(encoded)
+
+        class _Driver:
+            def __init__(self) -> None:
+                self._writer = _Writer()
+
+        old, new = _Driver(), _Driver()
+        animator = LedAnimator(led_service=old, now=fake_clock)
+
+        await animator.set_base(255, 0, 0)
+        await animator.tick_once()
+        assert len(old._writer.frames) == 1  # wrote to the old driver
+        assert animator._last_written is not None
+
+        # Simulate a rescan re-pointing the sole writer at the new driver.
+        animator.set_driver(new)
+        assert animator._led_service is new
+        assert animator._last_written is None  # dirty cache reset (CR-02)
+
+        # Next tick re-writes the current frame to the NEW driver only.
+        await animator.tick_once()
+        assert len(new._writer.frames) == 1
+        assert len(old._writer.frames) == 1  # old driver untouched after re-point

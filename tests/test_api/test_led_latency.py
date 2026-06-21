@@ -15,21 +15,21 @@ from app.main import app
 LATENCY_BUDGET_S = 0.5
 
 class TestLEDLatency:
-    @pytest.mark.xfail(strict=False, reason="engine wiring lands in 32-03")
     def test_led_request_responsive_while_animating(self):
         """
         LED-07: Assert /api/system/led responds within budget while animation is active.
         Selector: -k responsive_while_animating
-        """
-        client = TestClient(app)
 
-        # 1. Trigger an animation (e.g., a long flash or just the default loop)
-        # In plan 03, we'll ensure the animator is running.
-        # For now, we just make the request and measure.
-        
-        start = time.monotonic()
-        response = client.post("/api/system/led", json={"color": "#FF0000"})
-        elapsed = time.monotonic() - start
+        Entering the TestClient context manager runs the real lifespan, which
+        starts the 30 FPS LedAnimator loop over MockLEDService (D-12). The
+        round-trip is measured while that loop is live — passing at all proves
+        the blocking SPI write is offloaded via asyncio.to_thread, not blocking
+        the event loop that serves the request (LED-07).
+        """
+        with TestClient(app) as client:
+            start = time.monotonic()
+            response = client.post("/api/system/led", json={"color": "#FF0000"})
+            elapsed = time.monotonic() - start
 
         assert response.status_code == 200
         assert elapsed < LATENCY_BUDGET_S, (

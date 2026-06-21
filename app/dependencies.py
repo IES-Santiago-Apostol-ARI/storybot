@@ -41,3 +41,18 @@ async def get_story_manager(request: Request) -> StoryManager:
         StoryManager instance
     """
     return request.app.state.story_manager
+
+
+async def get_led_animator(request: Request):
+    """Get the LedAnimator engine from app state.
+
+    Mirrors ``get_hardware`` style. Returns ``None`` when the animator failed to
+    initialize or is absent (D-12: the route decides 503 on ``None``).
+
+    Args:
+        request: FastAPI request
+
+    Returns:
+        LedAnimator instance, or None when unavailable.
+    """
+    return getattr(request.app.state, "led_animator", None)

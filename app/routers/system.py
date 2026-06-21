@@ -6,7 +6,7 @@ from typing import Tuple
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from app.dependencies import get_hardware
+from app.dependencies import get_hardware, get_led_animator
 from app.models.system import SystemStatus
 from app.services.hardware_manager import HardwareManager
 from app.services.platform_detect import detect_platform
@@ -60,6 +60,7 @@ async def get_system_status(
 @router.post("/rescan", response_model=SystemStatus)
 async def rescan_hardware(
     hardware: HardwareManager = Depends(get_hardware),
+    animator=Depends(get_led_animator),
 ) -> SystemStatus:
     """Rescan for hardware changes.
 
@@ -67,6 +68,11 @@ async def rescan_hardware(
         Updated SystemStatus after rescan
     """
     status_dict = await hardware.rescan()
+    # CR-02: rescan re-creates the "led" service, so re-point the sole-writer
+    # engine at the freshly-probed driver; otherwise it would keep writing to the
+    # orphaned old driver (split-brain / dual SPI owners).
+    if animator is not None:
+        animator.set_driver(hardware._services.get("led"))
     status_dict["platform"] = detect_platform()
     return SystemStatus(**status_dict)
 
@@ -74,23 +80,22 @@ async def rescan_hardware(
 @router.post("/led")
 async def set_led_color(
     request: LEDRequest,
-    hardware: HardwareManager = Depends(get_hardware),
+    animator=Depends(get_led_animator),
 ):
-    """Set LED color.
+    """Set LED color via the animation engine (sole writer, D-11).
 
     Args:
         request: LED request with color (hex) and optional brightness
-        hardware: Hardware manager instance
+        animator: LedAnimator engine instance (None when not running)
 
     Returns:
         Status response with color and RGB values
 
     Raises:
-        HTTPException: If LED service is not available
+        HTTPException: 503 if the LED engine is not running (D-12)
     """
-    led_service = hardware._services.get("led")
-    if not led_service:
-        raise HTTPException(status_code=503, detail="LED service not available")
+    if animator is None:
+        raise HTTPException(status_code=503, detail="LED engine not available")
 
     r, g, b = hex_to_rgb(request.color)
     # Apply brightness
@@ -98,28 +103,27 @@ async def set_led_color(
     g = int(g * request.brightness)
     b = int(b * request.brightness)
 
-    await led_service.set_color(r, g, b)
+    await animator.set_base(r, g, b)
     return {"status": "ok", "color": request.color, "rgb": [r, g, b]}
 
 
 @router.post("/led/off")
 async def turn_off_led(
-    hardware: HardwareManager = Depends(get_hardware),
+    animator=Depends(get_led_animator),
 ):
-    """Turn off LED.
+    """Turn off LED via the animation engine (sole writer, D-11).
 
     Args:
-        hardware: Hardware manager instance
+        animator: LedAnimator engine instance (None when not running)
 
     Returns:
         Status response
 
     Raises:
-        HTTPException: If LED service is not available
+        HTTPException: 503 if the LED engine is not running (D-12)
     """
-    led_service = hardware._services.get("led")
-    if not led_service:
-        raise HTTPException(status_code=503, detail="LED service not available")
+    if animator is None:
+        raise HTTPException(status_code=503, detail="LED engine not available")
 
-    await led_service.turn_off()
+    await animator.off()
     return {"status": "ok"}
