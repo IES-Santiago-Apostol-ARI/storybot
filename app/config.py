@@ -23,6 +23,16 @@ class Settings(BaseModel):
     led_gamma: float = (
         2.2  # sRGB approx; deterministic LUT (see app.services.led_spi._gamma_lut)
     )
+    # Effect tunables (Phase 33)
+    led_breathe_period_s: float = 4.5  # D-06: ~4-5 s slow calm breath
+    led_breathe_trough: float = 0.35  # D-06: dip to ~30-40%, never off
+    led_comet_period_s: float = 2.0  # D-08: one full loop
+    led_comet_tail: int = 3  # D-08: short fading tail
+    led_idle_color: str = "#1A0F00"  # D-07: warm dim amber idle glow
+    led_error_color: str = "#FF6A00"  # D-09: amber error indication (never red, B~0)
+    led_accum_color: str = "#FFFFFF"  # D-20: neutral parameter-accumulation color
+    led_boot_wipe_s: float = 1.0  # D-10: boot wipe duration
+    led_crossfade_s: float = 0.5  # D-17: default cross-fade duration
     audio_volume: float = 1.0
     tts_voice: str = "es_ES-glow_tenor"
     nfc_reader_device: str = "usb:072f:2200"

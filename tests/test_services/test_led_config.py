@@ -44,3 +44,48 @@ class TestLedConfig:
         settings = ConfigManager().load()
         assert isinstance(settings, Settings)
         assert settings.led_count == 21
+
+    # --- Phase 33 effect tunables (LED-10, LED-15, LED-16, LED-17, LED-19, LED-24) ---
+
+    def test_led_breathe_period_s_default(self):
+        """Settings().led_breathe_period_s defaults to 4.5 (D-06)."""
+        assert Settings().led_breathe_period_s == 4.5
+
+    def test_led_breathe_trough_default(self):
+        """Settings().led_breathe_trough defaults to 0.35, within [0.30, 0.40] (D-06)."""
+        s = Settings()
+        assert 0.30 <= s.led_breathe_trough <= 0.40
+
+    def test_led_comet_period_s_default(self):
+        """Settings().led_comet_period_s defaults to 2.0 (D-08)."""
+        assert Settings().led_comet_period_s == 2.0
+
+    def test_led_comet_tail_default(self):
+        """Settings().led_comet_tail defaults to 3 (D-08)."""
+        assert Settings().led_comet_tail == 3
+
+    def test_led_idle_color_default(self):
+        """Settings().led_idle_color is a valid 6-digit hex string (D-07)."""
+        s = Settings()
+        assert s.led_idle_color.startswith("#")
+        assert len(s.led_idle_color) == 7
+
+    def test_led_error_color_default(self):
+        """Settings().led_error_color is a valid 6-digit hex amber string (D-09)."""
+        s = Settings()
+        assert s.led_error_color.startswith("#")
+        assert len(s.led_error_color) == 7
+
+    def test_led_accum_color_default(self):
+        """Settings().led_accum_color is a valid 6-digit hex string (D-20)."""
+        s = Settings()
+        assert s.led_accum_color.startswith("#")
+        assert len(s.led_accum_color) == 7
+
+    def test_led_boot_wipe_s_default(self):
+        """Settings().led_boot_wipe_s defaults to 1.0 (D-10)."""
+        assert Settings().led_boot_wipe_s == 1.0
+
+    def test_led_crossfade_s_default(self):
+        """Settings().led_crossfade_s defaults to 0.5 (D-17)."""
+        assert Settings().led_crossfade_s == 0.5

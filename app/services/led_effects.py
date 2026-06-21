@@ -46,7 +46,11 @@ _PARAM_FILL_COLOR = (0, 255, 128)  # teal
 _PROGRESS_COLOR = (0, 200, 255)  # cyan
 
 
-def breathe(now: float, count: int, color: tuple[int, int, int]) -> list[tuple[int, int, int]]:
+def breathe(
+    now: float,
+    count: int,
+    color: tuple[int, int, int],
+) -> list[tuple[int, int, int]]:
     """LED-10: Breathing sinusoid — uniform solid color across all pixels.
 
     Oscillates between [_BREATHE_TROUGH, 1.0] * color.
@@ -59,7 +63,11 @@ def breathe(now: float, count: int, color: tuple[int, int, int]) -> list[tuple[i
     return [(r, g, b)] * count
 
 
-def comet(now: float, count: int, color: tuple[int, int, int]) -> list[tuple[int, int, int]]:
+def comet(
+    now: float,
+    count: int,
+    color: tuple[int, int, int],
+) -> list[tuple[int, int, int]]:
     """LED-17: Comet / chase — bright head pixel advancing along the strip.
 
     Head position advances with time. Tail pixels fade progressively.
@@ -80,8 +88,9 @@ def comet(now: float, count: int, color: tuple[int, int, int]) -> list[tuple[int
     return fb
 
 
-def progress(now: float, count: int, color: tuple[int, int, int],
-             i: int, n: int) -> list[tuple[int, int, int]]:
+def progress(
+    now: float, count: int, color: tuple[int, int, int], i: int, n: int
+) -> list[tuple[int, int, int]]:
     """LED-20: Proportional progress bar fill.
 
     i = current step, n = total steps. Fills pixels from left to right.
@@ -102,7 +111,11 @@ def param_fill(now: float, count: int, n_params: int) -> list[tuple[int, int, in
     return [_PARAM_FILL_COLOR] * lit + [(0, 0, 0)] * (count - lit)
 
 
-def boot_wipe(elapsed: float, count: int, color: tuple[int, int, int]) -> list[tuple[int, int, int]]:
+def boot_wipe(
+    elapsed: float,
+    count: int,
+    color: tuple[int, int, int],
+) -> list[tuple[int, int, int]]:
     """LED-18: Single-color wipe across all pixels.
 
     At elapsed=0, only pixel 0 is lit. After _WIPE_DURATION_S, all pixels are lit.
@@ -135,9 +148,9 @@ def idle_glow(now: float, count: int) -> list[tuple[int, int, int]]:
     return [_IDLE_GLOW_COLOR] * count
 
 
-def crossfade(fb_from: list[tuple[int, int, int]],
-              fb_to: list[tuple[int, int, int]],
-              alpha: float) -> list[tuple[int, int, int]]:
+def crossfade(
+    fb_from: list[tuple[int, int, int]], fb_to: list[tuple[int, int, int]], alpha: float
+) -> list[tuple[int, int, int]]:
     """LED-22: Smooth cross-fade between two frames.
 
     alpha=0 -> from, alpha=1 -> to. Blends per-pixel.
