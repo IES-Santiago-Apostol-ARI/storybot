@@ -1,8 +1,9 @@
 """Tests for LED controller service."""
 
-import pytest
-import platform
 from unittest.mock import patch
+import platform
+
+import pytest
 
 from app.services.led_controller import (
     MockLEDService,
@@ -188,28 +189,34 @@ class TestCreateLEDService:
 
     def test_factory_returns_mock_when_node_missing(self, monkeypatch):
         """Test that factory returns mock when SPI device node is missing."""
-        with patch("platform.machine", return_value="aarch64"), \
-             patch("os.path.exists", return_value=False):
+        with (
+            patch("platform.machine", return_value="aarch64"),
+            patch("os.path.exists", return_value=False),
+        ):
             service = create_led_service()
             assert isinstance(service, MockLEDService)
 
     def test_factory_returns_mock_when_not_writable(self, monkeypatch):
         """Test that factory returns mock when SPI device node is not writable."""
-        with patch("platform.machine", return_value="aarch64"), \
-             patch("os.path.exists", return_value=True), \
-             patch("os.access", return_value=False):
+        with (
+            patch("platform.machine", return_value="aarch64"),
+            patch("os.path.exists", return_value=True),
+            patch("os.access", return_value=False),
+        ):
             service = create_led_service()
             assert isinstance(service, MockLEDService)
 
     def test_factory_returns_real_when_all_gates_open(self, monkeypatch):
         """
         Test that factory returns RealLEDService when all gates are open.
-        Strategy: patch the probe helper _real_led_available and mock SpiWriter 
+        Strategy: patch the probe helper _real_led_available and mock SpiWriter
         to avoid spidev import errors on x86.
         """
         monkeypatch.delenv("TESTING", raising=False)
-        with patch("app.services.led_controller._real_led_available", return_value=True), \
-             patch("app.services.led_controller.SpiWriter", return_value=None):
+        with (
+            patch("app.services.led_controller._real_led_available", return_value=True),
+            patch("app.services.led_controller.SpiWriter", return_value=None),
+        ):
             service = create_led_service()
             assert isinstance(service, RealLEDService)
 
@@ -224,22 +231,28 @@ class TestCreateLEDService:
         # Case 1: x86
         with patch("platform.machine", return_value="x86_64"):
             assert isinstance(create_led_service(), MockLEDService)
-        
+
         # Case 2: aarch64 but missing node
-        with patch("platform.machine", return_value="aarch64"), \
-             patch("os.path.exists", return_value=False):
+        with (
+            patch("platform.machine", return_value="aarch64"),
+            patch("os.path.exists", return_value=False),
+        ):
             assert isinstance(create_led_service(), MockLEDService)
-            
+
         # Case 3: aarch64, node exists, not writable
-        with patch("platform.machine", return_value="aarch64"), \
-             patch("os.path.exists", return_value=True), \
-             patch("os.access", return_value=False):
+        with (
+            patch("platform.machine", return_value="aarch64"),
+            patch("os.path.exists", return_value=True),
+            patch("os.access", return_value=False),
+        ):
             assert isinstance(create_led_service(), MockLEDService)
 
     def test_factory_testing_takes_precedence_over_real(self, monkeypatch):
         """TESTING beats everything — even if hardware is present."""
         monkeypatch.setenv("TESTING", "1")
-        with patch("app.services.led_controller._real_led_available", return_value=True), \
-             patch("app.services.led_controller.SpiWriter", return_value=None):
+        with (
+            patch("app.services.led_controller._real_led_available", return_value=True),
+            patch("app.services.led_controller.SpiWriter", return_value=None),
+        ):
             service = create_led_service()
             assert isinstance(service, MockLEDService)

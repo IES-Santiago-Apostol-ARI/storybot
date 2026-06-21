@@ -1,9 +1,10 @@
 """LED controller service with real and mock implementations."""
 
-import os
-import sys
 import json
+import os
 import platform
+import sys
+
 from app.config import ConfigManager
 from app.services.base import HardwareService
 from app.services.led_spi import SpiWriter, encode_ws2812
@@ -73,7 +74,7 @@ def _real_led_available(bus: int, dev: int) -> bool:
 class RealLEDService(LEDService):
     """Real LED service driver for WS2812B strips via SPI.
 
-    Holds an N-pixel framebuffer and drives the encoder (encode_ws2812) 
+    Holds an N-pixel framebuffer and drives the encoder (encode_ws2812)
     via SpiWriter on the real hardware path.
     """
 

@@ -1,6 +1,6 @@
 """Tests for Phase 31 LED config fields (LED-03) — all 7 LED tunables present in Settings, stale led_strip_device serial default removed (D-06), content/config.json tolerates the stale key (RESEARCH A4)."""
 
-from app.config import Settings, ConfigManager
+from app.config import ConfigManager, Settings
 
 
 class TestLedConfig:
