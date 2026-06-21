@@ -120,6 +120,16 @@ class TestNFCReadEndpoint:
 class TestNFCReadEventStream:
     """Test NFC read event stream logic directly."""
 
+    def _mock_request(self):
+        """Build a mock Request whose app.state has NO led_animator (exercises
+        the Phase 33-05 None-guard — animator is reached via getattr)."""
+        request = MagicMock()
+        # MagicMock auto-creates attributes, so getattr(request.app.state,
+        # "led_animator", None) would return a child MagicMock, not None. Force
+        # AttributeError on app.state.led_animator so getattr returns the default.
+        del request.app.state.led_animator
+        return request
+
     @pytest.mark.asyncio
     async def test_event_stream_yields_error_without_service(self):
         """Event stream yields error when NFC service not available."""
@@ -130,7 +140,9 @@ class TestNFCReadEventStream:
         mock_story_manager = MagicMock()
 
         response = await read_nfc_cards(
-            hardware=mock_hardware, story_manager=mock_story_manager
+            request=self._mock_request(),
+            hardware=mock_hardware,
+            story_manager=mock_story_manager,
         )
 
         # Get the generator from the response
@@ -155,7 +167,9 @@ class TestNFCReadEventStream:
         mock_story_manager = MagicMock()
 
         response = await read_nfc_cards(
-            hardware=mock_hardware, story_manager=mock_story_manager
+            request=self._mock_request(),
+            hardware=mock_hardware,
+            story_manager=mock_story_manager,
         )
         event_gen = response.body_iterator
 
@@ -198,7 +212,9 @@ class TestNFCReadEventStream:
         mock_story_manager.get_card.return_value = None
 
         response = await read_nfc_cards(
-            hardware=mock_hardware, story_manager=mock_story_manager
+            request=self._mock_request(),
+            hardware=mock_hardware,
+            story_manager=mock_story_manager,
         )
         event_gen = response.body_iterator
 

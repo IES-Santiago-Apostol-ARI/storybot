@@ -11,7 +11,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+from app.config import ConfigManager
 from app.services.cover_prompt_builder import build as build_cover_prompt
+from app.services.led_animator import Mode
 from app.services.sentence_buffer import SentenceBuffer
 from app.services.swap_orchestrator import LlamaRelaunchError
 
@@ -19,6 +21,27 @@ router = APIRouter()
 
 GENERATED_DIR = Path("content/generated")
 COVER_TIMEOUT_S = 90
+
+# LED-20 / D-21 (PLAN DECISION): the in-flight generation progress bar fills in
+# a DEFINED NEUTRAL ACCENT — settings.led_accum_color — because during generation
+# no story is saved yet (no led_color). Once the story is saved its real
+# led_color governs playback (plan 04). Pinned by test_audio_ready_drives_
+# progress_mode_with_accum_color so the color is verifiable, not undefined.
+_settings = ConfigManager().load()
+
+
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    """Convert a ``#RRGGBB`` config color to an (r, g, b) tuple.
+
+    Mirrors ``app.routers.system.hex_to_rgb`` — kept local to avoid importing
+    the system router (which has its own Pydantic models) into the generate
+    router.
+    """
+    h = hex_color.lstrip("#")
+    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+
+GEN_PROGRESS_RGB: tuple[int, int, int] = _hex_to_rgb(_settings.led_accum_color)
 
 
 class StoryGenerateRequest(BaseModel):
@@ -66,6 +89,13 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
     tts_pipeline = getattr(fastapi_request.app.state, "tts_pipeline", None)
     story_manager = getattr(fastapi_request.app.state, "story_manager", None)
     orchestrator = getattr(fastapi_request.app.state, "swap_orchestrator", None)
+    # Phase 33-05 D-01: reach the engine via the SAFE getattr pattern —
+    # tests/test_api/test_generate.py builds TestClient(app) WITHOUT a context
+    # manager, so the lifespan never runs and app.state.led_animator is never
+    # set; direct attribute access would raise AttributeError (T-33-11). Every
+    # call below is None-guarded so a missing engine degrades to no LED
+    # feedback rather than breaking the generation stream.
+    animator = getattr(fastapi_request.app.state, "led_animator", None)
     story_id = str(uuid.uuid4())
     collected_text: list[str] = []
     segments: list[dict] = []
@@ -73,6 +103,12 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
     async def stream():
         buf = SentenceBuffer()
         seg_index = 0
+
+        # LED-17 / D-08: generation start drives the thinking comet through the
+        # engine (sole writer). Cross-fades from idle (LED-22, handled by the
+        # engine). None-guarded — T-33-11.
+        if animator is not None:
+            animator.set_mode(Mode.THINKING)
 
         async for event in story_generator.generate_story(request.parameters):
             data = json.dumps(event, ensure_ascii=False)
@@ -108,6 +144,32 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
                         segments.append(meta)
                         seg_index += 1
 
+                        # LED-20 / D-21 (PLAN DECISION): each audio_ready advances
+                        # the per-pixel progress bar with RUNNING-KNOWN-COUNT N
+                        # (i == n each step), in the defined neutral accent
+                        # (settings.led_accum_color -> GEN_PROGRESS_RGB) because
+                        # no story led_color exists mid-stream. The bar
+                        # self-corrects and ends full on the final flush. Driven
+                        # through the engine, the sole writer. None-guarded.
+                        if animator is not None:
+                            animator.set_mode(
+                                Mode.PROGRESS,
+                                i=seg_index,
+                                n=seg_index,
+                                color=GEN_PROGRESS_RGB,
+                            )
+                        # LED-15 / D-09 / D-15: a per-segment synth error drives
+                        # the engine into gentle amber error mode (never red,
+                        # never strobe). The engine auto-fades back (D-16).
+                        if meta.get("error") and animator is not None:
+                            animator.set_mode(Mode.ERROR)
+
+            # LED-15 / D-09: a stream-level generation error (the LLM/TTS
+            # pipeline emitted {"error": ...}) drives the engine into error
+            # mode through the sole writer. None-guarded.
+            if event.get("error") and animator is not None:
+                animator.set_mode(Mode.ERROR)
+
             if event.get("done"):
                 break
 
@@ -138,6 +200,18 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
                 yield f"data: {json.dumps(audio_event, ensure_ascii=False)}\n\n"
                 segments.append(meta)
                 seg_index += 1
+
+                # LED-20 flush path: same running-known-count N progress advance.
+                if animator is not None:
+                    animator.set_mode(
+                        Mode.PROGRESS,
+                        i=seg_index,
+                        n=seg_index,
+                        color=GEN_PROGRESS_RGB,
+                    )
+                # LED-15 flush path: per-segment synth error -> error mode.
+                if meta.get("error") and animator is not None:
+                    animator.set_mode(Mode.ERROR)
 
         if collected_text:
             _save_generated_story(
@@ -183,10 +257,18 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
                         "cover_failed", {"reason": "orchestrator returned None"}
                     )
             except asyncio.TimeoutError:
+                # LED-15: cover-failure path mirrors the generation-error path —
+                # drive the engine into amber error mode (sole writer).
+                if animator is not None:
+                    animator.set_mode(Mode.ERROR)
                 yield _cover_event("cover_failed", {"reason": "timeout"})
             except LlamaRelaunchError:
+                if animator is not None:
+                    animator.set_mode(Mode.ERROR)
                 yield _cover_event("cover_failed", {"reason": "llama_relaunch_failed"})
             except Exception as e:
+                if animator is not None:
+                    animator.set_mode(Mode.ERROR)
                 yield _cover_event("cover_failed", {"reason": type(e).__name__})
 
     return StreamingResponse(stream(), media_type="text/event-stream")

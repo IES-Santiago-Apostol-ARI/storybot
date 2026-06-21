@@ -26,12 +26,13 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import EventSourceResponse
 from sse_starlette import EventSourceResponse as SSEStarletteResponse
 
 from app.dependencies import get_hardware, get_story_manager
 from app.services.hardware_manager import HardwareManager
+from app.services.led_animator import Mode
 from app.services.session_manager import SessionManager
 from app.services.story_manager import StoryManager
 
@@ -43,6 +44,7 @@ session_manager = SessionManager(timeout_seconds=30)
 
 @router.get("/read")
 async def read_nfc_cards(
+    request: Request,
     hardware: HardwareManager = Depends(get_hardware),
     story_manager: StoryManager = Depends(get_story_manager),
 ) -> EventSourceResponse:
@@ -57,6 +59,13 @@ async def read_nfc_cards(
 
     async def event_stream() -> AsyncIterator[dict]:
         """Generate SSE events for NFC card taps."""
+        # Phase 33-05 D-01: reach the engine via the SAFE getattr pattern.
+        # tests/test_api/test_nfc.py builds TestClient(app) WITHOUT a context
+        # manager, so the lifespan never runs and app.state.led_animator is
+        # never set; direct attribute access would raise AttributeError
+        # (T-33-11). Every call below is None-guarded so a missing engine
+        # degrades to no LED feedback rather than breaking the NFC SSE stream.
+        animator = getattr(request.app.state, "led_animator", None)
         nfc_service = hardware._services.get("nfc")
         if not nfc_service:
             yield {
@@ -86,6 +95,11 @@ async def read_nfc_cards(
                     }
                 elif card["type"] == "story":
                     session_manager.clear()
+                    # LED-13 / D-11: brief neutral/white confirmation flash
+                    # (D-19 rate-limited inside the engine — a double-tap shows
+                    # one flash). Driven through the engine, the sole writer.
+                    if animator is not None:
+                        animator.flash(255, 255, 255, ms=200)
                     yield {
                         "event": "card",
                         "data": json.dumps(
@@ -93,7 +107,17 @@ async def read_nfc_cards(
                         ),
                     }
                 elif card["type"] == "parameter":
-                    session_manager.add_parameter(card)
+                    # SessionManager has side effects on each tap — call it
+                    # exactly once and reuse its return value for the count.
+                    params = session_manager.add_parameter(card)
+                    n = len(params)
+                    # LED-19 / D-20: drive Mode.PARAM with n_params from the
+                    # session so each parameter tap lights one more pixel from
+                    # index 0 in the neutral accumulation color. Mode.PARAM
+                    # renders led_effects.param_fill(n_params=n). NOT PROGRESS
+                    # / THINKING — parameter accumulation is its own mode.
+                    if animator is not None:
+                        animator.set_mode(Mode.PARAM, n_params=n)
                     yield {
                         "event": "card",
                         "data": json.dumps(
@@ -109,6 +133,11 @@ async def read_nfc_cards(
                     }
                 elif card["type"] == "go":
                     params = session_manager.get_and_clear()
+                    # LED-14 / D-11: distinct longer celebratory green flash
+                    # (~400 ms) for the "start!" moment. Same rate-limited
+                    # overlay slot as the tap flash. Driven through the engine.
+                    if animator is not None:
+                        animator.flash(0, 255, 0, ms=400)
                     yield {
                         "event": "card",
                         "data": json.dumps(

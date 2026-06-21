@@ -553,3 +553,214 @@ class TestGenerateAiGuard:
             "/api/generate/story", json={"parameters": []}
         )
         assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Phase 33-05 (LED-17 / LED-20 / LED-15): generate-route LED triggers
+# (RED first; GREEN after wiring the engine calls into generate.py).
+# The engine is the sole writer — the route must drive it via
+# app.state.led_animator; these tests spy on that animator to prove the
+# three lifecycle hooks (start→thinking, audio_ready→progress, error→error)
+# fire through the engine API with the defined neutral accent color
+# (settings.led_accum_color, PLAN DECISION / D-21).
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateLedTriggers:
+    """LED-17 / LED-20 / LED-15: engine calls at generate lifecycle points."""
+
+    def _attach_animator(self):
+        """Attach a MagicMock animator to app.state and return it."""
+        animator = MagicMock()
+        app.state.led_animator = animator
+        return animator
+
+    def _detach_animator(self):
+        """Remove the spy animator so other tests are unaffected."""
+        if hasattr(app.state, "led_animator"):
+            delattr(app.state, "led_animator")
+
+    def test_generation_start_drives_thinking_mode(
+        self, client, mock_story_generator
+    ):
+        """LED-17: stream start -> animator.set_mode(Mode.THINKING)."""
+        animator = self._attach_animator()
+        try:
+            from app.services.led_animator import Mode
+
+            async def _gen(events):
+                for e in events:
+                    yield e
+
+            mock_story_generator.generate_story.return_value = _gen(
+                [
+                    {"text": "Hola", "done": False},
+                    {"text": None, "done": True},
+                ]
+            )
+
+            resp = client.post(
+                "/api/generate/story",
+                json={"parameters": [{"category": "personaje", "value": "dragón"}]},
+            )
+            assert resp.status_code == 200
+
+            # LED-17: the engine was driven into THINKING at stream start.
+            mode_calls = [c for c in animator.set_mode.call_args_list]
+            assert any(
+                call.args == (Mode.THINKING,) for call in mode_calls
+            ), f"Expected set_mode(Mode.THINKING) at stream start; got {mode_calls}"
+        finally:
+            self._detach_animator()
+
+    def test_audio_ready_drives_progress_mode_with_accum_color(
+        self, client, mock_story_generator, mock_tts_pipeline, tmp_path
+    ):
+        """LED-20 / D-21: each audio_ready -> set_mode(Mode.PROGRESS, i, n,
+        color=hex_to_rgb(settings.led_accum_color)) — defined neutral accent."""
+        animator = self._attach_animator()
+        from app.config import ConfigManager
+
+        settings = ConfigManager().load()
+        expected_color = _hex_to_rgb(settings.led_accum_color)
+
+        from app.routers import generate as gen_module
+
+        generated_dir = tmp_path / "content" / "generated"
+        generated_dir.mkdir(parents=True)
+        original_dir = getattr(gen_module, "GENERATED_DIR", None)
+        gen_module.GENERATED_DIR = generated_dir
+
+        try:
+            from app.services.led_animator import Mode
+
+            async def _gen(events):
+                for e in events:
+                    yield e
+
+            mock_story_generator.generate_story.return_value = _gen(
+                [
+                    {"text": "Había una vez un dragón. ", "done": False},
+                    {"text": "Vivía en una montaña.", "done": False},
+                    {"text": None, "done": True},
+                ]
+            )
+
+            resp = client.post(
+                "/api/generate/story",
+                json={"parameters": [{"category": "personaje", "value": "dragón"}]},
+            )
+            assert resp.status_code == 200
+
+            # LED-20: at least one PROGRESS call fired with running-known-count N
+            # (i == n each step, per PLAN DECISION) AND the defined neutral
+            # accent color (settings.led_accum_color). This is the assertion that
+            # makes LED-20's color verifiable (closes the prior "pin it in the
+            # test" gap from 33-CONTEXT D-21).
+            #
+            # Note: Mode.PROGRESS and Mode.PARAM are IntEnum aliases (both value
+            # 1 by D-13 design — they share the THINKING/param/progress priority
+            # band). The engine dispatches on the integer value; the distinction
+            # between a PARAM call (n_params=) and a PROGRESS call (i=/n=/color=)
+            # is the kwarg signature. Filter on value==Mode.PROGRESS.value AND
+            # the progress kwargs (i, n, color) so this precisely matches the
+            # generate-route progress calls and not a param-accumulation call.
+            progress_calls = [
+                c
+                for c in animator.set_mode.call_args_list
+                if c.args
+                and c.args[0] == Mode.PROGRESS.value
+                and "i" in c.kwargs
+                and "n" in c.kwargs
+                and "color" in c.kwargs
+            ]
+            assert progress_calls, (
+                f"Expected at least one set_mode(Mode.PROGRESS, i=, n=, "
+                f"color=) call; got {animator.set_mode.call_args_list}"
+            )
+
+            # The first progress call must carry the resolved accum color and
+            # running-known-count N (i == n).
+            first = progress_calls[0]
+            assert first.kwargs.get("color") == expected_color, (
+                f"In-flight progress color must be the defined neutral accent "
+                f"({settings.led_accum_color} -> {expected_color}); "
+                f"got {first.kwargs.get('color')}"
+            )
+            assert first.kwargs.get("i") == first.kwargs.get("n"), (
+                f"PLAN DECISION running-known-count N: i must equal n; "
+                f"got i={first.kwargs.get('i')}, n={first.kwargs.get('n')}"
+            )
+        finally:
+            if original_dir is not None:
+                gen_module.GENERATED_DIR = original_dir
+            else:
+                delattr(gen_module, "GENERATED_DIR")
+            self._detach_animator()
+
+    def test_generation_error_drives_error_mode(
+        self, client, mock_story_generator
+    ):
+        """LED-15: a generation error event -> animator.set_mode(Mode.ERROR)."""
+        animator = self._attach_animator()
+        try:
+            from app.services.led_animator import Mode
+
+            async def _gen(events):
+                for e in events:
+                    yield e
+
+            mock_story_generator.generate_story.return_value = _gen(
+                [{"error": "llama-server no disponible", "done": True}]
+            )
+
+            resp = client.post(
+                "/api/generate/story",
+                json={"parameters": [{"category": "personaje", "value": "robot"}]},
+            )
+            assert resp.status_code == 200
+
+            # LED-15: the engine was driven into ERROR mode (gentle amber, never
+            # red / never strobe — D-09 / D-15). Driven through the engine, the
+            # sole writer.
+            mode_calls = animator.set_mode.call_args_list
+            assert any(
+                call.args == (Mode.ERROR,) for call in mode_calls
+            ), f"Expected set_mode(Mode.ERROR) on generation error; got {mode_calls}"
+        finally:
+            self._detach_animator()
+
+    def test_missing_animator_does_not_break_stream(
+        self, client, mock_story_generator
+    ):
+        """T-33-11: a missing engine degrades to no LED feedback, the stream
+        still works (None-guard on every animator call)."""
+        # Ensure no animator is set (mirrors TestClient-without-lifespan).
+        self._detach_animator()
+        assert not hasattr(app.state, "led_animator")
+
+        async def _gen(events):
+            for e in events:
+                yield e
+
+        mock_story_generator.generate_story.return_value = _gen(
+            [
+                {"text": "Hola", "done": False},
+                {"text": None, "done": True},
+            ]
+        )
+
+        resp = client.post(
+            "/api/generate/story",
+            json={"parameters": [{"category": "personaje", "value": "dragón"}]},
+        )
+        # Stream still works — no AttributeError from a missing engine.
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.headers["content-type"]
+
+
+def _hex_to_rgb(hex_color):
+    """Local hex_to_rgb mirroring system.hex_to_rgb (avoids a cross-module import
+    in the RED test; the assertion compares against the same resolved tuple)."""
+    h = hex_color.lstrip("#")
+    return tuple(int(h[i : i + 2], 16) for i in (0, 2, 4))
