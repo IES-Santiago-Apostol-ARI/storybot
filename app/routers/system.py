@@ -1,15 +1,18 @@
 """System status endpoints."""
 
 import re
+from enum import Enum
 from typing import Tuple
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from app.dependencies import get_hardware, get_led_animator
+from app.dependencies import get_hardware, get_led_animator, get_story_manager
 from app.models.system import SystemStatus
 from app.services.hardware_manager import HardwareManager
+from app.services.led_animator import Mode
 from app.services.platform_detect import detect_platform
+from app.services.story_manager import StoryManager
 
 
 router = APIRouter()
@@ -28,6 +31,37 @@ class LEDRequest(BaseModel):
         if not re.match(r"^#[0-9A-Fa-f]{6}$", v):
             raise ValueError("Invalid hex color format")
         return v
+
+
+class LEDState(str, Enum):
+    """Semantic LED playback-lifecycle states (D-02).
+
+    Str-based Enum so Pydantic validates the request ``state`` against the
+    exact member set and rejects unknown values with 422 automatically
+    (ASVS V5 default-deny — T-33-06 mitigation). There is NO per-frame
+    brightness field on this route (D-02 shape locked), so the endpoint
+    cannot be abused to re-create a second writer.
+    """
+
+    PLAYBACK = "playback"
+    PAUSE = "pause"
+    RESUME = "resume"
+    IDLE = "idle"
+    ENDED = "ended"
+    THINKING = "thinking"
+
+
+class LEDStateRequest(BaseModel):
+    """Semantic LED state request (D-02 additive endpoint).
+
+    The client sends a semantic state + a story identifier; the backend
+    resolves ``led_color`` via ``story_manager`` (D-03) and drives the
+    engine. There is no color/brightness field here on purpose.
+    """
+
+    state: LEDState
+    story_id: str | None = None
+    nfc_uid: str | None = None
 
 
 def hex_to_rgb(hex_color: str) -> Tuple[int, int, int]:
@@ -127,3 +161,80 @@ async def turn_off_led(
 
     await animator.off()
     return {"status": "ok"}
+
+
+@router.post("/led/state")
+async def set_led_state(
+    request: LEDStateRequest,
+    animator=Depends(get_led_animator),
+    story_manager: StoryManager = Depends(get_story_manager),
+):
+    """Drive the LED engine into a semantic playback-lifecycle state (D-02).
+
+    Additive — does NOT overload :http:post:`/api/system/led` (D-02 / Phase 32
+    sole-writer rule). The route is the SOLE writer's driver: it resolves the
+    story ``led_color`` backend-side via ``story_manager`` (D-03) and calls the
+    engine's concrete API. The engine is the only thing that writes the strip.
+
+    State mapping (D-12 authoritative pause mechanism — ``pause`` is a ``_paused``
+    flag on PLAYBACK, NOT a separate ``Mode``)::
+
+        playback -> animator.set_mode(Mode.PLAYBACK, color=rgb)
+        pause    -> animator.pause()       (freeze breath; do NOT set_mode)
+        resume   -> animator.resume()      (re-anchor _phase0; do NOT set_mode)
+        idle     -> animator.set_mode(Mode.IDLE)
+        ended    -> animator.set_mode(Mode.IDLE)  (cross-fades to idle, LED-22)
+        thinking -> animator.set_mode(Mode.THINKING)
+
+    Args:
+        request: ``LEDStateRequest`` — validated semantic state + optional
+            story identifier (``nfc_uid`` takes precedence over ``story_id``).
+        animator: LedAnimator engine instance (None when not running).
+        story_manager: StoryManager used to resolve ``led_color`` (D-03).
+
+    Returns:
+        ``{"status": "ok", "state": <state>, "rgb": [r,g,b] | null}`` — the
+        resolved RGB is included only when a story identifier resolved a color.
+
+    Raises:
+        HTTPException: 503 if the LED engine is not running (mirrors /led).
+    """
+    # T-33-08: never assume the engine exists; mirror the /led 503-on-None.
+    if animator is None:
+        raise HTTPException(status_code=503, detail="LED engine not available")
+
+    # D-03: resolve the story's led_color backend-side. NFC uid takes
+    # precedence; fall back to story_id; None when neither resolves (the
+    # engine falls back gracefully — T-33-07 accept disposition).
+    rgb: tuple[int, int, int] | None = None
+    story = None
+    if request.nfc_uid:
+        story = story_manager.get_story_by_nfc(request.nfc_uid)
+    elif request.story_id:
+        story = story_manager.get_story(request.story_id)
+    if story is not None and getattr(story, "led_color", None):
+        rgb = hex_to_rgb(story.led_color)
+
+    state = request.state
+    if state == LEDState.PLAYBACK:
+        # D-13: PLAYBACK is a base mode; pass the resolved color so the
+        # breathing effect renders in the story color. None is acceptable —
+        # the engine keeps the last mode_color.
+        animator.set_mode(Mode.PLAYBACK, color=rgb)
+    elif state == LEDState.PAUSE:
+        # D-12: authoritative pause — freeze the breath via the _paused flag,
+        # NOT a set_mode call.
+        animator.pause()
+    elif state == LEDState.RESUME:
+        # D-12: resume re-anchors _phase0 so the breath continues smoothly.
+        animator.resume()
+    elif state == LEDState.IDLE:
+        animator.set_mode(Mode.IDLE)
+    elif state == LEDState.ENDED:
+        # LED-12 / D-12: ended cross-fades to idle (Mode.IDLE renders the
+        # configured idle glow).
+        animator.set_mode(Mode.IDLE)
+    elif state == LEDState.THINKING:
+        animator.set_mode(Mode.THINKING)
+
+    return {"status": "ok", "state": state.value, "rgb": list(rgb) if rgb else None}

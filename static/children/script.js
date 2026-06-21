@@ -10,10 +10,8 @@ let currentState = STATES.IDLE;
 let stories = [];
 let currentStory = null;
 let nfcEventSource = null;
-let ledPulseInterval = null;
 let progressAnimationId = null;
 let isPaused = false;
-let pausedLEDState = null; // { color, brightness, direction }
 let collectingParams = []; // Parameter chips displayed during collection
 let lastGenerationParams = []; // Preserved params for D-09 chip preservation + collage
 const audioElement = document.getElementById('story-audio');
@@ -210,8 +208,7 @@ function transitionTo(newState, story = null) {
         // State-specific logic
         switch (newState) {
             case STATES.COLLECTING:
-                stopLEDPulse();
-                turnOffLED();
+                signalLEDState('idle');
                 stopProgressTracking();
                 break;
             case STATES.IDLE:
@@ -230,17 +227,18 @@ function transitionTo(newState, story = null) {
 
                 // Reset pause state
                 isPaused = false;
-                pausedLEDState = null;
                 document.querySelector('.pause-overlay')?.classList.add('hidden');
                 document.querySelector('.pause-overlay')?.classList.remove('visible', 'resuming');
                 document.querySelector('.screen-playing')?.classList.remove('paused');
 
-                stopLEDPulse();
-                turnOffLED();
+                signalLEDState('idle');
                 stopProgressTracking();
                 break;
             case STATES.PLAYING:
-                startLEDPulse(story.led_color);
+                signalLEDState('playback', {
+                    nfc_uid: story?.nfc_uid ?? null,
+                    story_id: story?.id ?? null,
+                });
                 showPlaybackScreen(story);
                 if (!story.generated) playAudio(story);
                 startProgressTracking();
@@ -248,7 +246,6 @@ function transitionTo(newState, story = null) {
             case STATES.THANKYOU:
                 // Reset pause state
                 isPaused = false;
-                pausedLEDState = null;
                 document.querySelector('.pause-overlay')?.classList.add('hidden');
                 document.querySelector('.pause-overlay')?.classList.remove('visible', 'resuming');
                 document.querySelector('.screen-playing')?.classList.remove('paused');
@@ -258,7 +255,7 @@ function transitionTo(newState, story = null) {
                     applyCoverSwap(bufferedCoverUrl);
                 }
 
-                fadeLEDToIdle();
+                signalLEDState('ended', { story_id: currentStory?.id ?? null });
                 stopProgressTracking();
                 setTimeout(() => transitionTo(STATES.IDLE), 4000);
                 break;
@@ -493,68 +490,21 @@ audioElement.addEventListener('play', () => {
     console.log('Audio play event fired');
 });
 
-// LED control functions
-async function setLEDColor(color, brightness = 1.0) {
+// LED semantic signaling (Phase 33 D-04): the kiosk no longer animates the
+// strip itself. Each playback transition emits exactly ONE semantic POST to
+// /api/system/led/state; the engine owns breathing / pause-hold / fade
+// server-side (sole-writer invariant restored). The browser passes a story
+// identifier so the backend resolves led_color (D-03).
+async function signalLEDState(state, opts = {}) {
     try {
-        await fetch('/api/system/led', {
+        await fetch('/api/system/led/state', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ color, brightness })
+            body: JSON.stringify({ state, ...opts })
         });
     } catch (err) {
-        console.error('LED control failed:', err);
+        console.error('LED state signal failed:', err);
     }
-}
-
-async function turnOffLED() {
-    try {
-        await fetch('/api/system/led/off', { method: 'POST' });
-    } catch (err) {
-        console.error('LED off failed:', err);
-    }
-}
-
-function startLEDPulse(color) {
-    // Start with full brightness
-    setLEDColor(color, 1.0);
-
-    // Pulse between 0.3 and 1.0 brightness
-    let brightness = 1.0;
-    let direction = -1;
-
-    ledPulseInterval = setInterval(() => {
-        brightness += direction * 0.1;
-        if (brightness <= 0.3) {
-            brightness = 0.3;
-            direction = 1;
-        } else if (brightness >= 1.0) {
-            brightness = 1.0;
-            direction = -1;
-        }
-        setLEDColor(color, brightness);
-    }, 200); // Update every 200ms for smooth pulse
-}
-
-function stopLEDPulse() {
-    if (ledPulseInterval) {
-        clearInterval(ledPulseInterval);
-        ledPulseInterval = null;
-    }
-}
-
-function fadeLEDToIdle() {
-    // Fade from current color to off over 2 seconds
-    stopLEDPulse();
-    let brightness = 1.0;
-    const fadeInterval = setInterval(() => {
-        brightness -= 0.1;
-        if (brightness <= 0) {
-            clearInterval(fadeInterval);
-            turnOffLED();
-        } else {
-            setLEDColor(currentStory?.led_color || '#FFFFFF', brightness);
-        }
-    }, 200);
 }
 
 // Pause/Resume functions
@@ -583,8 +533,9 @@ function pausePlayback() {
     // Freeze animations via CSS class
     document.querySelector('.screen-playing').classList.add('paused');
 
-    // Pause LED: stop pulse, hold at 0.6 brightness
-    pauseLED();
+    // D-04: signal the engine to freeze the breath (authoritative pause,
+    // _paused flag on PLAYBACK — D-12).
+    signalLEDState('pause');
 }
 
 function resumePlayback() {
@@ -612,46 +563,8 @@ function resumePlayback() {
     // Unfreeze animations
     document.querySelector('.screen-playing').classList.remove('paused');
 
-    // Resume LED with smooth ramp
-    resumeLED();
-}
-
-function pauseLED() {
-    if (ledPulseInterval && currentStory) {
-        // Store current state for smooth resume
-        pausedLEDState = { color: currentStory.led_color };
-        stopLEDPulse();
-        setLEDColor(currentStory.led_color, 0.6); // Hold at medium brightness
-    }
-}
-
-function resumeLED() {
-    if (pausedLEDState && currentStory) {
-        // Ramp from 0.6 to 1.0 over 300ms, then restart normal pulse
-        rampLEDBrightness(0.6, 1.0, currentStory.led_color, 300, () => {
-            startLEDPulse(currentStory.led_color);
-        });
-        pausedLEDState = null;
-    }
-}
-
-function rampLEDBrightness(from, to, color, duration, callback) {
-    const steps = 10;
-    const stepDuration = duration / steps;
-    const stepChange = (to - from) / steps;
-    let current = from;
-    let step = 0;
-
-    const rampInterval = setInterval(() => {
-        current += stepChange;
-        step++;
-        setLEDColor(color, current);
-
-        if (step >= steps) {
-            clearInterval(rampInterval);
-            if (callback) callback();
-        }
-    }, stepDuration);
+    // D-04: signal the engine to resume the breath (re-anchor _phase0, D-12).
+    signalLEDState('resume');
 }
 
 // Progress tracking
@@ -1071,8 +984,7 @@ async function startGeneration(parameters) {
     }
 }
 
-// Clean up on page unload
+// Clean up on page unload — release the engine back to idle.
 window.addEventListener('beforeunload', () => {
-    stopLEDPulse();
-    turnOffLED();
+    signalLEDState('idle');
 });
