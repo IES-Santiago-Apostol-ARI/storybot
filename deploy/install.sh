@@ -42,6 +42,7 @@ INSTALL_USER="$(echo -n "$INSTALL_USER" | xargs)"
 
 DEV_MODE=false
 AI_FLAG=""
+REBOOT_REQUIRED=0
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -194,6 +195,39 @@ sed -e "s|__INSTALL_USER__|$INSTALL_USER|g" \
     "$INSTALL_DIR/deploy/10-storybot-bt.pkla" > /etc/polkit-1/localauthority/50-local.d/10-storybot-bt.pkla
 chmod 0644 /etc/polkit-1/localauthority/50-local.d/10-storybot-bt.pkla
 echo -e "${GREEN}Polkit Bluetooth rule installed${NC}"
+
+# Step 1d: SPI1 enablement for WS2812B LED strip (Jetson only, idempotent, fail-soft)
+# Enables the spi1 function on the 40-pin header so /dev/spidev0.0 appears after reboot.
+# Uses config-by-function.py (NOT the hardware-module variant — Pitfall 1). Reboot is required
+# to load the regenerated DTB + boot entry, so we set REBOOT_REQUIRED for the completion banner.
+if [ -f /etc/nv_tegra_release ]; then
+    if [ -e /dev/spidev0.0 ]; then
+        echo -e "${GREEN}SPI1 already enabled (/dev/spidev0.0 present) — skipping pinmux step${NC}"
+    elif [ -x /opt/nvidia/jetson-io/config-by-function.py ]; then
+        if sudo /opt/nvidia/jetson-io/config-by-function.py -o dt spi1; then
+            echo -e "${GREEN}SPI1 function enabled via jetson-io — REBOOT REQUIRED to load it${NC}"
+            REBOOT_REQUIRED=1
+        else
+            echo -e "${YELLOW}jetson-io config-by-function.py failed on this JetPack — enable SPI1 manually:${NC}"
+            echo "  sudo /opt/nvidia/jetson-io/jetson-io.py  → Configure 40-pin header → enable spi1 → Save & reboot"
+        fi
+    else
+        echo -e "${YELLOW}jetson-io not found — enable SPI1 manually (see docs); continuing install${NC}"
+        echo "  sudo /opt/nvidia/jetson-io/jetson-io.py  → Configure 40-pin header → enable spi1 → Save & reboot"
+    fi
+else
+    echo -e "${YELLOW}Not a Jetson — skipping SPI1 enablement${NC}"
+fi
+
+# Step 1e: SPI access group + udev rule so non-root users can talk to /dev/spidev*
+groupadd -f spi
+usermod -aG spi "$INSTALL_USER"
+
+cat <<'EOF' > /etc/udev/rules.d/99-storybot-spi.rules
+# Allow members of the 'spi' group read/write access to spidev devices
+SUBSYSTEM=="spidev", GROUP="spi", MODE="0660"
+EOF
+echo -e "${GREEN}SPI udev rule installed${NC}"
 
 echo -e "${GREEN}System dependencies installed${NC}"
 
