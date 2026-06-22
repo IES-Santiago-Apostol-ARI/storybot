@@ -48,6 +48,11 @@ class Settings(BaseModel):
     gpio_image_pin: int = 29
     gpio_animation_pin: int = 31
     gpio_bounce_ms: int = 200
+    # --- Phase 35 GPIO (D-11) ---
+    gpio_debounce_ms: int = 50
+    gpio_poll_interval_s: float = 0.02
+    poweroff_cmd: list[str] = ["/usr/bin/sudo", "/sbin/poweroff"]
+    gpio_enabled: bool = True
 
     class Config:
         json_encoders = {Path: str}
