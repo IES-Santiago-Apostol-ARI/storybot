@@ -239,6 +239,25 @@ async def lifespan(app: FastAPI):
             file=sys.stderr,
         )
 
+    # Phase 35 GPIO-05: register gpio service, create shared queue + task,
+    # cancel on shutdown. Placed after led_animator, before bt_monitor.
+    gpio_task = None
+    try:
+        from app.services.gpio_handler import create_gpio_service
+
+        gpio_service = create_gpio_service()
+        app.state.gpio_events = asyncio.Queue()  # shared; Phase 36 consumes
+        await gpio_service.initialize(app.state.gpio_events)
+        hardware.register_service("gpio", gpio_service)
+        app.state.gpio_service = gpio_service
+        gpio_task = asyncio.create_task(gpio_service.run(app.state.gpio_events))
+        app.state.gpio_task = gpio_task
+    except Exception as e:  # pragma: no cover — defensive; factory never raises
+        print(
+            json.dumps({"event": "gpio_init_failed", "reason": type(e).__name__}),
+            file=sys.stderr,
+        )
+
     # Phase 28 BOOT-04: start health monitor in background (skip during testing).
     bt_monitor_task = None
     if not os.environ.get("TESTING"):
@@ -268,6 +287,11 @@ async def lifespan(app: FastAPI):
     if led_animator_task:
         led_animator_task.cancel()
         await asyncio.gather(led_animator_task, return_exceptions=True)
+
+    # Phase 35 GPIO-05: cancel gpio background task before hardware shutdown.
+    if gpio_task:
+        gpio_task.cancel()
+        await asyncio.gather(gpio_task, return_exceptions=True)
 
     await hardware.shutdown()
 

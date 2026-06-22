@@ -42,6 +42,12 @@ class Settings(BaseModel):
     tts_voice: str = "es_ES-glow_tenor"
     nfc_reader_device: str = "usb:072f:2200"
     printer_model: str = "QL-800"
+    # GPIO button pin mapping (Jetson.GPIO BOARD mode = physical J2 pin)
+    gpio_power_pin: int = 7
+    gpio_interrupt_pin: int = 15
+    gpio_image_pin: int = 29
+    gpio_animation_pin: int = 31
+    gpio_bounce_ms: int = 200
 
     class Config:
         json_encoders = {Path: str}
