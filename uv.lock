@@ -788,6 +788,12 @@ wheels = [
 ]
 
 [[package]]
+name = "jetson-gpio"
+version = "2.1.12"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/74/5e/a40eaa9f4f79182b1e3a97059fbaeab4ee567639188fc00d352f3a129751/jetson_gpio-2.1.12.tar.gz", hash = "sha256:43110ba2e3bbf747bfe65ef2cc442cee91bdea8924e946bc64ec55b67f9eb948", size = 37412, upload-time = "2025-09-30T16:02:50.571Z" }
+
+[[package]]
 name = "jetson-stats"
 version = "4.3.2"
 source = { registry = "https://pypi.org/simple" }
@@ -2686,6 +2692,7 @@ jetson = [
     { name = "cuda-python", marker = "platform_machine == 'aarch64'" },
     { name = "cupy-cuda12x", marker = "platform_machine == 'aarch64'" },
     { name = "diffusers" },
+    { name = "jetson-gpio", marker = "platform_machine == 'aarch64'" },
     { name = "jetson-stats", marker = "platform_machine == 'aarch64'" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
@@ -2731,6 +2738,7 @@ requires-dist = [
     { name = "diffusers", marker = "extra == 'jetson'", specifier = ">=0.25.0" },
     { name = "fastapi", specifier = ">=0.109.0" },
     { name = "httpx", specifier = ">=0.26.0" },
+    { name = "jetson-gpio", marker = "platform_machine == 'aarch64' and extra == 'jetson'", specifier = ">=2.1.0" },
     { name = "jetson-stats", marker = "platform_machine == 'aarch64' and extra == 'jetson'", specifier = ">=4.2" },
     { name = "jsonschema", specifier = ">=4.21.0" },
     { name = "numpy", specifier = ">=1.24.0" },
