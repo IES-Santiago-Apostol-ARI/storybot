@@ -45,6 +45,7 @@ import json
 import sys
 import time
 from enum import IntEnum
+from typing import Callable
 
 from app.config import ConfigManager
 from app.services import led_effects
@@ -144,6 +145,8 @@ class LedAnimator:
         # Two-slot state (D-07 / D-10).
         self._base: tuple[int, int, int] = (0, 0, 0)
         self._overlay: tuple[int, int, int] | None = None
+        self._overlay_fn: Callable[[float, int], list[tuple[int, int, int]]] | None = None
+        self._overlay_started_at: float = 0.0
         self._overlay_until: float = 0.0
         # D-06 dirty-check cache (value-equality on encoded bytes).
         self._last_written: bytes | None = None
@@ -237,6 +240,13 @@ class LedAnimator:
     def flash_go(self) -> None:
         """LED-14 / D-11: distinct celebratory green flash (~400 ms)."""
         self.flash(0, 255, 0, ms=400)
+
+    def rainbow(self, duration_ms: int = 1500) -> None:
+        """One-shot rainbow hue cycle (ANIM-01/ANIM-02). Modeled on flash(): sets a
+        transient overlay render-fn + expiry; auto-returns to the base mode."""
+        self._overlay_fn = led_effects.rainbow
+        self._overlay_started_at = self._now()
+        self._overlay_until = self._now() + duration_ms / 1000.0
 
     def set_mode(
         self,
@@ -376,12 +386,16 @@ class LedAnimator:
         ``asyncio.to_thread`` (D-01, LED-07).
         """
         now = self._now()
-        if self._overlay is not None and now < self._overlay_until:
+        if self._overlay_fn is not None and now < self._overlay_until:
+            # Rainbow overlay-fn renders a per-pixel hue cycle
+            frame = self._overlay_fn(now - self._overlay_started_at, settings.led_count)
+        elif self._overlay is not None and now < self._overlay_until:
             # D-11: flashes stay solid (no per-pixel / cross-fade).
             frame = [self._overlay] * settings.led_count
         else:
-            # Auto-restore: clear the expired overlay, resume the base.
+            # Auto-restore: clear expired overlay, resume base
             self._overlay = None
+            self._overlay_fn = None
             frame = self._render_base(now, settings.led_count)
         # Encode on the loop (pure CPU, microseconds for 21 px).
         encoded = encode_ws2812(
@@ -442,6 +456,9 @@ class LedAnimator:
         see the live mode color (breathing, beacon, etc.) rather than a stale
         ``_base`` tuple.
         """
+        if self._overlay_fn is not None and self._now() < self._overlay_until:
+            frame = self._overlay_fn(self._now() - self._overlay_started_at, settings.led_count)
+            return frame[0] if frame else (0, 0, 0)
         if self._overlay is not None:
             if self._now() < self._overlay_until:
                 return self._overlay

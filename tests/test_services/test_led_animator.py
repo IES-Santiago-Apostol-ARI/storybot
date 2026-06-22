@@ -446,3 +446,69 @@ class TestLedAnimatorMode:
 
         # Should have changed from boot to idle
         assert settled_color != boot_color_1, "Should settle from boot to idle"
+
+# ============================================================
+# Phase 35-03 RED tests — rainbow one-shot LED effect (ANIM-01/02)
+# ============================================================
+
+class TestLedAnimatorRainbow:
+    """Rainbow one-shot overlay lifecycle tests (RED until plan 35-03)."""
+
+    @pytest.mark.asyncio
+    async def test_rainbow_oneshot_lifecycle(self, led_animator, fake_clock):
+        """ANIM-01: Rainbow sets a transient overlay that cycles hues across
+        the strip for duration_ms, then auto-clears and resumes base mode.
+
+        Call animator.rainbow(duration_ms=500); tick while active — assert
+        distinct hue frames (not a single solid color); advance past duration
+        — assert overlay cleared and base resumed.
+        """
+        # Set a known base color
+        await led_animator.set_base(0, 128, 255)
+        await led_animator.tick_once()
+        base_color = led_animator.get_color()
+
+        # Fire rainbow overlay
+        led_animator.rainbow(duration_ms=500)
+        await led_animator.tick_once()
+        rainbow_color_1 = led_animator.get_color()
+
+        # Rainbow should be different from base (distinct hue frames)
+        assert rainbow_color_1 != base_color, "Rainbow should differ from base color"
+
+        # Advance a bit — should still be in rainbow (different frame)
+        fake_clock.advance(0.1)
+        await led_animator.tick_once()
+        rainbow_color_2 = led_animator.get_color()
+        assert rainbow_color_2 != base_color, "Rainbow should still be active"
+
+        # Advance past duration — overlay should clear, base resumes
+        fake_clock.advance(0.6)  # well past 500ms
+        await led_animator.tick_once()
+        after_rainbow = led_animator.get_color()
+        assert after_rainbow == base_color, "Base color should resume after rainbow expires"
+
+    @pytest.mark.asyncio
+    async def test_rainbow_returns_to_base(self, led_animator, fake_clock):
+        """ANIM-02: After rainbow expiry, _overlay_fn is cleared and color
+        returns to the base mode.
+
+        Set a known base color; fire rainbow; advance past expiry — assert
+        _overlay_fn is None and color returns to base.
+        """
+        await led_animator.set_base(128, 0, 255)
+        await led_animator.tick_once()
+        base_color = led_animator.get_color()
+
+        # Fire rainbow
+        led_animator.rainbow(duration_ms=300)
+        await led_animator.tick_once()
+
+        # Advance past expiry
+        fake_clock.advance(0.5)
+        await led_animator.tick_once()
+
+        # Overlay should be cleared
+        assert led_animator._overlay_fn is None, "_overlay_fn should be None after expiry"
+        # Color should return to base
+        assert led_animator.get_color() == base_color, "Color should return to base"

@@ -148,6 +148,40 @@ def idle_glow(now: float, count: int) -> list[tuple[int, int, int]]:
     return [_IDLE_GLOW_COLOR] * count
 
 
+def rainbow(elapsed: float, count: int) -> list[tuple[int, int, int]]:
+    """Rainbow hue cycle — one full hue sweep across the strip.
+
+    Pure RGB out (gamma/cap applied by encoder below the boundary).
+    Returns `count` pixels, each with a different hue offset.
+    """
+    _RAINBOW_PERIOD = 1.5  # seconds for one full hue cycle
+    fb = []
+    for i in range(count):
+        hue = ((elapsed / _RAINBOW_PERIOD) + (i / count)) % 1.0
+        r, g, b = _hsv_to_rgb(hue, 1.0, 1.0)
+        fb.append((round(r * 255), round(g * 255), round(b * 255)))
+    return fb
+
+
+def _hsv_to_rgb(h: float, s: float, v: float) -> tuple[float, float, float]:
+    """HSV (0-1) to RGB (0-1). Pure math, no I/O."""
+    c = v * s
+    x = c * (1 - abs((h * 6) % 2 - 1))
+    m = v - c
+    if h < 1 / 6:
+        return (c + m, x + m, m)
+    elif h < 2 / 6:
+        return (x + m, c + m, m)
+    elif h < 3 / 6:
+        return (m, c + m, x + m)
+    elif h < 4 / 6:
+        return (m, x + m, c + m)
+    elif h < 5 / 6:
+        return (x + m, m, c + m)
+    else:
+        return (c + m, m, x + m)
+
+
 def crossfade(
     fb_from: list[tuple[int, int, int]], fb_to: list[tuple[int, int, int]], alpha: float
 ) -> list[tuple[int, int, int]]:
