@@ -38,7 +38,22 @@ echo "=== INFRA-04: LED API command (set red) ==="
 curl -s -X POST $BASE_URL/api/system/led \
   -H "Content-Type: application/json" \
   -d '{"color":"#FF0000"}' | python3 -m json.tool
-echo "NOTE: LED hardware is currently unverified — is_mock=true is expected by design"
+echo "NOTE: After Phase 34 bring-up, is_mock=false is expected on real hardware (LED-26)"
+echo ""
+
+# LED-26: SPI node + permissions (post-reboot smoke)
+echo "=== LED-26: SPI node + permissions ==="
+if ls /dev/spidev* 2>/dev/null; then
+  echo "PASS: spidev node(s) present"
+else
+  echo "FAIL: no /dev/spidev* node found — SPI1 may not be enabled or reboot required"
+fi
+getent group spi && echo "PASS: spi group exists" || echo "FAIL: spi group not found"
+if sudo -u "$INSTALL_USER" test -w /dev/spidev0.0 2>/dev/null; then
+  echo "PASS: service user can write SPI node"
+else
+  echo "WARN: service user cannot write /dev/spidev0.0 (may be pre-reboot or node differs)"
+fi
 echo ""
 
 # Turn LED off after test

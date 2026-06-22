@@ -18,7 +18,12 @@ class Settings(BaseModel):
         0  # D-12: spidev0.0 default; node confirmed after jetson-io in Phase 34
     )
     led_spi_dev: int = 0  # D-12
-    led_spi_speed_hz: int = 6_400_000  # D-11: Option A, 8 SPI bits per WS bit
+    led_spi_speed_hz: int = (
+        6_400_000  # D-11 / LED-26: Option A, 8 SPI bits per WS bit.
+        # On-device tuning: if Option A fails to render cleanly on the real strip,
+        # try Option B (4 SPI bits/WS bit) by halving to 3_200_000 and testing.
+        # See deploy/led-uat-checklist.md for validation steps.
+    )
     led_color_order: str = "GRB"  # D-13: WS2812B standard
     led_gamma: float = (
         2.2  # sRGB approx; deterministic LUT (see app.services.led_spi._gamma_lut)
