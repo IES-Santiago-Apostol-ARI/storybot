@@ -238,3 +238,19 @@ async def set_led_state(
         animator.set_mode(Mode.THINKING)
 
     return {"status": "ok", "state": state.value, "rgb": list(rgb) if rgb else None}
+
+
+@router.post("/poweroff")
+async def poweroff_system():
+    """Initiate system poweroff.
+
+    Starts the configured poweroff command as a detached subprocess so the
+    FastAPI event loop is not blocked. Returns immediately with status ok.
+
+    Returns:
+        Status response confirming the poweroff command was initiated.
+    """
+    from app.services.system_control import poweroff
+
+    await poweroff()
+    return {"status": "ok"}

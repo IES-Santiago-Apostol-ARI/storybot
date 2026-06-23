@@ -258,6 +258,28 @@ async def lifespan(app: FastAPI):
             file=sys.stderr,
         )
 
+    # Phase 36 BTN-01/07: GpioDispatcher consumes from gpio_events and routes
+    # to kiosk_events queue with debounce guard. Cancel on shutdown.
+    gpio_dispatcher_task = None
+    try:
+        from app.services.gpio_dispatcher import GpioDispatcher
+
+        app.state.kiosk_events = asyncio.Queue()
+        app.state.gpio_dispatcher = GpioDispatcher(
+            gpio_events=app.state.gpio_events,
+            kiosk_events=app.state.kiosk_events,
+            led_animator=getattr(app.state, "led_animator", None),
+        )
+        gpio_dispatcher_task = asyncio.create_task(
+            app.state.gpio_dispatcher.run()
+        )
+        app.state.gpio_dispatcher_task = gpio_dispatcher_task
+    except Exception as e:  # pragma: no cover — defensive
+        print(
+            json.dumps({"event": "gpio_dispatcher_init_failed", "reason": type(e).__name__}),
+            file=sys.stderr,
+        )
+
     # Phase 28 BOOT-04: start health monitor in background (skip during testing).
     bt_monitor_task = None
     if not os.environ.get("TESTING"):
@@ -292,6 +314,11 @@ async def lifespan(app: FastAPI):
     if gpio_task:
         gpio_task.cancel()
         await asyncio.gather(gpio_task, return_exceptions=True)
+
+    # Phase 36 BTN-07: cancel gpio dispatcher before hardware shutdown.
+    if gpio_dispatcher_task:
+        gpio_dispatcher_task.cancel()
+        await asyncio.gather(gpio_dispatcher_task, return_exceptions=True)
 
     await hardware.shutdown()
 
