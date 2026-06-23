@@ -4,17 +4,16 @@ Plan 16-04 turns these GREEN.
 """
 
 import json
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 pytest.importorskip("app.services.printer_handler", reason="Wave 0 RED stub: implemented in Plan 16-04")
 
 from app.services.printer_handler import (  # noqa: E402
+    MockPrinterService,
     PrinterService,
     RealPrinterService,
-    MockPrinterService,
     create_printer_service,
 )
 

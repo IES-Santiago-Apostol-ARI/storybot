@@ -1,7 +1,8 @@
 """Phase 19 kiosk gating source-assertion tests (KSK-01..04)."""
-from pathlib import Path
 import re
 import subprocess
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 

@@ -13,7 +13,10 @@ import pytest
 # This import will FAIL today — RED.
 pytest.importorskip("app.services.generated_sweeper", reason="Wave 0 RED stub: implemented in Plan 16-01")
 
-from app.services.generated_sweeper import sweep_generated, MAX_AGE_SECONDS  # noqa: E402
+from app.services.generated_sweeper import (  # noqa: E402
+    MAX_AGE_SECONDS,
+    sweep_generated,
+)
 from app.services.story_manager import StoryManager  # noqa: E402
 
 

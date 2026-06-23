@@ -1,11 +1,11 @@
 """Tests for StoryGenerator service — TDD red phase."""
 
-import json
+from unittest.mock import MagicMock, patch
+
 import pytest
 import requests
-from unittest.mock import patch, MagicMock
 
-from app.services.story_generator import StoryGenerator, SYSTEM_PREAMBLE
+from app.services.story_generator import SYSTEM_PREAMBLE, StoryGenerator
 
 
 class TestBuildUserMessage:

@@ -44,8 +44,8 @@ import asyncio
 import json
 import sys
 import time
+from collections.abc import Callable
 from enum import IntEnum
-from typing import Callable
 
 from app.config import ConfigManager
 from app.services import led_effects

@@ -1,6 +1,7 @@
 """Phase 21 install script source-assertion tests (DEP-01)."""
-from pathlib import Path
 import re
+from pathlib import Path
+
 import pytest
 
 INSTALL_SCRIPT = Path("deploy/install.sh")

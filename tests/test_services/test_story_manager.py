@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from app.models.story import Story, StoryCreate
+from app.models.story import Story
 from app.services.story_manager import StoryManager
 
 

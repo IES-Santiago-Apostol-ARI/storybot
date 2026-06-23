@@ -14,7 +14,6 @@ import pytest
 from app.models.bt import BtDevice, BtStatus, LastSpeaker
 from app.services.bt_store import BtDeviceStore
 
-
 # ---------------------------------------------------------------------------
 # BtDevice model
 # ---------------------------------------------------------------------------

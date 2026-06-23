@@ -1,6 +1,5 @@
 """WiFi models for scan, connect, and status operations."""
 
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -25,5 +24,5 @@ class WifiStatus(BaseModel):
     """Current WiFi connection status."""
 
     state: str = Field(..., description="connected or disconnected")
-    ssid: Optional[str] = Field(None, description="Connected network SSID")
+    ssid: str | None = Field(None, description="Connected network SSID")
     interface: str = Field(..., description="WiFi interface name")

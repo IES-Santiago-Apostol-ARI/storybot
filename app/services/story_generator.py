@@ -69,7 +69,7 @@ class StoryGenerator:
             )
             resp.raise_for_status()
             return resp
-        except (requests.ConnectionError, requests.Timeout) as e:
+        except (requests.ConnectionError, requests.Timeout):
             return None
 
     async def generate_story(self, parameters: list[dict]) -> AsyncGenerator[dict, None]:

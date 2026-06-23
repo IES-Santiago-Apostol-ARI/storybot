@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from app.models.card import CardType, ParameterCard, GoCard
+from app.models.card import CardType, GoCard, ParameterCard
 from app.services.story_manager import StoryManager
 
 

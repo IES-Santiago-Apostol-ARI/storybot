@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from typing import Callable, Awaitable, Optional, Dict, Any
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -13,17 +14,17 @@ class BtMonitor:
     Implementation of Plan 28-02.
     """
     def __init__(
-        self, 
-        manager, 
-        route_to_wired: Callable[[], Awaitable[Any]], 
-        probe: Optional[Callable[[str], Awaitable[bool]]] = None,
-        sleep: Optional[Callable[[float], Awaitable[None]]] = None
+        self,
+        manager,
+        route_to_wired: Callable[[], Awaitable[Any]],
+        probe: Callable[[str], Awaitable[bool]] | None = None,
+        sleep: Callable[[float], Awaitable[None]] | None = None
     ):
         self.manager = manager
         self.route_to_wired = route_to_wired
         self.probe = probe
         self.sleep = sleep or asyncio.sleep
-        
+
         # Initial state
         self.sink = "bt"
         self.health_state = "connected"
@@ -51,7 +52,7 @@ class BtMonitor:
             is_healthy = await self._perform_probe(mac)
         except Exception as e:
             logger.error(f"bt_monitor_iter_failed: Probe exception for {mac}: {e}")
-            # Pitfall 4: Swallow and stay alive. 
+            # Pitfall 4: Swallow and stay alive.
             # We treat an exception as unhealthy to trigger fallback/retry safely.
             is_healthy = False
 
@@ -68,11 +69,11 @@ class BtMonitor:
             elif self.health_state == "connected":
                 # We are already on wired sink but some other health check failed
                 self.health_state = "reconnecting"
-            
+
             # D-07: Keep retrying connection even in fallback state
             try:
                 await self.manager.connect(mac)
-                # Note: we don't set health_state to connected here because 
+                # Note: we don't set health_state to connected here because
                 # the next probe will verify if it actually worked.
             except Exception as e:
                 logger.debug(f"Reconnection attempt failed for {mac}: {e}")
@@ -93,12 +94,12 @@ class BtMonitor:
             except Exception as e:
                 # Pitfall 4: Ensure the monitor never dies
                 logger.exception(f"bt_monitor_loop_error: {e}")
-            
+
             await self.sleep(POLL_INTERVAL)
             # Ensure we yield to the event loop, especially when using fake/instant sleeps in tests
             await asyncio.sleep(0)
 
-    def status(self) -> Dict[str, Any]:
+    def status(self) -> dict[str, Any]:
         """D-14: Surface current health and sink state."""
         return {
             "sink": self.sink,

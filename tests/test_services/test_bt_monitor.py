@@ -1,6 +1,7 @@
 import asyncio
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 # The module under test does not exist yet (RED phase)
 try:

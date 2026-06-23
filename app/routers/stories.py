@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from fastapi.requests import Request
 
 from app.dependencies import get_story_manager
-from app.models.story import NFCAssignRequest, Story, StoryCreate, StoryList
+from app.models.story import NFCAssignRequest, Story, StoryList
 from app.services.story_manager import StoryManager
 
 router = APIRouter()

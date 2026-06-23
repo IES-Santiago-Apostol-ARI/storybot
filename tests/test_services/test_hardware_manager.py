@@ -1,8 +1,10 @@
 """Tests for hardware manager."""
-import pytest
 from unittest.mock import AsyncMock, patch
-from app.services.hardware_manager import HardwareManager
+
+import pytest
+
 from app.services.base import HardwareService
+from app.services.hardware_manager import HardwareManager
 
 
 class MockService(HardwareService):

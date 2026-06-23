@@ -1,7 +1,8 @@
 """Tests for configuration management."""
 import json
+
 import pytest
-from pathlib import Path
+
 from app.config import ConfigManager, Settings
 
 

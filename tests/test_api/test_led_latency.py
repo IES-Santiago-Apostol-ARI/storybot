@@ -7,8 +7,9 @@ the event loop.
 """
 
 import time
-import pytest
+
 from fastapi.testclient import TestClient
+
 from app.main import app
 
 # A1 measure-once budget: 0.5s for a single /led round-trip while animating

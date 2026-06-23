@@ -5,9 +5,10 @@ when present in app.state, and falls back to backward-compatible defaults
 when absent (e.g. during standard TestClient runs).
 """
 
+from unittest.mock import MagicMock
+
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock
 
 from app.main import app
 
@@ -65,7 +66,7 @@ class TestBtStatusHealth:
             "device_mac": "AA:BB:CC:00:11:22",
             "device_name": "Mock JBL",
         }
-        
+
         # Inject into app.state
         app.state.bt_monitor = mock_monitor
 

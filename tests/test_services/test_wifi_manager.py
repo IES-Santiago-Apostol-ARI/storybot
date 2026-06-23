@@ -1,7 +1,5 @@
 """Tests for wifi_manager — WiFi service with nmcli subprocess wrapping."""
 
-import asyncio
-import json
 from unittest.mock import AsyncMock, patch
 
 import pytest

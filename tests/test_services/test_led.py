@@ -1,7 +1,6 @@
 """Tests for LED controller service."""
 
 from unittest.mock import patch
-import platform
 
 import pytest
 

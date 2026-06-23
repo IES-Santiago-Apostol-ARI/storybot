@@ -8,8 +8,6 @@ _get_ram_total) so tests run without torch installed.
 
 import json
 import os
-from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 

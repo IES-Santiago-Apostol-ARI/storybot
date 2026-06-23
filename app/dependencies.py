@@ -2,9 +2,9 @@
 
 from fastapi import Request
 
+from app.config import ConfigManager
 from app.services.hardware_manager import HardwareManager
 from app.services.story_manager import StoryManager
-from app.config import ConfigManager
 
 
 async def get_hardware(request: Request) -> HardwareManager:

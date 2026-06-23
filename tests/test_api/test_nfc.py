@@ -1,7 +1,7 @@
 """Tests for NFC API endpoints."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI
@@ -193,7 +193,6 @@ class TestNFCReadEventStream:
     @pytest.mark.asyncio
     async def test_event_stream_yields_card_data(self):
         """Event stream yields card UID when card tapped."""
-        import json
 
         from app.routers.nfc import read_nfc_cards
 

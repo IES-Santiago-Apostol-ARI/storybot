@@ -1,5 +1,6 @@
 import pathlib
 
+
 def _script_text():
     """Read deploy/install.sh for source assertion."""
     return pathlib.Path("deploy/install.sh").read_text()

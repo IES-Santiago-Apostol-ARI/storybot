@@ -13,10 +13,10 @@ ints; it does NOT call ``MockLEDService.set_color``).
 from unittest.mock import MagicMock
 
 import pytest
-from app.services.led_animator import LedAnimator
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services.led_animator import LedAnimator
 from app.services.led_controller import MockLEDService
 
 

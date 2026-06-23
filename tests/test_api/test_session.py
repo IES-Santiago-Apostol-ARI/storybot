@@ -1,6 +1,6 @@
 """Tests for session API endpoint."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import FastAPI

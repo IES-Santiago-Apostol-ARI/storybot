@@ -244,7 +244,7 @@ def build_pipeline(
     attention_slice: str = "1",
 ):
     import torch
-    from diffusers import StableDiffusionPipeline, LCMScheduler
+    from diffusers import LCMScheduler, StableDiffusionPipeline
 
     print(f"Loading pipeline from {model_dir}...", file=sys.stderr)
     pipe = StableDiffusionPipeline.from_pretrained(

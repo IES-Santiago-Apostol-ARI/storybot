@@ -6,7 +6,6 @@ Plan 16-03 turns these GREEN.
 import json
 import wave
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient

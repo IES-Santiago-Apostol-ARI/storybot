@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Convert Paul PLAN.md files to GSD format."""
 
-import sys
 import re
+import sys
 from pathlib import Path
 
 
@@ -202,11 +202,11 @@ def generate_gsd_plan(paul_text):
 
     parts = []
     parts.append('---')
-    parts.append('phase: {}'.format(phase_slug))
-    parts.append('plan: {}'.format(plan_num))
-    parts.append('type: {}'.format(plan_type))
-    parts.append('wave: {}'.format(wave))
-    parts.append('subsystem: {}'.format(subsystem))
+    parts.append(f'phase: {phase_slug}')
+    parts.append(f'plan: {plan_num}')
+    parts.append(f'type: {plan_type}')
+    parts.append(f'wave: {wave}')
+    parts.append(f'subsystem: {subsystem}')
     parts.append("tags: [{}]".format(', '.join(tags)))
     parts.append('requirements: []')
     parts.append('dependency_graph:')
@@ -217,10 +217,10 @@ def generate_gsd_plan(paul_text):
     parts.append('key_files:')
     parts.append('  created:')
     for cf in created_files:
-        parts.append('      - path: "{}"'.format(cf))
+        parts.append(f'      - path: "{cf}"')
     parts.append('  modified:')
     for mf in modified_files:
-        parts.append('      - path: "{}"'.format(mf))
+        parts.append(f'      - path: "{mf}"')
     parts.append('')
     parts.append("decisions: {}".format(decisions[:5] if decisions else '[]'))
     parts.append('')
@@ -229,7 +229,7 @@ def generate_gsd_plan(paul_text):
     parts.append('  tasks_completed: 0')
     parts.append('---')
     parts.append('')
-    parts.append('# {}'.format(plan_title))
+    parts.append(f'# {plan_title}')
     parts.append('')
     parts.append(goal)
     parts.append('')
@@ -246,14 +246,14 @@ def generate_gsd_plan(paul_text):
     if do_not_change:
         parts.append('### DO NOT CHANGE')
         for dnc in do_not_change:
-            parts.append('- {}'.format(dnc))
+            parts.append(f'- {dnc}')
     else:
         parts.append('(none specified)')
     parts.append('')
     if scope_limits:
         parts.append('### Scope Limits')
         for sl in scope_limits:
-            parts.append('- {}'.format(sl))
+            parts.append(f'- {sl}')
     else:
         parts.append('(none specified)')
     parts.append('')
@@ -281,7 +281,7 @@ def main():
         out = Path(output_path)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(gsd + '\n')
-        print("Written to {}".format(out))
+        print(f"Written to {out}")
     else:
         print(gsd)
 

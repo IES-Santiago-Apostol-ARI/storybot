@@ -10,7 +10,7 @@ import wave
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.models.story import Story, StoryCreate
+from app.models.story import Story
 
 _UUID_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
@@ -47,7 +47,7 @@ class StoryManager:
         if not self.INDEX_FILE.exists():
             return {"version": 2, "stories": {}, "nfc_to_story": {}, "cards": {}}
 
-        with open(self.INDEX_FILE, "r") as f:
+        with open(self.INDEX_FILE) as f:
             index = json.load(f)
 
         if index.get("version", 1) < 2:

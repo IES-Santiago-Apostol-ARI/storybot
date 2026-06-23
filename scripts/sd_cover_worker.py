@@ -36,6 +36,7 @@ LCM_WEIGHT = 1.0
 
 def build_pipeline():
     import gc
+
     import torch
     from diffusers import LCMScheduler, StableDiffusionPipeline
 

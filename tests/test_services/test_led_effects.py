@@ -10,10 +10,10 @@ LED-15 (error amber), LED-22 (cross-fade), LED-24 (brightness clamp),
 LED-25 (gamma).
 """
 
-import math
-import pytest
 
+from app.config import ConfigManager
 from app.services.led_effects import (
+    boot_wipe,
     breathe,
     comet,
     crossfade,
@@ -21,10 +21,8 @@ from app.services.led_effects import (
     idle_glow,
     param_fill,
     progress,
-    boot_wipe,
 )
 from app.services.led_spi import encode_ws2812
-from app.config import ConfigManager
 
 settings = ConfigManager().load()
 
