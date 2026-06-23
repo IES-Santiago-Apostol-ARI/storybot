@@ -2,7 +2,6 @@
 
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
 
 from fastapi import FastAPI, Response
 from fastapi.responses import RedirectResponse
@@ -28,22 +27,22 @@ class NoCacheStaticFiles(StaticFiles):
 
 
 from app.config import ConfigManager
-from app.routers.nfc import router as nfc_router
-from app.routers.stories import router as stories_router
-from app.routers.system import router as system_router
-from app.routers.cards import router as cards_router
+from app.routers.bt import router as bt_router
 from app.routers.capabilities import router as capabilities_router
+from app.routers.cards import router as cards_router
 from app.routers.generate import router as generate_router
 from app.routers.generated import router as generated_router
+from app.routers.nfc import router as nfc_router
 from app.routers.printer import router as printer_router
-from app.routers.wifi import router as wifi_router
-from app.routers.bt import router as bt_router
+from app.routers.stories import router as stories_router
+from app.routers.system import router as system_router
 from app.routers.updates import router as updates_router
-from app.services.hardware_manager import HardwareManager
-from app.services.story_manager import StoryManager
-from app.services.story_generator import StoryGenerator
-from app.services.swap_orchestrator import SwapOrchestrator
+from app.routers.wifi import router as wifi_router
 from app.services.capability_probe import probe_capability
+from app.services.hardware_manager import HardwareManager
+from app.services.story_generator import StoryGenerator
+from app.services.story_manager import StoryManager
+from app.services.swap_orchestrator import SwapOrchestrator
 from app.services.tts_pipeline import TTSPipeline
 
 
@@ -269,6 +268,7 @@ async def lifespan(app: FastAPI):
             gpio_events=app.state.gpio_events,
             kiosk_events=app.state.kiosk_events,
             led_animator=getattr(app.state, "led_animator", None),
+            swap_orchestrator=getattr(app.state, "swap_orchestrator", None),
         )
         gpio_dispatcher_task = asyncio.create_task(
             app.state.gpio_dispatcher.run()
@@ -284,9 +284,9 @@ async def lifespan(app: FastAPI):
     bt_monitor_task = None
     if not os.environ.get("TESTING"):
         try:
-            from app.services.bt_monitor import BtMonitor
-            from app.services.bt_manager import create_bt_manager
             from app.services.bt_audio import route_to_wired
+            from app.services.bt_manager import create_bt_manager
+            from app.services.bt_monitor import BtMonitor
 
             app.state.bt_monitor = BtMonitor(
                 manager=create_bt_manager(), route_to_wired=route_to_wired

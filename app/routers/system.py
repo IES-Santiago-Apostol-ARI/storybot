@@ -2,9 +2,8 @@
 
 import re
 from enum import Enum
-from typing import Tuple
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
 from app.dependencies import get_hardware, get_led_animator, get_story_manager
@@ -13,7 +12,6 @@ from app.services.hardware_manager import HardwareManager
 from app.services.led_animator import Mode
 from app.services.platform_detect import detect_platform
 from app.services.story_manager import StoryManager
-
 
 router = APIRouter()
 
@@ -64,7 +62,7 @@ class LEDStateRequest(BaseModel):
     nfc_uid: str | None = None
 
 
-def hex_to_rgb(hex_color: str) -> Tuple[int, int, int]:
+def hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
     """Convert hex color to RGB tuple.
 
     Args:
@@ -165,6 +163,7 @@ async def turn_off_led(
 
 @router.post("/led/state")
 async def set_led_state(
+    http_request: Request,
     request: LEDStateRequest,
     animator=Depends(get_led_animator),
     story_manager: StoryManager = Depends(get_story_manager),
@@ -216,6 +215,24 @@ async def set_led_state(
         rgb = hex_to_rgb(story.led_color)
 
     state = request.state
+
+    # BTN-03: track current_story_id on the GpioDispatcher so the image
+    # button handler knows which story to generate a cover for. NFC uid
+    # takes precedence (resolves via story_manager), then story_id.
+    dispatcher = getattr(http_request.app.state, "gpio_dispatcher", None)
+    if state == LEDState.PLAYBACK and dispatcher is not None:
+        # Resolve the definitive story ID from nfc_uid or story_id
+        resolved_story_id: str | None = None
+        if request.nfc_uid:
+            resolved_story = story_manager.get_story_by_nfc(request.nfc_uid)
+            if resolved_story is not None:
+                resolved_story_id = getattr(resolved_story, "id", None)
+        elif request.story_id:
+            resolved_story_id = request.story_id
+        dispatcher.current_story_id = resolved_story_id
+    elif state in (LEDState.IDLE, LEDState.ENDED) and dispatcher is not None:
+        dispatcher.current_story_id = None
+
     if state == LEDState.PLAYBACK:
         # D-13: PLAYBACK is a base mode; pass the resolved color so the
         # breathing effect renders in the story color. None is acceptable —
