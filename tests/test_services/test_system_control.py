@@ -1,45 +1,45 @@
 """Tests for system_control.poweroff().
 
-Verifies:
-- poweroff() executes the configured command via subprocess.Popen
-- Process is started detached (start_new_session=True)
-- Command matches settings.poweroff_cmd
+Verifies (D-03 / RESEARCH Q7):
+- poweroff() invokes asyncio.create_subprocess_exec with the configured command
+- poweroff() is an awaitable coroutine the callers can await
+
+The subprocess seam is monkeypatched — the real /sbin/poweroff is never run.
 """
 
-from unittest.mock import patch
+import inspect
+from unittest.mock import AsyncMock
 
 import pytest
 
+from app.config import ConfigManager
+
 
 class TestPoweroff:
-    """system_control.poweroff() function."""
+    """system_control.poweroff() — the shared monkeypatch seam."""
 
     @pytest.mark.asyncio
-    async def test_poweroff_runs_command(self):
-        """system_control.poweroff() executes the configured poweroff command."""
+    async def test_poweroff_runs_configured_command(self, monkeypatch):
+        """poweroff() awaits create_subprocess_exec with the unpacked command."""
         from app.services import system_control
 
-        with patch("subprocess.Popen") as mock_popen:
-            await system_control.poweroff()
-            mock_popen.assert_called_once()
+        mock_exec = AsyncMock()
+        monkeypatch.setattr(system_control.asyncio, "create_subprocess_exec", mock_exec)
+
+        await system_control.poweroff()
+
+        expected = ConfigManager().load().poweroff_cmd
+        mock_exec.assert_awaited_once_with(*expected)
 
     @pytest.mark.asyncio
-    async def test_poweroff_uses_configured_command(self):
-        """poweroff uses the poweroff_cmd from settings."""
+    async def test_poweroff_is_awaitable(self, monkeypatch):
+        """poweroff() is async so callers can `await system_control.poweroff()`."""
         from app.services import system_control
 
-        with patch("subprocess.Popen") as mock_popen:
-            await system_control.poweroff()
-            call_args = mock_popen.call_args
-            # The command should be the configured poweroff_cmd
-            assert call_args[0][0] == ["/usr/bin/sudo", "/sbin/poweroff"]
+        assert inspect.iscoroutinefunction(system_control.poweroff)
 
-    @pytest.mark.asyncio
-    async def test_poweroff_starts_detached_process(self):
-        """poweroff starts a detached process (start_new_session=True)."""
-        from app.services import system_control
-
-        with patch("subprocess.Popen") as mock_popen:
-            await system_control.poweroff()
-            call_kwargs = mock_popen.call_args[1]
-            assert call_kwargs.get("start_new_session") is True
+        monkeypatch.setattr(
+            system_control.asyncio, "create_subprocess_exec", AsyncMock()
+        )
+        # Awaiting it must not raise.
+        await system_control.poweroff()

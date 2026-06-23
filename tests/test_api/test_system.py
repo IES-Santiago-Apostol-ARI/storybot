@@ -147,11 +147,11 @@ class TestLEDEndpoints:
         Selector: -k routes_through_engine
         """
         from unittest.mock import MagicMock
-        
+
         # Spy on animator and service
         animator = app.state.led_animator
         service = animator._led_service if hasattr(animator, "_led_service") else None
-        
+
         if animator is None or service is None:
             pytest.fail("Animator or service missing from state")
 
@@ -171,6 +171,77 @@ class TestLEDEndpoints:
         """
         # Temporarily remove animator from state
         monkeypatch.setattr(app.state, "led_animator", None)
-        
+
         response = client.post("/api/system/led", json={"color": "#FF0000"})
         assert response.status_code == 503
+
+
+class TestLEDStatePlaybackTracking:
+    """KIOSK-01 (D-06/D-07): POST /api/system/led/state sets/clears the
+    ``app.state.playback`` snapshot ``{story_id, params, title}``.
+
+    Selector: -k playback_state
+    """
+
+    class _StubStory:
+        """Minimal Story stand-in resolvable by story_manager.get_story."""
+
+        def __init__(self, id, title, led_color="#FF0000"):
+            self.id = id
+            self.title = title
+            self.led_color = led_color
+            self.nfc_uid = None
+
+    def test_playback_state_sets_snapshot(self, client, monkeypatch):
+        """state=playback resolves the story and sets the snapshot (params=[])."""
+        story = self._StubStory("story-123", "Cuento de Ana")
+        monkeypatch.setattr(
+            app.state.story_manager,
+            "get_story",
+            lambda sid: story if sid == "story-123" else None,
+        )
+        app.state.playback = None
+
+        response = client.post(
+            "/api/system/led/state",
+            json={"state": "playback", "story_id": "story-123"},
+        )
+        assert response.status_code == 200
+
+        snap = app.state.playback
+        assert snap is not None
+        assert snap["story_id"] == "story-123"
+        assert snap["title"] == "Cuento de Ana"
+        # Curated story → no content/generated/<id>/story.json → params == [].
+        assert snap["params"] == []
+
+    def test_playback_state_idle_clears_snapshot(self, client):
+        """state=idle clears app.state.playback back to None."""
+        app.state.playback = {"story_id": "story-123", "params": [], "title": "x"}
+        response = client.post("/api/system/led/state", json={"state": "idle"})
+        assert response.status_code == 200
+        assert app.state.playback is None
+
+    def test_playback_state_ended_clears_snapshot(self, client):
+        """state=ended clears app.state.playback back to None."""
+        app.state.playback = {"story_id": "story-123", "params": [], "title": "x"}
+        response = client.post("/api/system/led/state", json={"state": "ended"})
+        assert response.status_code == 200
+        assert app.state.playback is None
+
+    def test_playback_state_pause_resume_ignored(self, client):
+        """state=pause/resume leave app.state.playback untouched (D-06)."""
+        snap = {"story_id": "story-123", "params": [], "title": "x"}
+        app.state.playback = snap
+
+        assert (
+            client.post("/api/system/led/state", json={"state": "pause"}).status_code
+            == 200
+        )
+        assert app.state.playback == snap
+
+        assert (
+            client.post("/api/system/led/state", json={"state": "resume"}).status_code
+            == 200
+        )
+        assert app.state.playback == snap

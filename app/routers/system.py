@@ -20,7 +20,9 @@ class LEDRequest(BaseModel):
     """LED color control request."""
 
     color: str = Field(..., description="Hex color like #FF0000")
-    brightness: float = Field(1.0, ge=0.0, le=1.0, description="Brightness multiplier (0.0-1.0)")
+    brightness: float = Field(
+        1.0, ge=0.0, le=1.0, description="Brightness multiplier (0.0-1.0)"
+    )
 
     @field_validator("color")
     @classmethod
@@ -60,6 +62,30 @@ class LEDStateRequest(BaseModel):
     state: LEDState
     story_id: str | None = None
     nfc_uid: str | None = None
+
+
+def _load_story_params(story_id: str | None) -> list[dict]:
+    """Load generation parameters for a story (D-07/D-10).
+
+    Curated ``Story`` objects carry no ``parameters`` field; AI-generated
+    stories persist them under ``content/generated/<id>/story.json``. Returns
+    the saved ``parameters`` list when that file exists, else ``[]`` (a curated
+    story yields ``[]`` and the image button falls back to a title-based prompt).
+    """
+    if not story_id:
+        return []
+    import json
+    from pathlib import Path
+
+    path = Path("content/generated") / story_id / "story.json"
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text())
+        params = data.get("parameters", [])
+        return params if isinstance(params, list) else []
+    except Exception:
+        return []
 
 
 def hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
@@ -216,22 +242,21 @@ async def set_led_state(
 
     state = request.state
 
-    # BTN-03: track current_story_id on the GpioDispatcher so the image
-    # button handler knows which story to generate a cover for. NFC uid
-    # takes precedence (resolves via story_manager), then story_id.
-    dispatcher = getattr(http_request.app.state, "gpio_dispatcher", None)
-    if state == LEDState.PLAYBACK and dispatcher is not None:
-        # Resolve the definitive story ID from nfc_uid or story_id
-        resolved_story_id: str | None = None
-        if request.nfc_uid:
-            resolved_story = story_manager.get_story_by_nfc(request.nfc_uid)
-            if resolved_story is not None:
-                resolved_story_id = getattr(resolved_story, "id", None)
-        elif request.story_id:
-            resolved_story_id = request.story_id
-        dispatcher.current_story_id = resolved_story_id
-    elif state in (LEDState.IDLE, LEDState.ENDED) and dispatcher is not None:
-        dispatcher.current_story_id = None
+    # KIOSK-01 (D-06/D-07): track the currently-playing story server-side by
+    # piggybacking this handler. Set a minimal snapshot {story_id, params,
+    # title} on app.state.playback on PLAYBACK (reusing the story resolved
+    # above — its title feeds the image button's D-10 fallback); clear it on
+    # IDLE/ENDED; leave it untouched on PAUSE/RESUME.
+    if state == LEDState.PLAYBACK:
+        if story is not None:
+            resolved_story_id = getattr(story, "id", None)
+            http_request.app.state.playback = {
+                "story_id": resolved_story_id,
+                "params": _load_story_params(resolved_story_id),
+                "title": getattr(story, "title", "") or "",
+            }
+    elif state in (LEDState.IDLE, LEDState.ENDED):
+        http_request.app.state.playback = None
 
     if state == LEDState.PLAYBACK:
         # D-13: PLAYBACK is a base mode; pass the resolved color so the

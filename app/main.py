@@ -121,9 +121,7 @@ async def lifespan(app: FastAPI):
             from app.services.update_manager import create_update_manager
 
             update_mgr = create_update_manager()
-            result = await asyncio.wait_for(
-                update_mgr.check_update(), timeout=10
-            )
+            result = await asyncio.wait_for(update_mgr.check_update(), timeout=10)
             app.state.update_available = result.get("update_available", False)
             app.state.update_info = result
         except Exception as e:
@@ -258,7 +256,10 @@ async def lifespan(app: FastAPI):
         )
 
     # Phase 36 BTN-01/07: GpioDispatcher consumes from gpio_events and routes
-    # to kiosk_events queue with debounce guard. Cancel on shutdown.
+    # the four button actions (power/interrupt/animation/image). Cancel on
+    # shutdown. app.state.playback is the live PlaybackState snapshot holder
+    # (set/cleared by POST /api/system/led/state, D-06/D-07).
+    app.state.playback = None
     gpio_dispatcher_task = None
     try:
         from app.services.gpio_dispatcher import GpioDispatcher
@@ -267,16 +268,18 @@ async def lifespan(app: FastAPI):
         app.state.gpio_dispatcher = GpioDispatcher(
             gpio_events=app.state.gpio_events,
             kiosk_events=app.state.kiosk_events,
+            audio_player=hardware._services.get("audio"),
             led_animator=getattr(app.state, "led_animator", None),
             swap_orchestrator=getattr(app.state, "swap_orchestrator", None),
+            playback_holder=app.state,
         )
-        gpio_dispatcher_task = asyncio.create_task(
-            app.state.gpio_dispatcher.run()
-        )
+        gpio_dispatcher_task = asyncio.create_task(app.state.gpio_dispatcher.run())
         app.state.gpio_dispatcher_task = gpio_dispatcher_task
     except Exception as e:  # pragma: no cover — defensive
         print(
-            json.dumps({"event": "gpio_dispatcher_init_failed", "reason": type(e).__name__}),
+            json.dumps(
+                {"event": "gpio_dispatcher_init_failed", "reason": type(e).__name__}
+            ),
             file=sys.stderr,
         )
 
@@ -294,7 +297,9 @@ async def lifespan(app: FastAPI):
             bt_monitor_task = asyncio.create_task(app.state.bt_monitor.run())
         except Exception as e:
             print(
-                json.dumps({"event": "bt_monitor_init_failed", "reason": type(e).__name__}),
+                json.dumps(
+                    {"event": "bt_monitor_init_failed", "reason": type(e).__name__}
+                ),
                 file=sys.stderr,
             )
 
@@ -326,7 +331,6 @@ async def lifespan(app: FastAPI):
     if bt_monitor_task:
         bt_monitor_task.cancel()
         await asyncio.gather(bt_monitor_task, return_exceptions=True)
-
 
 
 app = FastAPI(

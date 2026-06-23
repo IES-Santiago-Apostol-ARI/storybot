@@ -1,202 +1,248 @@
-"""GpioDispatcher — consumes GPIO events and routes them to handlers.
+"""GpioDispatcher — drains GPIO button events and routes them to handlers.
 
-Sits between the raw gpio_events queue (populated by gpio_handler.py's edge
-callbacks) and the kiosk_events queue consumed by the UI. Provides:
+Sits between the inbound ``gpio_events`` queue (populated by gpio_handler.py's
+edge callbacks, Phase 35) and the outbound ``kiosk_events`` queue (drained by
+Phase 37's SSE). It owns the four button-name actions:
 
-- Debounce guard (BTN-02): blocks rapid re-trigger of the same button within
-  ``settings.gpio_debounce_ms`` milliseconds.
-- LED feedback (BTN-05): triggers a rainbow animation on power button press.
-- Kiosk event dispatch (BTN-07): puts structured events onto kiosk_events
-  without blocking.
-- Image button handler (BTN-03, BTN-04): triggers background cover generation
-  for the currently playing story via swap_orchestrator, with drop-on-busy
-  guard and D-10 edge-case handling.
+- **power** (BTN-01, D-03): delegate to ``system_control.poweroff()``.
+- **interrupt** (BTN-02, D-05): ``audio_player.stop()`` + clear the PlaybackState
+  snapshot + enqueue ``{"type": "interrupt"}`` onto kiosk_events.
+- **animation** (BTN-05, D-11): one-shot ``LedAnimator.rainbow()``.
+- **image** (BTN-03/04, D-08/09/10): background cover generation via
+  ``swap_orchestrator``, drop-on-busy guard, rainbow ack / ``Mode.ERROR`` blink,
+  and the nothing-playing / no-params edge cases.
+
+A per-button debounce-once guard (D-02/BTN-07) enforces "fires exactly once per
+press" using ``settings.gpio_debounce_ms`` (50 ms — explicitly NOT
+``gpio_bounce_ms`` = 200). The clock is injectable via ``now=`` so the conftest
+fake_clock drives it deterministically.
 """
 
 import asyncio
-import random
+import json
+import sys
 import time
 from typing import Any
 
 from app.config import ConfigManager
+from app.services import cover_prompt_builder, system_control
+from app.services.led_animator import Mode
 
 settings = ConfigManager().load()
 
 
-class GpioDispatcher:
-    """Async GPIO event dispatcher with debounce and kiosk routing.
+def _log(event: str, **fields: Any) -> None:
+    """Structured stderr log (never raises)."""
+    try:
+        print(json.dumps({"event": event, **fields}), file=sys.stderr)
+    except Exception:  # pragma: no cover — logging must never crash the loop
+        pass
 
-    Consumes button names from ``gpio_events`` (an asyncio.Queue populated by
-    the GPIO handler's edge callbacks), applies a per-button debounce guard,
-    triggers LED feedback for power button presses, routes structured events
-    onto ``kiosk_events``, and handles image button presses by triggering
-    background cover generation via swap_orchestrator.
+
+class GpioDispatcher:
+    """Async GPIO event dispatcher with debounce and four button handlers.
 
     Args:
-        gpio_events: Queue of raw button name strings (e.g., "power").
-        kiosk_events: Queue where structured event dicts are enqueued for
-            the kiosk UI / SSE consumers.
-        led_animator: LedAnimator instance for LED feedback, or None.
-        swap_orchestrator: SwapOrchestrator instance for cover generation,
-            or None when unavailable.
+        gpio_events: Inbound queue of raw button name strings (e.g. "power").
+        kiosk_events: Outbound queue where structured event dicts are enqueued
+            for the kiosk UI / SSE consumers.
+        audio_player: AudioPlayer for the interrupt handler, or None.
+        led_animator: LedAnimator for rainbow ack / Mode.ERROR feedback, or None.
+        swap_orchestrator: SwapOrchestrator for cover generation, or None on a
+            non-AI profile (the image handler degrades to Mode.ERROR).
+        playback_holder: object exposing a mutable ``.playback`` attribute that
+            holds the current PlaybackState snapshot ``{story_id, params, title}``
+            or None. In production this is ``app.state``; in unit tests it is a
+            small stand-in. The dispatcher reads it live so it always sees the
+            current story.
+        now: monotonic clock callable (defaults to ``time.monotonic``), injected
+            for deterministic debounce tests.
     """
 
     def __init__(
         self,
         gpio_events: asyncio.Queue,
         kiosk_events: asyncio.Queue,
+        *,
+        audio_player: Any = None,
         led_animator: Any = None,
         swap_orchestrator: Any = None,
+        playback_holder: Any = None,
+        now: Any = None,
     ) -> None:
         self._gpio_events = gpio_events
         self._kiosk_events = kiosk_events
+        self._audio_player = audio_player
         self._led_animator = led_animator
         self._swap_orchestrator = swap_orchestrator
+        self._playback_holder = playback_holder
+        self._now = now or time.monotonic
 
         # Per-button debounce state: last accepted timestamp per button name.
-        self._last_dispatched: dict[str, float] = {}
+        self._last_fired: dict[str, float] = {}
 
-        # Currently playing story ID — set by the playback lifecycle (e.g.,
-        # via /api/system/led/state when state=playback). Used by the image
-        # button handler to know which story to generate a cover for.
-        self.current_story_id: str | None = None
+        # Drop-on-busy in-flight guard for the image handler (D-08).
+        self._image_busy = False
 
+    # ------------------------------------------------------------------ #
+    # Playback snapshot
+    # ------------------------------------------------------------------ #
+    def _playback(self) -> dict | None:
+        """Read the current PlaybackState snapshot from the holder (live)."""
+        return getattr(self._playback_holder, "playback", None)
+
+    # ------------------------------------------------------------------ #
+    # Debounce
+    # ------------------------------------------------------------------ #
     def _is_debounced(self, button: str) -> bool:
-        """Check if an event for *button* is within the debounce window.
+        """True if *button* fired within ``gpio_debounce_ms`` (drop it)."""
+        last = self._last_fired.get(button)
+        if last is None:
+            return False
+        return (self._now() - last) * 1000 < settings.gpio_debounce_ms
 
-        Returns True if the event should be dropped (debounced), False if it
-        should be accepted.
-        """
-        last = self._last_dispatched.get(button, 0.0)
-        elapsed_ms = (time.monotonic() - last) * 1000
-        return elapsed_ms < settings.gpio_debounce_ms
-
+    # ------------------------------------------------------------------ #
+    # Dispatch
+    # ------------------------------------------------------------------ #
     async def _handle_event(self, button: str) -> None:
-        """Process a single GPIO button event.
-
-        Applies debounce guard, triggers LED feedback for power button, handles
-        image button cover generation (BTN-03/04), and enqueues the structured
-        event onto kiosk_events.
-        """
-        # BTN-02: debounce guard
+        """Process one GPIO button event: debounce, then route to its handler."""
+        # D-02/BTN-07: debounce-once guard
         if self._is_debounced(button):
             return
+        self._last_fired[button] = self._now()
 
-        # Record acceptance time
-        self._last_dispatched[button] = time.monotonic()
+        if button == "power":
+            await self._handle_power()
+        elif button == "interrupt":
+            await self._handle_interrupt()
+        elif button == "animation":
+            self._handle_animation()
+        elif button == "image":
+            self._handle_image()
 
-        # BTN-05: LED feedback on power button press
-        if button == "power" and self._led_animator is not None:
+    async def _handle_power(self) -> None:
+        """BTN-01/D-03: delegate to the shared poweroff helper (monkeypatch seam)."""
+        await system_control.poweroff()
+
+    async def _handle_interrupt(self) -> None:
+        """BTN-02/D-05: stop audio, clear PlaybackState, enqueue interrupt event."""
+        if self._audio_player is not None:
+            await self._audio_player.stop()
+        if self._playback_holder is not None:
+            self._playback_holder.playback = None
+        self._kiosk_events.put_nowait({"type": "interrupt"})
+
+    def _handle_animation(self) -> None:
+        """BTN-05/D-11: one-shot rainbow effect."""
+        if self._led_animator is not None:
             self._led_animator.rainbow()
 
-        # BTN-03/04: Image button — trigger background cover generation
-        if button == "image":
-            await self._handle_image_button()
+    # ------------------------------------------------------------------ #
+    # Image button (BTN-03/04)
+    # ------------------------------------------------------------------ #
+    def _error_blink(self) -> None:
+        """D-09/D-10: short error blink via the engine (sole writer)."""
+        if self._led_animator is not None:
+            self._led_animator.set_mode(Mode.ERROR)
 
-        # BTN-07: dispatch to kiosk event queue (non-blocking)
-        event = {
-            "button": button,
-            "timestamp": time.monotonic(),
-        }
-        self._kiosk_events.put_nowait(event)
+    def _handle_image(self) -> None:
+        """BTN-03/04: launch background cover generation for the playing story.
 
-    async def _handle_image_button(self) -> None:
-        """Handle image button press — trigger background cover generation.
-
-        BTN-03: If a story is currently playing, call swap_orchestrator to
-        generate a cover. Uses cover_prompt_builder for a title-based fallback
-        prompt (empty params).
-
-        BTN-04: Generation runs in the background via asyncio.create_task so
-        the dispatcher loop is never blocked.
-
-        D-10 edge cases:
-        - current_story_id is None → skip generation, no crash.
-        - swap_orchestrator is None → skip generation, no crash.
-        - generate_cover_for_story raises → catch and log, no crash.
-        - Returns (None, None, None) on busy → drop-on-busy guard, no retry.
+        D-10 nothing-playing → safe no-op + Mode.ERROR blink. Drop-on-busy
+        (D-08): re-presses while a generation is in flight are dropped. A None
+        orchestrator (non-AI profile) degrades to Mode.ERROR. Generation runs in
+        a background asyncio task so power/interrupt/animation stay instant.
         """
-        # D-10: No story playing — nothing to generate a cover for
-        if self.current_story_id is None:
+        snapshot = self._playback()
+
+        # D-10/BTN-04: nothing playing → safe no-op + error blink.
+        if not snapshot:
+            self._error_blink()
             return
 
-        # D-10: Swap orchestrator unavailable — graceful degradation
+        # D-08: drop re-presses while a generation is already in flight.
+        if self._image_busy:
+            return
+
+        # Non-AI profile: no orchestrator → error blink, never AttributeError.
         if self._swap_orchestrator is None:
+            self._error_blink()
             return
 
-        # Build fallback prompt (empty params → style preamble only)
-        from app.services.cover_prompt_builder import build as build_cover_prompt
+        # D-10: use the snapshot params, else synthesize a title-based fallback
+        # so the image button always tries to produce something while playing.
+        params = snapshot.get("params") or []
+        if not params:
+            title = snapshot.get("title", "") or ""
+            params = [{"category": "personaje", "value": title}]
 
-        positive, negative = build_cover_prompt([])
+        positive, negative = cover_prompt_builder.build(params)
+        story_id = snapshot.get("story_id")
 
-        # BTN-04: Run in background — never block the dispatcher loop
-        asyncio.create_task(
-            self._generate_cover(self.current_story_id, positive, negative)
-        )
+        self._image_busy = True
+        asyncio.create_task(self._generate_cover(story_id, positive, negative))
 
     async def _generate_cover(
         self, story_id: str, positive: str, negative: str
     ) -> None:
-        """Background task: call swap_orchestrator to generate a cover.
+        """Background task: run the orchestrator, then ack or error-blink.
 
-        Drop-on-busy guard: if the orchestrator returns (None, None, None),
-        the event is silently dropped — no retry, no block.
-
-        Args:
-            story_id: The currently playing story ID.
-            positive: Positive prompt for the cover generator.
-            negative: Negative prompt for the cover generator.
+        On success enqueues ``{"type": "image", "url": ...}`` (URL derived from
+        the orchestrator's actual preview filename) and fires ``rainbow()`` as
+        the press ack (D-09). On busy/failure/exception drives ``Mode.ERROR``.
+        The in-flight guard is reset in ``finally`` regardless of outcome.
         """
         try:
-            seed = random.randint(0, 2**31 - 1)
-            (
-                preview_path,
-                print_path,
-                gen_seconds,
-            ) = await self._swap_orchestrator.generate_cover_for_story(
-                story_id, positive, negative, seed
+            seed = hash(story_id) & 0xFFFFFFFF
+            preview_path, _print_path, _gen_seconds = (
+                await self._swap_orchestrator.generate_cover_for_story(
+                    story_id, positive, negative, seed
+                )
             )
 
+            # Busy-lock or failure → (None, None, None).
             if preview_path is None:
-                # Busy or failed — drop silently (BTN-04)
+                self._error_blink()
                 return
 
-            # Enqueue cover result onto kiosk events for the UI to consume
-            self._kiosk_events.put_nowait(
-                {
-                    "button": "image",
-                    "event": "cover_generated",
-                    "story_id": story_id,
-                    "preview_url": f"/static/generated/{story_id}/cover-preview.png",
-                    "print_path": str(print_path),
-                    "gen_seconds": gen_seconds,
-                }
+            # Derive the URL from the actual output filename (avoids a silent
+            # 404 if the worker's basename ever changes).
+            url = f"/static/generated/{story_id}/{preview_path.name}"
+            self._kiosk_events.put_nowait({"type": "image", "url": url})
+            if self._led_animator is not None:
+                self._led_animator.rainbow()
+
+        except Exception as e:
+            _log(
+                "cover_generation_error",
+                story_id=story_id,
+                reason=type(e).__name__,
             )
+            self._error_blink()
+        finally:
+            self._image_busy = False
 
-        except Exception:  # pragma: no cover — D-10 defensive; logged via stderr
-            import json
-            import sys
-
-            print(
-                json.dumps(
-                    {
-                        "event": "cover_generation_error",
-                        "story_id": story_id,
-                        "reason": "exception_in_dispatcher",
-                    }
-                ),
-                file=sys.stderr,
-            )
-
+    # ------------------------------------------------------------------ #
+    # Run loop
+    # ------------------------------------------------------------------ #
     async def run(self) -> None:
-        """Background task — consume gpio_events and dispatch to handlers.
+        """Background task — drain gpio_events and dispatch, resiliently.
 
-        Runs until cancelled. Catches CancelledError and re-raises for clean
-        shutdown from the lifespan.
+        Each event is wrapped in try/except so one handler exception cannot kill
+        the loop (T-36-02). Cancelled cleanly on shutdown from the lifespan.
         """
         try:
             while True:
                 button = await self._gpio_events.get()
-                await self._handle_event(button)
+                try:
+                    await self._handle_event(button)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    _log(
+                        "dispatcher_handler_error",
+                        button=button,
+                        reason=type(e).__name__,
+                    )
         except asyncio.CancelledError:
             raise

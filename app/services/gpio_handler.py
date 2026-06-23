@@ -5,11 +5,8 @@ following the HardwareService Mock/Real pattern.
 """
 
 import asyncio
-import json
 import os
 import platform
-import sys
-from typing import Protocol
 
 from app.config import ConfigManager
 from app.services.base import HardwareService
@@ -107,10 +104,10 @@ class RealGPIOButtonService(GPIOButtonService):
 
         GPIO.setmode(GPIO.BOARD)
         for pin in pin_map:
-            GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
             GPIO.add_event_detect(
                 pin,
-                GPIO.FALLING,
+                GPIO.RISING,
                 callback=self._edge_callback,
                 bouncetime=settings.gpio_bounce_ms,
             )
