@@ -581,6 +581,17 @@ NoDisplay=false
 X-GNOME-Autostart-enabled=true
 ROTDESKEOF
     chown "$INSTALL_USER:$INSTALL_USER" "$USER_HOME/.config/autostart/storybot-rotate.desktop"
+
+    # Rotate touch input 180° to match the rotated display. Mutter rotates the
+    # video output but not this external USB touchscreen's coordinates, so a
+    # libinput calibration matrix flips it (x'=1-x, y'=1-y).
+    cat <<'EOF' > /etc/udev/rules.d/99-storybot-touch.rules
+# 180° touch coordinate flip to match the kiosk display rotation
+SUBSYSTEM=="input", ENV{ID_INPUT_TOUCHSCREEN}=="1", ENV{LIBINPUT_CALIBRATION_MATRIX}="-1 0 1 0 -1 1"
+EOF
+    udevadm control --reload-rules
+    udevadm trigger
+    echo -e "${GREEN}Touchscreen rotation udev rule installed${NC}"
     echo -e "${GREEN}Kiosk autostart configured${NC}"
 else
     echo "Step 9: Skipping Firefox kiosk autostart (stories-only mode)..."
