@@ -790,12 +790,22 @@ const generationAudioQueue = (() => {
     let streamComplete = false;
     let currentlyPlaying = false;
     let onCompleteCallback = null;
+    let started = false;
 
     function reset() {
         pendingUrls = [];
         streamComplete = false;
         currentlyPlaying = false;
         onCompleteCallback = null;
+        started = false;
+    }
+
+    // Arm the queue for a new generation. Only while armed does isActive()
+    // report the queue as busy, so an idle queue never blocks the pre-recorded
+    // playback path's THANKYOU transition.
+    function begin() {
+        reset();
+        started = true;
     }
 
     function enqueue(url) {
@@ -815,7 +825,7 @@ const generationAudioQueue = (() => {
     }
 
     function isActive() {
-        return currentlyPlaying || pendingUrls.length > 0 || !streamComplete;
+        return started && (currentlyPlaying || pendingUrls.length > 0 || !streamComplete);
     }
 
     function _playNext() {
@@ -843,7 +853,7 @@ const generationAudioQueue = (() => {
         }
     }
 
-    return { reset, enqueue, markStreamComplete, onComplete, isActive };
+    return { reset, begin, enqueue, markStreamComplete, onComplete, isActive };
 })();
 
 // --- SSE generation consumer ---
@@ -853,7 +863,7 @@ async function startGeneration(parameters) {
     if (_generationActive) return;
     _generationActive = true;
 
-    generationAudioQueue.reset();
+    generationAudioQueue.begin();
 
     // Phase 16 D-06: reset cover buffer for this generation.
     bufferedCoverUrl = null;
