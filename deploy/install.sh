@@ -446,10 +446,22 @@ chmod 0440 /etc/sudoers.d/storybot-updates
 visudo -c -f /etc/sudoers.d/storybot-updates
 echo -e "${GREEN}Sudoers entry for OTA updates installed${NC}"
 
-# Step 6f: Configure Avahi (mDNS) so devices on the TP-Link AP can reach
+# Step 6f: Configure passwordless sudo for the GPIO power button.
+# The service runs as ${INSTALL_USER} with no TTY, so system_control.poweroff()
+# (sudo /sbin/poweroff) silently fails on every press without this rule.
+echo ""
+echo "Step 6f: Configuring passwordless sudo for GPIO poweroff button..."
+cat > /etc/sudoers.d/storybot-poweroff << EOF
+${INSTALL_USER} ALL=(root) NOPASSWD: /sbin/poweroff
+EOF
+chmod 0440 /etc/sudoers.d/storybot-poweroff
+visudo -c -f /etc/sudoers.d/storybot-poweroff
+echo -e "${GREEN}Sudoers entry for GPIO poweroff installed${NC}"
+
+# Step 6g: Configure Avahi (mDNS) so devices on the TP-Link AP can reach
 # the device as storybot.local without knowing its IP address.
 echo ""
-echo "Step 6f: Configuring Avahi mDNS announcement..."
+echo "Step 6g: Configuring Avahi mDNS announcement..."
 if grep -q "^#host-name=" /etc/avahi/avahi-daemon.conf; then
     sed -i "s/^#host-name=.*/host-name=storybot/" /etc/avahi/avahi-daemon.conf
 elif ! grep -q "^host-name=" /etc/avahi/avahi-daemon.conf; then
