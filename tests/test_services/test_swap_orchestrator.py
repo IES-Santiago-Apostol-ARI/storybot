@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -30,9 +30,7 @@ class TestSuccessPath:
 
     @patch("app.services.swap_orchestrator._wait_for_llama_health", return_value=True)
     @patch("app.services.swap_orchestrator.asyncio.create_subprocess_exec")
-    async def test_returns_paths_on_success(
-        self, mock_exec, mock_health, orchestrator
-    ):
+    async def test_returns_paths_on_success(self, mock_exec, mock_health, orchestrator):
         stop_proc = _make_subprocess_mock()
         worker_output = json.dumps(
             {
@@ -58,9 +56,7 @@ class TestSuccessPath:
 
     @patch("app.services.swap_orchestrator._wait_for_llama_health", return_value=True)
     @patch("app.services.swap_orchestrator.asyncio.create_subprocess_exec")
-    async def test_stop_before_start_order(
-        self, mock_exec, mock_health, orchestrator
-    ):
+    async def test_stop_before_start_order(self, mock_exec, mock_health, orchestrator):
         """Verify systemctl stop is called before worker, start after."""
         stop_proc = _make_subprocess_mock()
         worker_output = json.dumps(
@@ -76,9 +72,7 @@ class TestSuccessPath:
 
         mock_exec.side_effect = [stop_proc, worker_proc, start_proc]
 
-        await orchestrator.generate_cover_for_story(
-            "s1", "p", "n", 1
-        )
+        await orchestrator.generate_cover_for_story("s1", "p", "n", 1)
 
         # First call: stop llama, second: worker, third: start llama
         first_cmd = mock_exec.call_args_list[0]
@@ -109,9 +103,7 @@ class TestWorkerFailure:
 
         mock_exec.side_effect = [stop_proc, worker_proc, start_proc]
 
-        result = await orchestrator.generate_cover_for_story(
-            "fail-story", "p", "n", 1
-        )
+        result = await orchestrator.generate_cover_for_story("fail-story", "p", "n", 1)
 
         assert result == (None, None, None)
         # Verify start was still called (crash-safe relaunch)
@@ -131,9 +123,7 @@ class TestWorkerFailure:
 
         mock_exec.side_effect = [stop_proc, worker_proc, start_proc]
 
-        await orchestrator.generate_cover_for_story(
-            "fail-story", "p", "n", 1
-        )
+        await orchestrator.generate_cover_for_story("fail-story", "p", "n", 1)
 
         captured = capsys.readouterr()
         log = json.loads(captured.err.strip().split("\n")[-1])
@@ -164,9 +154,98 @@ class TestLlamaRelaunchTimeout:
         mock_exec.side_effect = [stop_proc, worker_proc, start_proc]
 
         with pytest.raises(LlamaRelaunchError):
-            await orchestrator.generate_cover_for_story(
-                "timeout-story", "p", "n", 1
-            )
+            await orchestrator.generate_cover_for_story("timeout-story", "p", "n", 1)
+
+
+class TestWorkerTimeoutAlwaysRestartsLlama:
+    """SD worker exceeding the internal timeout must not leave llama dead.
+
+    Regression: generate.py wrapped the whole swap in asyncio.wait_for(); a
+    long SD cover got cancelled AFTER llama was stopped but BEFORE the restart,
+    leaving llama-server permanently dead so every later generation failed with
+    'Failed to connect to llama-server'. The restart now lives in a finally and
+    the worker is bounded by an internal timeout.
+    """
+
+    @patch("app.services.swap_orchestrator._wait_for_llama_health", return_value=True)
+    @patch("app.services.swap_orchestrator.asyncio.create_subprocess_exec")
+    async def test_restarts_llama_when_worker_times_out(
+        self, mock_exec, mock_health, orchestrator, monkeypatch
+    ):
+        monkeypatch.setattr("app.services.swap_orchestrator.WORKER_TIMEOUT_S", 0.05)
+        stop_proc = _make_subprocess_mock()
+
+        async def slow_communicate(input=None):
+            await asyncio.sleep(5)
+            return (b"", b"")
+
+        worker_proc = _make_subprocess_mock()
+        worker_proc.communicate = slow_communicate
+        worker_proc.kill = MagicMock()
+        start_proc = _make_subprocess_mock()
+
+        mock_exec.side_effect = [stop_proc, worker_proc, start_proc]
+
+        result = await orchestrator.generate_cover_for_story("slow-story", "p", "n", 1)
+
+        # Cover failed, but llama-server start was still issued (crash-safe).
+        assert result == (None, None, None)
+        assert mock_exec.call_count == 3
+        third_cmd = mock_exec.call_args_list[2]
+        assert "start" in third_cmd[0]
+        assert "llama-server" in third_cmd[0]
+        # Orphaned worker killed so it stops holding VRAM.
+        worker_proc.kill.assert_called_once()
+
+
+class TestEnsureLlamaRunning:
+    """Self-heal: generation can bring llama back if a prior swap left it dead."""
+
+    @patch("app.services.swap_orchestrator.asyncio.create_subprocess_exec")
+    async def test_starts_llama_when_down(self, mock_exec, orchestrator):
+        start_proc = _make_subprocess_mock()
+        mock_exec.return_value = start_proc
+
+        with (
+            patch(
+                "app.services.swap_orchestrator._llama_is_healthy",
+                new=AsyncMock(return_value=False),
+            ),
+            patch(
+                "app.services.swap_orchestrator._wait_for_llama_health",
+                new=AsyncMock(return_value=True),
+            ),
+        ):
+            ok = await orchestrator.ensure_llama_running()
+
+        assert ok is True
+        assert mock_exec.call_count == 1
+        cmd = mock_exec.call_args_list[0]
+        assert "start" in cmd[0]
+        assert "llama-server" in cmd[0]
+
+    @patch("app.services.swap_orchestrator.asyncio.create_subprocess_exec")
+    async def test_noop_when_already_healthy(self, mock_exec, orchestrator):
+        with patch(
+            "app.services.swap_orchestrator._llama_is_healthy",
+            new=AsyncMock(return_value=True),
+        ):
+            ok = await orchestrator.ensure_llama_running()
+
+        assert ok is True
+        mock_exec.assert_not_called()
+
+    @patch("app.services.swap_orchestrator.asyncio.create_subprocess_exec")
+    async def test_skips_when_swap_in_progress(self, mock_exec, orchestrator):
+        """A cover swap intentionally has llama down — don't fight it."""
+        await orchestrator._lock.acquire()
+        try:
+            ok = await orchestrator.ensure_llama_running()
+        finally:
+            orchestrator._lock.release()
+
+        assert ok is False
+        mock_exec.assert_not_called()
 
 
 class TestBusyLock:

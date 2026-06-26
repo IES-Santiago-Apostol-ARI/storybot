@@ -24,6 +24,7 @@ def mock_story_generator():
             {"text": None, "done": True},
         ]
     )
+
     # Make it async-compatible: wrap in an async generator
     async def _fake_async_gen(events):
         for e in events:
@@ -277,9 +278,7 @@ class TestAudioStillFlows:
             _restore_dir(original)
             delattr(app.state, "swap_orchestrator")
 
-        lines = [
-            ln for ln in resp.text.split("\n") if ln.startswith("data: ")
-        ]
+        lines = [ln for ln in resp.text.split("\n") if ln.startswith("data: ")]
         events = [json.loads(ln[6:]) for ln in lines]
 
         audio_events = [e for e in events if "audio_ready" in e]
@@ -287,6 +286,32 @@ class TestAudioStillFlows:
 
         # Cover event also present
         assert "cover_ready" in resp.text
+
+
+class TestEnsureLlamaBeforeGeneration:
+    """Generation self-heals a dead llama-server left by a prior cover swap."""
+
+    def test_ensure_llama_running_called_before_generation(
+        self, mock_story_generator, mock_story_manager, mock_tts, tmp_path
+    ):
+        orchestrator = AsyncMock(spec=SwapOrchestrator)
+        orchestrator.ensure_llama_running.return_value = True
+        orchestrator.generate_cover_for_story.return_value = (None, None, None)
+        app.state.swap_orchestrator = orchestrator
+
+        generated_dir, original = _setup_dir(tmp_path)
+        try:
+            client = TestClient(app)
+            resp = client.post(
+                "/api/generate/story",
+                json={"parameters": [{"category": "personaje", "value": "buho"}]},
+            )
+        finally:
+            _restore_dir(original)
+            delattr(app.state, "swap_orchestrator")
+
+        assert resp.status_code == 200
+        orchestrator.ensure_llama_running.assert_awaited_once()
 
 
 class TestAttachCover:

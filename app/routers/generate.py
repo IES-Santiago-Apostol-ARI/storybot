@@ -1,6 +1,5 @@
 """Generate router — AI story generation endpoint."""
 
-import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
@@ -20,7 +19,6 @@ from app.services.swap_orchestrator import LlamaRelaunchError
 router = APIRouter()
 
 GENERATED_DIR = Path("content/generated")
-COVER_TIMEOUT_S = 90
 
 # LED-20 / D-21 (PLAN DECISION): the in-flight generation progress bar fills in
 # a DEFINED NEUTRAL ACCENT — settings.led_accum_color — because during generation
@@ -103,6 +101,14 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
     async def stream():
         buf = SentenceBuffer()
         seg_index = 0
+
+        # Self-heal: a prior cover swap that timed out or was cancelled can
+        # leave llama-server stopped, which otherwise wedges every later
+        # generation with "Failed to connect to llama-server". Bring it back
+        # before generating (no-op when already up; skipped mid-swap so it
+        # doesn't fight Stable Diffusion for VRAM). None-guarded — T-33-11.
+        if orchestrator is not None:
+            await orchestrator.ensure_llama_running()
 
         # LED-17 / D-08: generation start drives the thinking comet through the
         # engine (sole writer). Cross-fades from idle (LED-22, handled by the
@@ -228,11 +234,12 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
             seed = hash(story_id) & 0xFFFFFFFF
 
             try:
-                result = await asyncio.wait_for(
-                    orchestrator.generate_cover_for_story(
-                        story_id, positive, negative, seed
-                    ),
-                    timeout=COVER_TIMEOUT_S,
+                # The orchestrator bounds the SD worker internally (WORKER_
+                # TIMEOUT_S) and always restarts llama in a finally, so it must
+                # NOT be wrapped in an external asyncio.wait_for — that cancelled
+                # the swap mid-cycle and left llama-server permanently dead.
+                result = await orchestrator.generate_cover_for_story(
+                    story_id, positive, negative, seed
                 )
                 preview_path, print_path, gen_seconds = result
 
@@ -256,12 +263,6 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
                     yield _cover_event(
                         "cover_failed", {"reason": "orchestrator returned None"}
                     )
-            except asyncio.TimeoutError:
-                # LED-15: cover-failure path mirrors the generation-error path —
-                # drive the engine into amber error mode (sole writer).
-                if animator is not None:
-                    animator.set_mode(Mode.ERROR)
-                yield _cover_event("cover_failed", {"reason": "timeout"})
             except LlamaRelaunchError:
                 if animator is not None:
                     animator.set_mode(Mode.ERROR)

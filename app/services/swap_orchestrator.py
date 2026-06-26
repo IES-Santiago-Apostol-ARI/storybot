@@ -11,17 +11,30 @@ import httpx
 # Constants
 SD_VENV_PYTHON = Path("/home/ari/sd-cover/.venv/bin/python")
 SD_WORKER = (
-    Path(__file__).resolve().parent.parent.parent
-    / "scripts"
-    / "sd_cover_worker.py"
+    Path(__file__).resolve().parent.parent.parent / "scripts" / "sd_cover_worker.py"
 )
 MEM_SETTLE_S = 3
 LLAMA_TIMEOUT_S = 30
+# Upper bound on the SD cover worker. Enforced INSIDE the orchestrator so the
+# llama-server restart (in a finally) always runs — unlike the old external
+# asyncio.wait_for() in generate.py, which cancelled the swap mid-cycle and
+# left llama dead. Generous because a cold SD load on the Jetson is slow.
+WORKER_TIMEOUT_S = 120
 LLAMA_HEALTH_URL = "http://127.0.0.1:8080/v1/models"
 
 
 class LlamaRelaunchError(Exception):
     """Raised when llama-server cannot be relaunched after cover generation."""
+
+
+async def _llama_is_healthy() -> bool:
+    """Single quick probe of llama-server's /v1/models endpoint."""
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(LLAMA_HEALTH_URL, timeout=2.0)
+            return resp.status_code == 200
+        except httpx.HTTPError:
+            return False
 
 
 async def _wait_for_llama_health(timeout_s: float) -> bool:
@@ -45,6 +58,37 @@ class SwapOrchestrator:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
 
+    async def ensure_llama_running(self) -> bool:
+        """Bring llama-server back up if a prior swap (or crash) left it dead.
+
+        Self-heal for the generation path: a cover swap that is cancelled or
+        times out can leave llama-server stopped, which otherwise wedges every
+        later story generation. Returns True when llama is healthy.
+
+        Returns False without touching llama when a cover swap is in progress —
+        that swap intentionally holds llama down to give the GPU to Stable
+        Diffusion, so starting llama here would fight it for VRAM.
+        """
+        if self._lock.locked():
+            return False
+        if await _llama_is_healthy():
+            return True
+        start_proc = await asyncio.create_subprocess_exec(
+            "sudo",
+            "systemctl",
+            "start",
+            "llama-server",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await start_proc.wait()
+        healthy = await _wait_for_llama_health(LLAMA_TIMEOUT_S)
+        print(
+            json.dumps({"event": "llama_restarted_on_demand", "healthy": healthy}),
+            file=sys.stderr,
+        )
+        return healthy
+
     async def generate_cover_for_story(
         self, story_id: str, positive: str, negative: str, seed: int
     ) -> tuple[Path | None, Path | None, float | None]:
@@ -55,9 +99,7 @@ class SwapOrchestrator:
         """
         if self._lock.locked():
             print(
-                json.dumps(
-                    {"event": "cover_dropped_busy", "story_id": story_id}
-                ),
+                json.dumps({"event": "cover_dropped_busy", "story_id": story_id}),
                 file=sys.stderr,
             )
             return (None, None, None)
@@ -86,7 +128,10 @@ class SwapOrchestrator:
     ) -> tuple[Path | None, Path | None, float | None]:
         # 1. Stop llama-server and let the kernel settle
         stop_proc = await asyncio.create_subprocess_exec(
-            "sudo", "systemctl", "stop", "llama-server",
+            "sudo",
+            "systemctl",
+            "stop",
+            "llama-server",
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
@@ -96,7 +141,9 @@ class SwapOrchestrator:
         # as a gate, so we trust sequential CPU offload in the worker.
         await asyncio.sleep(MEM_SETTLE_S)
 
-        # 3. Spawn SD worker
+        # 3. Spawn SD worker, bounded by an internal timeout. The restart in
+        # the finally ALWAYS runs — on success, worker timeout, or cancellation
+        # — so llama-server is never left dead (the wedge-forever bug).
         payload = json.dumps(
             {
                 "positive_prompt": positive,
@@ -105,24 +152,41 @@ class SwapOrchestrator:
                 "out_dir": str(Path("content/generated") / story_id),
             }
         )
-        worker = await asyncio.create_subprocess_exec(
-            str(SD_VENV_PYTHON),
-            str(SD_WORKER),
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout_data, stderr_data = await worker.communicate(
-            input=payload.encode()
-        )
-
-        # 4. Always restart llama-server
-        start_proc = await asyncio.create_subprocess_exec(
-            "sudo", "systemctl", "start", "llama-server",
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        await start_proc.wait()
+        worker_timed_out = False
+        stdout_data = b""
+        stderr_data = b""
+        try:
+            worker = await asyncio.create_subprocess_exec(
+                str(SD_VENV_PYTHON),
+                str(SD_WORKER),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                stdout_data, stderr_data = await asyncio.wait_for(
+                    worker.communicate(input=payload.encode()),
+                    timeout=WORKER_TIMEOUT_S,
+                )
+            except asyncio.TimeoutError:
+                worker_timed_out = True
+                # Kill the orphaned worker so it stops holding VRAM.
+                try:
+                    worker.kill()
+                    await worker.wait()
+                except ProcessLookupError:
+                    pass
+        finally:
+            # 4. Always restart llama-server
+            start_proc = await asyncio.create_subprocess_exec(
+                "sudo",
+                "systemctl",
+                "start",
+                "llama-server",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await start_proc.wait()
 
         # 5. Verify llama is back
         healthy = await _wait_for_llama_health(LLAMA_TIMEOUT_S)
@@ -132,9 +196,7 @@ class SwapOrchestrator:
                     "event": "llama_relaunch_failed",
                     "story_id": story_id,
                     "reason": "health_check_timeout",
-                    "detail": (
-                        f"/v1/models not 200 within {LLAMA_TIMEOUT_S}s"
-                    ),
+                    "detail": (f"/v1/models not 200 within {LLAMA_TIMEOUT_S}s"),
                 }
             )
             print(msg, file=sys.stderr)
@@ -143,6 +205,20 @@ class SwapOrchestrator:
             )
 
         # 6. Process worker result
+        if worker_timed_out:
+            print(
+                json.dumps(
+                    {
+                        "event": "cover_failed",
+                        "story_id": story_id,
+                        "reason": "worker_timeout",
+                        "detail": f"SD worker exceeded {WORKER_TIMEOUT_S}s",
+                    }
+                ),
+                file=sys.stderr,
+            )
+            return (None, None, None)
+
         if worker.returncode != 0:
             reason = stderr_data.decode().strip() if stderr_data else "unknown"
             print(
