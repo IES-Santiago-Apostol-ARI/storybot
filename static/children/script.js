@@ -18,8 +18,10 @@ const audioElement = document.getElementById('story-audio');
 
 window.aiEnabled = false; // KSK-01 / D-04: fail-closed initial value
 
-// KSK-01 / D-01: fetch /api/capabilities with 1500ms timeout, fail-closed on any failure (no retry per D-02)
-async function fetchCapabilities() {
+// KSK-01 / D-01: fetch /api/capabilities with 1500ms timeout, fail-closed on failure.
+// Returns true on a clean 2xx response (window.aiEnabled is authoritative after that),
+// false on any network/timeout/non-2xx failure so the caller can retry.
+async function fetchCapabilitiesOnce() {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 1500);
     try {
@@ -27,12 +29,31 @@ async function fetchCapabilities() {
         if (!response.ok) throw new Error('non-2xx');
         const data = await response.json();
         window.aiEnabled = data.ai_enabled === true;
+        return true;
     } catch (err) {
         window.aiEnabled = false;
         console.warn('Capability fetch failed; running in non-AI mode:', err && err.message);
+        return false;
     } finally {
         clearTimeout(timeoutId);
     }
+}
+
+// Self-heal the boot race: on a keyboard-less kiosk the page never reloads, so a single
+// fail-closed fetch (D-02) would wedge window.aiEnabled=false forever if the request lost
+// the race against backend startup. A clean 2xx is authoritative and stops retrying (a
+// genuine non-AI device legitimately reports ai_enabled=false); only network/timeout/
+// non-2xx failures keep retrying with backoff.
+async function fetchCapabilities() {
+    if (await fetchCapabilitiesOnce()) return;
+    let delay = 2000;
+    const maxDelay = 30000;
+    const retry = async () => {
+        if (await fetchCapabilitiesOnce()) return;
+        delay = Math.min(delay * 2, maxDelay);
+        setTimeout(retry, delay);
+    };
+    setTimeout(retry, delay);
 }
 
 // UI Sound system

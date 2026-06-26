@@ -104,12 +104,26 @@ class TestKioskCapabilityFetch:
             f"loadStories at {load_pos}, startNFCListener at {nfc_pos}"
         )
 
-    def test_no_retry_loop(self, script_text):
-        """fetchCapabilities appears exactly 2 times (definition + call)."""
-        count = script_text.count("fetchCapabilities")
-        assert count == 2, (
-            f"Expected fetchCapabilities to appear exactly 2 times, got {count}"
+    def test_self_heals_capability_fetch_on_failure(self, script_text):
+        """Capability fetch self-heals the boot race on a keyboard-less kiosk.
+
+        Revises the original KSK-01 / D-02 "no retry" decision: a single
+        fail-closed fetch wedged window.aiEnabled=false forever if it lost the
+        race against backend startup, and the kiosk never reloads to recover.
+        The single-attempt helper still exists (awaited at boot for a fast
+        initial value), but a clean 2xx is authoritative while
+        network/timeout/non-2xx failures retry with backoff via setTimeout.
+        """
+        # Single-attempt helper still present (fail-closed, returns a status).
+        assert re.search(
+            r"async\s+function\s+fetchCapabilitiesOnce\s*\(", script_text
+        ), "Missing single-attempt fetchCapabilitiesOnce() helper"
+        # The orchestrating fetchCapabilities re-attempts on failure.
+        assert "setTimeout(retry" in script_text, (
+            "Missing background retry scheduling for capability fetch"
         )
+        # Backoff is bounded (no unbounded hammering of the endpoint).
+        assert "maxDelay" in script_text, "Missing bounded backoff cap"
 
     def test_no_separate_api_helper_file(self):
         """No static/children/api.js helper file exists."""
