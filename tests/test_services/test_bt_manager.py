@@ -504,6 +504,11 @@ class TestBtManagerBaseClass:
         with pytest.raises(NotImplementedError):
             await mgr.get_status()
 
+    async def test_base_is_connected_raises(self):
+        mgr = BtManager()
+        with pytest.raises(NotImplementedError):
+            await mgr.is_connected("AA:BB:CC:DD:EE:FF")
+
 
 # ---------------------------------------------------------------------------
 # MockBtManager (TEST-BT-01, D-10 fixed list, D-11 pre-seeded memory)
@@ -899,6 +904,24 @@ class TestMockConnect:
         assert status["sink"] == "bt"
 
 
+class TestMockIsConnected:
+    """MockBtManager.is_connected reflects the connected MAC (BT health probe)."""
+
+    async def test_false_when_nothing_connected(self):
+        mgr = MockBtManager()
+        assert await mgr.is_connected("DD:EE:FF:33:44:55") is False
+
+    async def test_true_for_connected_mac(self):
+        mgr = MockBtManager()
+        await mgr.connect("DD:EE:FF:33:44:55")
+        assert await mgr.is_connected("DD:EE:FF:33:44:55") is True
+
+    async def test_false_for_other_mac(self):
+        mgr = MockBtManager()
+        await mgr.connect("DD:EE:FF:33:44:55")
+        assert await mgr.is_connected("11:22:33:44:55:66") is False
+
+
 class TestMockDisconnectWiredFallback:
     """MockBtManager.disconnect clears connected AND falls back to wired.
 
@@ -1147,6 +1170,30 @@ class TestRealConnect:
         assert result["error"] == "RuntimeError"
 
 
+class TestRealIsConnected:
+    """RealBtManager.is_connected: _read_connected seam, fail-safe to False.
+
+    The BT health monitor (bt_monitor) polls this every 5s. It MUST NOT raise
+    on a dbus/BlueZ failure — a throwing probe floods logs and drives endless
+    connect() retries. Any error therefore degrades to ``False``.
+    """
+
+    async def test_true_when_device_connected(self, tmp_path):
+        mgr = _make_real(tmp_path)
+        mgr._read_connected = _seam_returning(True)
+        assert await mgr.is_connected("DD:EE:FF:33:44:55") is True
+
+    async def test_false_when_device_not_connected(self, tmp_path):
+        mgr = _make_real(tmp_path)
+        mgr._read_connected = _seam_returning(False)
+        assert await mgr.is_connected("DD:EE:FF:33:44:55") is False
+
+    async def test_false_never_raises_on_seam_error(self, tmp_path):
+        mgr = _make_real(tmp_path)
+        mgr._read_connected = _seam_raising(RuntimeError("dbus down"))
+        assert await mgr.is_connected("DD:EE:FF:33:44:55") is False
+
+
 class TestRealDisconnect:
     """RealBtManager.disconnect: _disconnect_device seam + route_to_wired."""
 
@@ -1178,7 +1225,6 @@ class TestRealDisconnect:
         result = await mgr.disconnect()
         assert result["ok"] is False
         assert result["error"] == "RuntimeError"
-
 
     async def test_disconnect_invokes_device_disconnect_across_instances(
         self, tmp_path, monkeypatch

@@ -177,6 +177,9 @@ class BtManager:
     async def forget(self, mac: str) -> dict:
         raise NotImplementedError
 
+    async def is_connected(self, mac: str) -> bool:
+        raise NotImplementedError
+
     async def get_status(self) -> dict:
         raise NotImplementedError
 
@@ -354,6 +357,33 @@ class RealBtManager(BtManager):
             _log_event("bt_connect_failed", reason=type(exc).__name__)
             return {"ok": False, "error": type(exc).__name__}
 
+    async def _read_connected(self, bus, mac: str) -> bool:
+        """Read the live BlueZ ``Device1.Connected`` property for ``mac``."""
+        path = _device_path(mac)
+        intro = await bus.introspect(_BLUEZ_SERVICE, path)
+        obj = bus.get_proxy_object(_BLUEZ_SERVICE, path, intro)
+        props = obj.get_interface("org.freedesktop.DBus.Properties")
+        connected = await props.call_get("org.bluez.Device1", "Connected")
+        return bool(connected.value)
+
+    async def is_connected(self, mac: str) -> bool:
+        """BT health probe: is ``mac`` currently connected per BlueZ?
+
+        Polled every 5s by bt_monitor. Reads the live ``Device1.Connected``
+        property and returns False (NEVER raises) on any dbus/BlueZ failure —
+        a throwing probe floods the log with ``bt_monitor_iter_failed`` and
+        drives endless ``connect()`` retries that can crash bluetoothd.
+        """
+        try:
+            bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+            try:
+                return await self._read_connected(bus, mac)
+            finally:
+                bus.disconnect()
+        except Exception as exc:
+            _log_event("bt_is_connected_failed", reason=type(exc).__name__)
+            return False
+
     async def _disconnect_device(self, bus, mac: str) -> None:
         """Disconnect the currently connected device (BT-05)."""
         path = _device_path(mac)
@@ -519,6 +549,10 @@ class MockBtManager(BtManager):
         self._connected_mac = None
         self._current_sink = "wired"
         return {"ok": True}
+
+    async def is_connected(self, mac: str) -> bool:
+        """BT health probe (Mock): True IFF ``mac`` is the connected speaker."""
+        return self._connected_mac == mac
 
     async def forget(self, mac: str) -> dict:
         """BT-03: forget a speaker. Clears memory; wired fallback only when
