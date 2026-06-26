@@ -22,6 +22,12 @@ dependencies = [
     "numpy>=1.24.0",
     "sse-starlette>=3.3.2",
     "dbus-fast>=2.44,<6",
+    # TTS is always-loaded core functionality. piper-tts and the CPU
+    # onnxruntime it depends on are pure-pip and have wheels for both x86_64
+    # and aarch64, so they belong in core (NOT the jetson extra) — otherwise a
+    # plain `uv sync` on the device uninstalls them and breaks narration.
+    "piper-tts>=1.4.1",
+    "onnxruntime>=1.16.0",
 ]
 
 [project.optional-dependencies]
@@ -42,7 +48,11 @@ jetson = [
     "torchvision>=0.16.0",
     "tensorrt>=10.3; platform_machine=='aarch64'",
     "onnx>=1.15.0",
-    "onnxruntime-gpu>=1.16.0; platform_machine=='aarch64'",
+    # NOTE: onnxruntime-gpu has NO aarch64 wheel on PyPI (NVIDIA ships it via
+    # their Jetson index). Nothing in the app imports onnxruntime-gpu, and the
+    # CPU `onnxruntime` below satisfies piper-tts, so requiring the gpu build
+    # here only breaks `uv sync --extra jetson` on the Jetson. Install the GPU
+    # build out-of-band from NVIDIA's index if ORT GPU inference is ever needed.
     "transformers>=4.35.0",
     "diffusers>=0.25.0",
     "accelerate>=0.25.0",
@@ -52,8 +62,8 @@ jetson = [
     "triton>=2.1.0",
     "xformers>=0.0.23",
     "jetson-stats>=4.2; platform_machine=='aarch64'",
-    "piper-tts>=1.4.1",
-    "onnxruntime>=1.16.0,<1.20",
+    # piper-tts + onnxruntime (CPU) moved to core dependencies — they are
+    # required for TTS on every platform, not just the Jetson.
 ]
 
 [build-system]
