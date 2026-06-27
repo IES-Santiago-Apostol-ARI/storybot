@@ -71,23 +71,31 @@ class SwapOrchestrator:
         """
         if self._lock.locked():
             return False
-        if await _llama_is_healthy():
-            return True
-        start_proc = await asyncio.create_subprocess_exec(
-            "sudo",
-            "systemctl",
-            "start",
-            "llama-server",
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        await start_proc.wait()
-        healthy = await _wait_for_llama_health(LLAMA_TIMEOUT_S)
-        print(
-            json.dumps({"event": "llama_restarted_on_demand", "healthy": healthy}),
-            file=sys.stderr,
-        )
-        return healthy
+        # Hold the lock across the health-check + restart so a cover swap cannot
+        # begin concurrently and fight us for the GPU's VRAM. We just verified
+        # the lock is free and there is no await before acquire(), so this can
+        # never block here.
+        await self._lock.acquire()
+        try:
+            if await _llama_is_healthy():
+                return True
+            start_proc = await asyncio.create_subprocess_exec(
+                "sudo",
+                "systemctl",
+                "start",
+                "llama-server",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await start_proc.wait()
+            healthy = await _wait_for_llama_health(LLAMA_TIMEOUT_S)
+            print(
+                json.dumps({"event": "llama_restarted_on_demand", "healthy": healthy}),
+                file=sys.stderr,
+            )
+            return healthy
+        finally:
+            self._lock.release()
 
     async def generate_cover_for_story(
         self, story_id: str, positive: str, negative: str, seed: int

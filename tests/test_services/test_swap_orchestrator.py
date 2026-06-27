@@ -247,6 +247,33 @@ class TestEnsureLlamaRunning:
         assert ok is False
         mock_exec.assert_not_called()
 
+    @patch("app.services.swap_orchestrator.asyncio.create_subprocess_exec")
+    async def test_holds_lock_during_restart(self, mock_exec, orchestrator):
+        """The lock MUST be held while llama is restarting so a cover swap can't
+        start mid-restart and fight for VRAM — and released afterward."""
+        mock_exec.return_value = _make_subprocess_mock()
+        observed = {}
+
+        async def health_wait(_timeout):
+            observed["locked_during_restart"] = orchestrator._lock.locked()
+            return True
+
+        with (
+            patch(
+                "app.services.swap_orchestrator._llama_is_healthy",
+                new=AsyncMock(return_value=False),
+            ),
+            patch(
+                "app.services.swap_orchestrator._wait_for_llama_health",
+                new=health_wait,
+            ),
+        ):
+            ok = await orchestrator.ensure_llama_running()
+
+        assert ok is True
+        assert observed["locked_during_restart"] is True
+        assert orchestrator._lock.locked() is False  # released afterward
+
 
 class TestBusyLock:
     """Concurrent invocation rejected — returns (None, None, None)."""
