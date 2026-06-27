@@ -743,6 +743,36 @@ function startNFCListener() {
     });
 }
 
+// System event listener — physical GPIO buttons (interrupt / image) pushed
+// from the server via /api/system/events (drains app.state.kiosk_events).
+let systemEventSource = null;
+function startSystemEventListener() {
+    systemEventSource = new EventSource('/api/system/events');
+
+    // Interrupt button: stop the playing story and return to the main page.
+    systemEventSource.addEventListener('interrupt', () => {
+        // Stop browser-side audio (story playback lives on #story-audio).
+        audioElement.pause();
+        audioElement.currentTime = 0;
+        isPaused = false;
+        transitionTo(STATES.IDLE);
+    });
+
+    // Image button: show the freshly generated cover on the kiosk.
+    systemEventSource.addEventListener('image', (event) => {
+        try {
+            const { url } = JSON.parse(event.data);
+            if (url) applyCoverSwap(url);
+        } catch (err) {
+            console.error('system image event parse failed:', err);
+        }
+    });
+
+    systemEventSource.addEventListener('error', () => {
+        // Auto-reconnect built into EventSource
+    });
+}
+
 // Audio unlock mechanism - must be called after user gesture
 let audioUnlocked = false;
 
@@ -786,6 +816,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await fetchCapabilities();
     loadStories();
     startNFCListener();
+    startSystemEventListener();
 
     // Add pause/resume tap handler to playback container
     // Add both click (mouse) and touchstart (touchscreen kiosk) handlers

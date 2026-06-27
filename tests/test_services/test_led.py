@@ -157,10 +157,19 @@ class TestRealLEDService:
         assert status["error_message"] is None
 
     @pytest.mark.asyncio
-    async def test_real_led_service_initialize(self, real_led_service):
-        """Test initialize method."""
+    async def test_real_led_service_initialize(self, real_led_service, monkeypatch):
+        """initialize() falls back to unavailable when the SpiWriter can't open.
+
+        Force the SpiWriter construction to fail so the fallback branch is
+        exercised deterministically — on a Jetson with real spidev present it
+        would otherwise succeed and _available would be True.
+        """
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("no spidev")
+
+        monkeypatch.setattr("app.services.led_controller.SpiWriter", _boom)
         await real_led_service.initialize()
-        # Hardware detection not implemented, so _available stays False
         assert real_led_service._available is False
 
     @pytest.mark.asyncio

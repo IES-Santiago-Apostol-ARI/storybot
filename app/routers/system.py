@@ -1,10 +1,14 @@
 """System status endpoints."""
 
+import json
 import re
+from collections.abc import AsyncIterator
 from enum import Enum
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import EventSourceResponse
 from pydantic import BaseModel, Field, field_validator
+from sse_starlette import EventSourceResponse as SSEStarletteResponse
 
 from app.dependencies import get_hardware, get_led_animator, get_story_manager
 from app.models.system import SystemStatus
@@ -280,6 +284,35 @@ async def set_led_state(
         animator.set_mode(Mode.THINKING)
 
     return {"status": "ok", "state": state.value, "rgb": list(rgb) if rgb else None}
+
+
+@router.get("/events")
+async def system_events(request: Request) -> EventSourceResponse:
+    """Stream server→kiosk events (GPIO buttons) via Server-Sent Events.
+
+    Drains ``app.state.kiosk_events``, the queue the GpioDispatcher writes to
+    when a physical button fires. Each queued dict carries a ``type`` and is
+    emitted as an SSE event of that name so the kiosk can
+    ``addEventListener("interrupt")`` (return home) and
+    ``addEventListener("image")`` (show generated cover).
+
+    The queue only exists once the lifespan has run; when it is missing (e.g. a
+    bare TestClient with no lifespan) the stream closes immediately rather than
+    raising.
+    """
+
+    async def event_stream() -> AsyncIterator[dict]:
+        queue = getattr(request.app.state, "kiosk_events", None)
+        if queue is None:
+            return
+        while True:
+            event = await queue.get()
+            yield {
+                "event": event.get("type", "message"),
+                "data": json.dumps(event),
+            }
+
+    return SSEStarletteResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.post("/poweroff")

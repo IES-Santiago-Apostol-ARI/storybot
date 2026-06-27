@@ -66,6 +66,22 @@ class TestSystemEndpoints:
         assert "audio" in hardware
 
 
+class TestSystemEventsStream:
+    """Test the GPIO→kiosk SSE channel (GET /api/system/events)."""
+
+    def test_events_streams_queued_interrupt(self, client):
+        """A dict put on app.state.kiosk_events is emitted as an SSE event."""
+        app.state.kiosk_events.put_nowait({"type": "interrupt"})
+        with client.stream("GET", "/api/system/events") as response:
+            assert response.status_code == 200
+            assert "text/event-stream" in response.headers.get("content-type", "")
+            for line in response.iter_lines():
+                if "interrupt" in line:
+                    break
+            else:  # pragma: no cover - stream ended without our event
+                pytest.fail("interrupt event was not received on the stream")
+
+
 class TestLEDEndpoints:
     """Test LED control endpoints."""
 

@@ -25,6 +25,21 @@ from app.services.capability_probe import (  # noqa: E402
 _MOD = "app.services.capability_probe"
 
 
+@pytest.fixture(autouse=True)
+def _neutralize_ambient_dotenv(monkeypatch):
+    """Make these tests independent of the repo's real ``.env``.
+
+    probe_capability() calls load_dotenv(), which on a developer/Jetson box
+    reloads the repo .env (``STORYBOT_AI=1``) into os.environ — repopulating the
+    very var the auto-detect tests delenv, so the env-override path fires and the
+    mocked hardware signals are ignored. Neutralize load_dotenv to a no-op and
+    clear STORYBOT_AI for every test; tests that exercise the dotenv/override
+    paths re-patch load_dotenv or setenv after this fixture, so they win.
+    """
+    monkeypatch.setattr(f"{_MOD}.load_dotenv", lambda *a, **k: None)
+    monkeypatch.delenv("STORYBOT_AI", raising=False)
+
+
 # ---------------------------------------------------------------------------
 # Group A — auto-detect path (env unset; monkeypatch thin wrappers)
 # ---------------------------------------------------------------------------

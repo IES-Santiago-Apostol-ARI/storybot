@@ -67,16 +67,19 @@ class TestEnvFileWrite:
     """Source-assertion tests for .env file writing (DEP-01, D-04)."""
 
     def test_env_file_write_ai_enabled(self, script_text):
-        """Script writes STORYBOT_AI=1 to .env."""
-        assert "STORYBOT_AI=1" in script_text, (
-            "Missing STORYBOT_AI=1 write to .env"
+        """Script writes STORYBOT_AI to .env with the AI-enabled value (1)."""
+        # The script writes STORYBOT_AI=$AI_VALUE, where AI_VALUE is 1 in AI mode.
+        assert "STORYBOT_AI=$AI_VALUE" in script_text, (
+            "Missing STORYBOT_AI=$AI_VALUE write to .env"
         )
+        assert "AI_VALUE=1" in script_text, "Missing AI_VALUE=1 (AI-enabled)"
 
     def test_env_file_write_ai_disabled(self, script_text):
-        """Script writes STORYBOT_AI=0 to .env."""
-        assert "STORYBOT_AI=0" in script_text, (
-            "Missing STORYBOT_AI=0 write to .env"
+        """Script writes STORYBOT_AI to .env with the AI-disabled value (0)."""
+        assert "STORYBOT_AI=$AI_VALUE" in script_text, (
+            "Missing STORYBOT_AI=$AI_VALUE write to .env"
         )
+        assert "AI_VALUE=0" in script_text, "Missing AI_VALUE=0 (AI-disabled)"
 
     def test_env_file_chown(self, script_text):
         """Script chowns .env file to INSTALL_USER."""
@@ -89,9 +92,11 @@ class TestServiceFile:
     """Source-assertion tests for storybot.service (DEP-01, D-05, D-06)."""
 
     def test_environment_file_directive_exists(self, service_text):
-        """service file contains EnvironmentFile=-/home/ari/storybot/.env."""
-        assert "EnvironmentFile=-/home/ari/storybot/.env" in service_text, (
-            "Missing EnvironmentFile=-/home/ari/storybot/.env directive"
+        """service file contains the templated EnvironmentFile directive."""
+        # The service is a template; deploy/install.sh substitutes __INSTALL_DIR__
+        # (from INSTALL_USER/INSTALL_DIR in .env) at install time.
+        assert "EnvironmentFile=-__INSTALL_DIR__/.env" in service_text, (
+            "Missing EnvironmentFile=-__INSTALL_DIR__/.env directive"
         )
 
     def test_environment_file_has_dash_prefix(self, service_text):
@@ -194,10 +199,17 @@ class TestArchGate:
         )
 
     def test_no_architecture_restriction(self, script_text):
-        """Script no longer uses uname -m for architecture gating."""
-        assert not re.search(r"uname\s+-m.*exit", script_text, re.DOTALL), (
-            "uname -m is still used for architecture gating/exit -- should be removed"
-        )
+        """Script no longer uses uname -m as a hard architecture gate that exits.
+
+        A bare ``uname -m.*exit`` over the whole file (DOTALL) is too broad — it
+        matches the legitimate ``uname -m`` that only selects the uv ``jetson``
+        extra (followed by uv sync, not exit) paired with an unrelated ``exit``
+        far later in the script. Bound the match to an aarch64 comparison that
+        exits within the same block instead.
+        """
+        assert not re.search(
+            r"uname\s+-m[^\n]*aarch64[\s\S]{0,80}?\bexit\b", script_text
+        ), "uname -m is still used as an architecture gate that exits -- remove it"
 
 
 class TestAIConditionals:

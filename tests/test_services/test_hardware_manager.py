@@ -67,13 +67,17 @@ class TestHardwareManager:
         assert "version" in status
 
     @pytest.mark.asyncio
-    async def test_rescan_triggers_detection_of_all_services(self, hardware_manager):
+    async def test_rescan_triggers_detection_of_all_services(
+        self, hardware_manager, monkeypatch
+    ):
         """HardwareManager.rescan() triggers detection of all services."""
-        # detect_hardware must be called before rescan per new contract (Plan 17-03)
-        import os
-        os.environ["TESTING"] = "1"
+        # detect_hardware must be called before rescan per new contract (Plan 17-03).
+        # Use monkeypatch so TESTING is restored to its session value afterward —
+        # a bare ``del os.environ["TESTING"]`` leaks and breaks later tests that
+        # depend on the conftest-set TESTING (e.g. the LED factory mock path).
+        monkeypatch.setenv("TESTING", "1")
         await hardware_manager.detect_hardware(ai_enabled=True)
-        del os.environ["TESTING"]
+        monkeypatch.delenv("TESTING")
 
         # Register a mock service
         mock_service = MockService("test_service")

@@ -262,22 +262,16 @@ class TestRealNFCService:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_real_nfc_service_check_availability_without_nfc(self):
+    async def test_real_nfc_service_check_availability_without_nfc(self, monkeypatch):
         """Test _check_availability returns False when smartcard import fails."""
-        # Save all smartcard-related modules so we can restore them
-        saved = {
-            k: v for k, v in sys.modules.items()
-            if k == "smartcard" or k.startswith("smartcard.")
-        }
-        try:
-            # Remove all smartcard entries so the import fails
-            for key in saved:
-                sys.modules.pop(key, None)
-            service = RealNFCService()
-            assert service._available is False
-        finally:
-            # Restore original modules
-            sys.modules.update(saved)
+        # Setting the module entries to None makes `from smartcard.System import
+        # readers` raise ImportError — popping them instead just triggers a fresh
+        # re-import from disk, which succeeds when pyscard is installed (as it is
+        # on this Jetson), so the "no nfc" path was never actually exercised.
+        monkeypatch.setitem(sys.modules, "smartcard", None)
+        monkeypatch.setitem(sys.modules, "smartcard.System", None)
+        service = RealNFCService()
+        assert service._available is False
 
 
 class TestCreateNFCService:

@@ -116,21 +116,23 @@ class TestRealServiceEdgeToQueue:
             # --- Assert 2: setup() called exactly 4 times (one per pin) ---
             assert mock_gpio.setup.call_count == 4
 
-            # Verify each call: GPIO.setup(pin, IN, pull_up_down=PUD_UP)
+            # Verify each call: GPIO.setup(pin, IN, pull_up_down=PUD_DOWN)
             for call in mock_gpio.setup.call_args_list:
                 args, kwargs = call
                 # Positional: (pin, GPIO.IN)
                 assert args[1] == mock_gpio.IN
-                # Keyword: pull_up_down=GPIO.PUD_UP
-                assert kwargs.get("pull_up_down") == mock_gpio.PUD_UP
+                # Keyword: pull_up_down=GPIO.PUD_DOWN (hardware uses pull-down
+                # resistors to GND; buttons wired to 3.3V — see commit a5211f8).
+                assert kwargs.get("pull_up_down") == mock_gpio.PUD_DOWN
 
-            # --- Assert 3: add_event_detect(FALLING) called for each pin ---
+            # --- Assert 3: add_event_detect(RISING) called for each pin ---
             assert mock_gpio.add_event_detect.call_count == 4
 
             for call in mock_gpio.add_event_detect.call_args_list:
                 args, kwargs = call
-                # Positional: (pin, GPIO.FALLING)
-                assert args[1] == mock_gpio.FALLING
+                # Positional: (pin, GPIO.RISING) — pull-down means idle-low,
+                # press drives the line high, so detect the rising edge.
+                assert args[1] == mock_gpio.RISING
                 # callback and bouncetime should be present
                 assert "callback" in kwargs
                 assert "bouncetime" in kwargs
