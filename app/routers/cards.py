@@ -39,7 +39,7 @@ async def create_card(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
-        )
+        ) from e
 
 
 @router.get("/cards", response_model=CardsListResponse)
@@ -69,7 +69,7 @@ async def delete_card(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
 
     if not deleted:
         raise HTTPException(
