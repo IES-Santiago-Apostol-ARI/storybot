@@ -83,7 +83,7 @@ class RealAudioPlayer(AudioPlayer):
 
         except Exception as e:
             self._playing = False
-            raise RuntimeError(f"Failed to play audio: {e}")
+            raise RuntimeError(f"Failed to play audio: {e}") from e
 
     async def _convert_mp3_to_wav(self, mp3_path: Path) -> Path:
         """Convert MP3 to WAV using pydub.
@@ -102,15 +102,21 @@ class RealAudioPlayer(AudioPlayer):
             audio.export(str(wav_path), format="wav")
             return wav_path
 
-        except ImportError:
-            raise RuntimeError("pydub not installed - required for MP3 playback")
+        except ImportError as e:
+            raise RuntimeError("pydub not installed - required for MP3 playback") from e
         except Exception as e:
-            raise RuntimeError(f"Failed to convert MP3: {e}")
+            raise RuntimeError(f"Failed to convert MP3: {e}") from e
 
     async def _wait_for_completion(self) -> None:
         """Wait for playback to complete."""
-        if self._playback_obj is not None:
-            while self._playback_obj.is_playing():
+        # Snapshot the handle: a concurrent stop() sets self._playback_obj to
+        # None, so reading the attribute inside the loop would raise
+        # AttributeError on None (a use-after-free style crash). The local keeps
+        # a stable reference; stop() calls .stop() on it, so is_playing() flips
+        # to False and the loop exits cleanly.
+        playback_obj = self._playback_obj
+        if playback_obj is not None:
+            while playback_obj.is_playing():
                 await asyncio.sleep(0.1)
             self._playing = False
 

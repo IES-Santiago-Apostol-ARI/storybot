@@ -1,8 +1,10 @@
 """Tests for audio player service."""
 
+import asyncio
+
 import pytest
 
-from app.services.audio_player import MockAudioPlayer
+from app.services.audio_player import MockAudioPlayer, RealAudioPlayer
 
 
 @pytest.fixture
@@ -90,3 +92,38 @@ class TestMockAudioPlayer:
         await mock_audio_player.initialize()
         await mock_audio_player.shutdown()
         assert mock_audio_player.is_playing is False
+
+
+class _FakePlayback:
+    """Minimal simpleaudio PlayObject stand-in: is_playing()/stop()."""
+
+    def __init__(self) -> None:
+        self._playing = True
+
+    def is_playing(self) -> bool:
+        return self._playing
+
+    def stop(self) -> None:
+        self._playing = False
+
+
+class TestRealAudioPlayerStopRace:
+    """Regression: stop() must not crash an in-flight _wait_for_completion."""
+
+    @pytest.mark.asyncio
+    async def test_stop_during_wait_does_not_raise(self):
+        player = RealAudioPlayer()
+        player._available = True
+        fake = _FakePlayback()
+        player._playback_obj = fake
+        player._playing = True
+
+        wait_task = asyncio.create_task(player._wait_for_completion())
+        await asyncio.sleep(0)  # let the wait loop start reading the handle
+
+        # stop() nulls self._playback_obj while the wait loop is running. Before
+        # the snapshot fix this caused AttributeError on None inside the loop.
+        await player.stop()
+
+        await asyncio.wait_for(wait_task, timeout=1.0)
+        assert player.is_playing is False
