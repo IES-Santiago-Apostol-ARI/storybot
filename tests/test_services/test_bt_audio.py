@@ -74,18 +74,33 @@ async def test_run_pactl_returncode_neg1_when_none(monkeypatch):
 # --- Task 2: route_to_bt ordering + route_to_wired fallback -------------------
 
 
-async def test_route_to_bt_order_profile_before_default(monkeypatch):
-    """AUDIO-06 set-card-profile MUST precede AUDIO-01 set-default-sink."""
-    calls = []
+def _ready_run(calls, mac):
+    """fake _run_pactl where the BT sink for ``mac`` is already enumerated.
+
+    ``list short sinks`` returns a line containing the sink, so the readiness
+    wait in route_to_bt succeeds on the first poll (no sleep).
+    """
+    sink = bt_audio._bt_sink(mac)
 
     async def fake_run(*args):
         calls.append(args)
+        if args[0] == "list":
+            return (f"0\t{sink}\tmodule\ts16le\tRUNNING", "", 0)
         return ("", "", 0)
 
-    monkeypatch.setattr(bt_audio, "_run_pactl", fake_run)
-    result = await bt_audio.route_to_bt("AA:BB:CC:00:11:22")
+    return fake_run
+
+
+async def test_route_to_bt_order_profile_before_default(monkeypatch):
+    """AUDIO-06 set-card-profile MUST precede AUDIO-01 set-default-sink, with a
+    sink-readiness check in between."""
+    calls = []
+    mac = "AA:BB:CC:00:11:22"
+    monkeypatch.setattr(bt_audio, "_run_pactl", _ready_run(calls, mac))
+    result = await bt_audio.route_to_bt(mac)
     assert calls[0] == ("set-card-profile", "bluez_card.AA_BB_CC_00_11_22", "a2dp-sink")
-    assert calls[1] == (
+    assert calls[1] == ("list", "short", "sinks")
+    assert calls[2] == (
         "set-default-sink",
         "bluez_output.AA_BB_CC_00_11_22.a2dp-sink",
     )
@@ -94,44 +109,83 @@ async def test_route_to_bt_order_profile_before_default(monkeypatch):
 
 async def test_route_to_bt_returns_false_when_default_sink_fails(monkeypatch):
     calls = []
+    mac = "AA:BB:CC:00:11:22"
+    sink = bt_audio._bt_sink(mac)
 
     async def fake_run(*args):
         calls.append(args)
+        if args[0] == "list":
+            return (f"0\t{sink}\tmodule\ts16le\tRUNNING", "", 0)
         # set-card-profile succeeds, set-default-sink fails
         return ("", "", 1 if args[0] == "set-default-sink" else 0)
 
     monkeypatch.setattr(bt_audio, "_run_pactl", fake_run)
-    result = await bt_audio.route_to_bt("AA:BB:CC:00:11:22")
+    result = await bt_audio.route_to_bt(mac)
     assert result is False
 
 
 async def test_route_to_bt_isolated_by_patching_run_pactl(monkeypatch):
     """PLAT-02 seam: patching _run_pactl fully isolates route_to_bt (no subprocess)."""
     invoked = []
-
-    async def fake_run(*args):
-        invoked.append(args)
-        return ("", "", 0)
-
-    monkeypatch.setattr(bt_audio, "_run_pactl", fake_run)
-    await bt_audio.route_to_bt("11:22:33:44:55:66")
-    assert len(invoked) == 3  # set-card-profile + set-default-sink + set-sink-volume
+    mac = "11:22:33:44:55:66"
+    monkeypatch.setattr(bt_audio, "_run_pactl", _ready_run(invoked, mac))
+    await bt_audio.route_to_bt(mac)
+    # set-card-profile + list(readiness) + set-default-sink + set-sink-volume
+    assert len(invoked) == 4
 
 
 async def test_route_to_bt_sets_sink_volume_to_max_on_connect(monkeypatch):
     """D-01: Assert set-sink-volume 100% is called after successful route_to_bt."""
     calls = []
-
-    async def fake_run(*args):
-        calls.append(args)
-        return ("", "", 0)
-
-    monkeypatch.setattr(bt_audio, "_run_pactl", fake_run)
     mac = "aa:bb:cc:00:11:22"
+    monkeypatch.setattr(bt_audio, "_run_pactl", _ready_run(calls, mac))
     result = await bt_audio.route_to_bt(mac)
 
     assert result is True
     assert ("set-sink-volume", bt_audio._bt_sink(mac), "100%") in calls
+
+
+async def test_route_to_bt_false_when_sink_never_appears(monkeypatch):
+    """If the A2DP sink never enumerates, route_to_bt returns False and never
+    sets a non-existent sink as default."""
+    calls = []
+
+    async def fake_run(*args):
+        calls.append(args)
+        return ("", "", 0)  # list always empty -> sink never present
+
+    monkeypatch.setattr(bt_audio, "_run_pactl", fake_run)
+    # No-op sleep so the readiness loop doesn't actually wait ~2s.
+    result = await bt_audio.route_to_bt("AA:BB:CC:00:11:22", sleep=_noop_sleep)
+    assert result is False
+    assert not any(c[0] == "set-default-sink" for c in calls)
+
+
+async def test_route_to_bt_waits_then_succeeds_when_sink_appears_late(monkeypatch):
+    """Sink absent on the first readiness poll, present on the second -> route
+    proceeds to set-default-sink (the post-connect enumeration window)."""
+    calls = []
+    mac = "AA:BB:CC:00:11:22"
+    sink = bt_audio._bt_sink(mac)
+    list_calls = {"n": 0}
+
+    async def fake_run(*args):
+        calls.append(args)
+        if args[0] == "list":
+            list_calls["n"] += 1
+            if list_calls["n"] >= 2:
+                return (f"0\t{sink}\tmodule\ts16le\tRUNNING", "", 0)
+            return ("", "", 0)
+        return ("", "", 0)
+
+    monkeypatch.setattr(bt_audio, "_run_pactl", fake_run)
+    result = await bt_audio.route_to_bt(mac, sleep=_noop_sleep)
+    assert result is True
+    assert any(c[0] == "set-default-sink" for c in calls)
+
+
+async def _noop_sleep(_seconds):
+    return None
 
 
 def test_first_alsa_sink_returns_name_of_first_alsa_line():

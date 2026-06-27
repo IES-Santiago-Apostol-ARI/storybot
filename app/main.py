@@ -7,25 +7,6 @@ from fastapi import FastAPI, Response
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-
-class NoCacheStaticFiles(StaticFiles):
-    """StaticFiles wrapper that adds Cache-Control headers for media files."""
-
-    async def get_response(self, path: str, scope) -> Response:
-        """Get response with Cache-Control headers for audio files."""
-        response = await super().get_response(path, scope)
-
-        # Add no-cache headers for audio and image files
-        if path.endswith(
-            (".mp3", ".wav", ".m4a", ".ogg", ".jpg", ".jpeg", ".png", ".webp")
-        ):
-            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            response.headers["Pragma"] = "no-cache"
-            response.headers["Expires"] = "0"
-
-        return response
-
-
 from app.config import ConfigManager
 from app.routers.bt import router as bt_router
 from app.routers.capabilities import router as capabilities_router
@@ -44,6 +25,24 @@ from app.services.story_generator import StoryGenerator
 from app.services.story_manager import StoryManager
 from app.services.swap_orchestrator import SwapOrchestrator
 from app.services.tts_pipeline import TTSPipeline
+
+
+class NoCacheStaticFiles(StaticFiles):
+    """StaticFiles wrapper that adds Cache-Control headers for media files."""
+
+    async def get_response(self, path: str, scope) -> Response:
+        """Get response with Cache-Control headers for audio files."""
+        response = await super().get_response(path, scope)
+
+        # Add no-cache headers for audio and image files
+        if path.endswith(
+            (".mp3", ".wav", ".m4a", ".ogg", ".jpg", ".jpeg", ".png", ".webp")
+        ):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+
+        return response
 
 
 @asynccontextmanager
@@ -105,7 +104,7 @@ async def lifespan(app: FastAPI):
     try:
         from app.services.generated_sweeper import sweep_generated
 
-        n = await asyncio.to_thread(sweep_generated, story_manager)
+        await asyncio.to_thread(sweep_generated, story_manager)
     except Exception as e:
         import json
         import sys
@@ -287,12 +286,15 @@ async def lifespan(app: FastAPI):
     bt_monitor_task = None
     if not os.environ.get("TESTING"):
         try:
-            from app.services.bt_audio import route_to_wired
+            from app.services.bt_audio import route_to_bt, route_to_wired
             from app.services.bt_manager import create_bt_manager
             from app.services.bt_monitor import BtMonitor
 
             app.state.bt_monitor = BtMonitor(
-                manager=create_bt_manager(), route_to_wired=route_to_wired
+                manager=create_bt_manager(),
+                route_to_wired=route_to_wired,
+                route_to_bt=route_to_bt,
+                failure_threshold=3,
             )
             bt_monitor_task = asyncio.create_task(app.state.bt_monitor.run())
         except Exception as e:

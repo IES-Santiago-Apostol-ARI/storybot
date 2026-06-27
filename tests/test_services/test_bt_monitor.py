@@ -154,7 +154,9 @@ async def test_reconnect_then_route_back(mock_bt_manager, stub_route):
 
 
 @pytest.mark.asyncio
-async def test_steady_state_retry_stops_on_connect(mock_bt_manager, stub_route, fake_sleep):
+async def test_steady_state_retry_stops_on_connect(
+    mock_bt_manager, stub_route, fake_sleep
+):
     """
     Repeated poll_once while unhealthy keeps attempting connect at the fixed retry interval;
     once connect succeeds it stops attempting (D-13 stop condition = connected).
@@ -174,8 +176,8 @@ async def test_steady_state_retry_stops_on_connect(mock_bt_manager, stub_route, 
     )
 
     # Poll while unhealthy
-    await monitor.poll_once() # first fallback
-    await monitor.poll_once() # retry 1
+    await monitor.poll_once()  # first fallback
+    await monitor.poll_once()  # retry 1
 
     # Now make it healthy
     probe_state["healthy"] = True
@@ -208,7 +210,9 @@ async def test_no_speaker_no_retry(mock_bt_manager, stub_route):
 
 
 @pytest.mark.asyncio
-async def test_poll_iteration_swallows_exception(mock_bt_manager, stub_route, fake_sleep):
+async def test_poll_iteration_swallows_exception(
+    mock_bt_manager, stub_route, fake_sleep
+):
     """
     A probe that raises on one iteration -> run/poll_once logs bt_monitor_iter_failed
     and the monitor stays alive for the next iteration (Pitfall 4).
@@ -218,6 +222,7 @@ async def test_poll_iteration_swallows_exception(mock_bt_manager, stub_route, fa
 
     # Probe that raises an exception once
     call_count = 0
+
     async def fake_probe(mac):
         nonlocal call_count
         call_count += 1
@@ -264,3 +269,101 @@ async def test_status_shape(mock_bt_manager, stub_route):
     status = monitor.status()
     assert isinstance(status, dict)
     assert set(status.keys()) == {"sink", "device_name", "device_mac", "health_state"}
+
+
+@pytest.mark.asyncio
+async def test_single_transient_failure_does_not_fall_back(mock_bt_manager, stub_route):
+    """
+    Debounce: with failure_threshold=3, a single unhealthy poll must NOT route
+    to wired. A momentary dbus/BlueZ hiccup (is_connected -> False) is exactly
+    this case and must not yank audio off the speaker mid-story.
+    """
+    if BtMonitor is None:
+        pytest.fail("BtMonitor not implemented yet (RED)")
+
+    async def fake_probe(mac):
+        return False
+
+    monitor = BtMonitor(
+        manager=mock_bt_manager,
+        route_to_wired=stub_route.route_to_wired,
+        probe=fake_probe,
+        failure_threshold=3,
+    )
+
+    await monitor.poll_once()
+
+    assert len(stub_route.wired_calls) == 0
+    assert monitor.sink == "bt"
+    assert monitor.health_state == "connected"
+
+
+@pytest.mark.asyncio
+async def test_falls_back_after_threshold_consecutive_failures(
+    mock_bt_manager, stub_route
+):
+    """N consecutive unhealthy polls (== failure_threshold) trigger exactly one
+    wired fallback — not before."""
+    if BtMonitor is None:
+        pytest.fail("BtMonitor not implemented yet (RED)")
+
+    async def fake_probe(mac):
+        return False
+
+    monitor = BtMonitor(
+        manager=mock_bt_manager,
+        route_to_wired=stub_route.route_to_wired,
+        probe=fake_probe,
+        failure_threshold=3,
+    )
+
+    await monitor.poll_once()  # 1 - below threshold
+    await monitor.poll_once()  # 2 - below threshold
+    assert len(stub_route.wired_calls) == 0
+    assert monitor.sink == "bt"
+
+    await monitor.poll_once()  # 3 - threshold reached -> fall back
+    assert len(stub_route.wired_calls) == 1
+    assert monitor.sink == "wired"
+    assert monitor.health_state == "wired-fallback"
+
+
+@pytest.mark.asyncio
+async def test_recovery_reroutes_to_bt_once_and_resets(mock_bt_manager, stub_route):
+    """
+    After a wired fallback, the first healthy poll must call route_to_bt exactly
+    once (restoring PulseAudio's default sink) and reset the failure counter so a
+    later single miss does not immediately fall back again. This is the self-heal
+    that fab5632 inadvertently removed.
+    """
+    if BtMonitor is None:
+        pytest.fail("BtMonitor not implemented yet (RED)")
+
+    probe_state = {"healthy": False}
+
+    async def fake_probe(mac):
+        return probe_state["healthy"]
+
+    monitor = BtMonitor(
+        manager=mock_bt_manager,
+        route_to_wired=stub_route.route_to_wired,
+        route_to_bt=stub_route.route_to_bt,
+        probe=fake_probe,
+        failure_threshold=1,
+    )
+
+    # Fall back to wired.
+    await monitor.poll_once()
+    assert monitor.sink == "wired"
+    assert stub_route.bt_calls == []
+
+    # Recover: route_to_bt called exactly once, sink restored.
+    probe_state["healthy"] = True
+    await monitor.poll_once()
+    assert len(stub_route.bt_calls) == 1
+    assert monitor.sink == "bt"
+    assert monitor.health_state == "connected"
+
+    # A steady healthy poll must NOT re-pin (avoids the old every-5s flood).
+    await monitor.poll_once()
+    assert len(stub_route.bt_calls) == 1

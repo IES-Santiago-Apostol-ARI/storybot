@@ -7,27 +7,40 @@ logger = logging.getLogger(__name__)
 
 POLL_INTERVAL = 5  # seconds
 
+# Consecutive unhealthy polls required before falling back to wired. Default 1
+# preserves the original immediate-fallback behaviour for existing callers;
+# main.py wires a higher production value so a single transient dbus/BlueZ
+# hiccup does not yank audio off the speaker mid-story.
+FAILURE_THRESHOLD = 1
+
+
 class BtMonitor:
     """
     Continuously tracks BT connection status and handles audio fallback.
-    
+
     Implementation of Plan 28-02.
     """
+
     def __init__(
         self,
         manager,
         route_to_wired: Callable[[], Awaitable[Any]],
         probe: Callable[[str], Awaitable[bool]] | None = None,
-        sleep: Callable[[float], Awaitable[None]] | None = None
+        sleep: Callable[[float], Awaitable[None]] | None = None,
+        route_to_bt: Callable[[str], Awaitable[Any]] | None = None,
+        failure_threshold: int = FAILURE_THRESHOLD,
     ):
         self.manager = manager
         self.route_to_wired = route_to_wired
+        self.route_to_bt = route_to_bt
         self.probe = probe
         self.sleep = sleep or asyncio.sleep
+        self.failure_threshold = max(1, failure_threshold)
 
         # Initial state
         self.sink = "bt"
         self.health_state = "connected"
+        self._fail_count = 0
 
     async def poll_once(self):
         """
@@ -57,10 +70,27 @@ class BtMonitor:
             is_healthy = False
 
         if is_healthy:
+            self._fail_count = 0
+            # Recovery: if a prior fallback moved audio off the BT sink, re-route
+            # it back. The probe only reports BlueZ Connected==True; it does NOT
+            # restore PulseAudio's default sink, so without this the speaker stays
+            # silent forever after any blip (the regression exposed by fab5632).
+            if self.sink != "bt" and self.route_to_bt is not None:
+                try:
+                    await self.route_to_bt(mac)
+                except Exception as e:
+                    logger.debug(f"Re-route to BT failed for {mac}: {e}")
             self.health_state = "connected"
             self.sink = "bt"
         else:
-            # Unhealthy detection
+            # Unhealthy detection. Debounce: a single transient probe failure
+            # (e.g. a momentary dbus hiccup, which is_connected() reports as
+            # False) must NOT immediately yank audio to wired mid-story. Only
+            # fall back once we've seen failure_threshold consecutive misses.
+            self._fail_count += 1
+            if self._fail_count < self.failure_threshold:
+                return
+
             if self.sink == "bt":
                 # AUDIO-05: Fallback to wired if we were on BT
                 await self.route_to_wired()
@@ -107,4 +137,3 @@ class BtMonitor:
             "device_mac": getattr(self, "_last_mac", None),
             "device_name": getattr(self, "_last_name", None),
         }
-

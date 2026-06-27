@@ -75,22 +75,60 @@ def _first_alsa_sink(pactl_short_sinks_output: str) -> str | None:
     return None
 
 
-async def route_to_bt(mac: str) -> bool:
+# Bounded wait for the A2DP sink to register after profile activation. Right
+# after a (re)connect, BlueZ reports Connected before PulseAudio/PipeWire has
+# finished enumerating the bluez_output sink — setting it default too early
+# silently half-fails. ~2s total (10 × 0.2s) covers the enumeration window.
+SINK_READY_RETRIES = 10
+SINK_READY_DELAY = 0.2  # seconds
+
+
+async def _sink_present(sink: str) -> bool:
+    """True when ``sink`` appears in ``pactl list short sinks`` (never raises)."""
+    out, _, _ = await _run_pactl("list", "short", "sinks")
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 2 and parts[1] == sink:
+            return True
+    return False
+
+
+async def _wait_for_sink(sink: str, sleep) -> bool:
+    """Poll up to ``SINK_READY_RETRIES`` times for ``sink`` to register."""
+    for _ in range(SINK_READY_RETRIES):
+        if await _sink_present(sink):
+            return True
+        await sleep(SINK_READY_DELAY)
+    return False
+
+
+async def route_to_bt(mac: str, sleep=asyncio.sleep) -> bool:
     """Route audio to a connected BT speaker (A2DP) — AUDIO-06 then AUDIO-01.
 
     Explicitly activates the A2DP card profile BEFORE setting the BT sink as default
     (JetPack ships A2DP off; the profile must be selected even after the deploy fix —
-    AUDIO-06). Returns ``True`` when ``set-default-sink`` succeeds (rc == 0).
+    AUDIO-06), then waits for the sink to actually register before making it the
+    default output. Returns ``True`` when ``set-default-sink`` succeeds (rc == 0).
     """
+    sink = _bt_sink(mac)
     # AUDIO-06: activate the A2DP profile first.
-    await _run_pactl("set-card-profile", _bt_card(mac), "a2dp-sink")
+    _, _, prc = await _run_pactl("set-card-profile", _bt_card(mac), "a2dp-sink")
+    if prc != 0:
+        # Profile activation failed (device not ready / A2DP unavailable). Log
+        # and let the readiness wait below gate whether we can still route.
+        _log_event("bt_route_failed", mac=mac, rc=prc, target=_bt_card(mac))
+    # Don't make a not-yet-enumerated sink the default — that's the silent
+    # half-failure that loses audio right after a (re)connect.
+    if not await _wait_for_sink(sink, sleep):
+        _log_event("bt_route_failed", mac=mac, reason="sink_not_ready", target=sink)
+        return False
     # AUDIO-01: make the BT speaker the default output.
-    _, _, rc = await _run_pactl("set-default-sink", _bt_sink(mac))
+    _, _, rc = await _run_pactl("set-default-sink", sink)
     if rc == 0:
         # D-01: drive output sink to 100% volume on connect.
-        await _run_pactl("set-sink-volume", _bt_sink(mac), "100%")
+        await _run_pactl("set-sink-volume", sink, "100%")
     else:
-        _log_event("bt_route_failed", mac=mac, rc=rc, target=_bt_sink(mac))
+        _log_event("bt_route_failed", mac=mac, rc=rc, target=sink)
     return rc == 0
 
 
