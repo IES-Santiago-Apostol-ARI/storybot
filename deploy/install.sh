@@ -562,6 +562,15 @@ if [[ "$AI_MODE" == true ]]; then
     # cannot be loaded. It may be missing or inaccessible."
     sudo -u "$INSTALL_USER" mkdir -p "$USER_HOME/.storybot-kiosk-profile"
 
+    # Allow audio autoplay without a user gesture. Stories are triggered by NFC
+    # taps, which arrive over SSE (a network event, not a click/touch), so
+    # Firefox's default autoplay block makes audioElement.play() throw
+    # NotAllowedError and the UI snaps back to idle. 0 = allow audio & video.
+    sudo -u "$INSTALL_USER" tee "$USER_HOME/.storybot-kiosk-profile/user.js" > /dev/null << 'AUTOPLAYEOF'
+user_pref("media.autoplay.default", 0);
+user_pref("media.autoplay.blocking_policy", 0);
+AUTOPLAYEOF
+
     cat > "$USER_HOME/.config/autostart/storybot-kiosk.desktop" << 'KIOSKEOF'
 [Desktop Entry]
 Type=Application
