@@ -278,6 +278,29 @@ else
 fi
 echo -e "${GREEN}Python dependencies installed${NC}"
 
+# On the real Jetson, Jetson.GPIO ships as a SYSTEM apt package
+# (python3-jetson-gpio under /usr/lib/python3/dist-packages) and is therefore
+# NOT installed by the plain `uv sync` above (it lives in the `jetson` extra,
+# which we deliberately skip on aarch64). The device is offline, so PyPI is not
+# an option. Without it, app.services.gpio_handler.create_gpio_service() falls
+# back to the Mock and physical buttons never reach the app. Symlink the system
+# package into the venv so the app picks RealGPIOButtonService. Idempotent.
+if [[ "$(uname -m)" == "aarch64" ]]; then
+    SYS_JETSON="/usr/lib/python3/dist-packages/Jetson"
+    VENV_SITE="$INSTALL_DIR/.venv/lib/python3.10/site-packages"
+    if [[ -d "$SYS_JETSON" && -d "$VENV_SITE" ]]; then
+        sudo -u "$INSTALL_USER" ln -sfn "$SYS_JETSON" "$VENV_SITE/Jetson"
+        # Link the dist metadata too (lets importlib.metadata resolve it).
+        for egg in /usr/lib/python3/dist-packages/Jetson.GPIO-*.egg-info; do
+            [[ -e "$egg" ]] && sudo -u "$INSTALL_USER" ln -sfn "$egg" "$VENV_SITE/$(basename "$egg")"
+        done
+        echo -e "${GREEN}Linked system Jetson.GPIO into the venv${NC}"
+    else
+        echo -e "${YELLOW}System Jetson.GPIO not found - GPIO buttons will be disabled.${NC}"
+        echo "  Install it with: sudo apt install python3-jetson-gpio"
+    fi
+fi
+
 # Step 3: Download TTS models
 if [[ "$AI_MODE" == true ]]; then
     if [[ "$DEV_MODE" == false ]]; then
