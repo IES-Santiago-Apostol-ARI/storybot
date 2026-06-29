@@ -69,17 +69,35 @@ class TestSystemEndpoints:
 class TestSystemEventsStream:
     """Test the GPIO→kiosk SSE channel (GET /api/system/events)."""
 
-    def test_events_streams_queued_interrupt(self, client):
-        """A dict put on app.state.kiosk_events is emitted as an SSE event."""
-        app.state.kiosk_events.put_nowait({"type": "interrupt"})
+    def test_events_streams_published_interrupt(self, client):
+        """An event published on the hub AFTER a connection subscribes reaches it.
+
+        kiosk_events is an EventHub (fan-out), so the publish must happen once
+        the stream is open and subscribed — a publish before any subscriber is
+        broadcast to nobody (by design; that is what stops zombie consumers from
+        buffering/stealing). A background thread publishes shortly after the
+        stream opens.
+        """
+        import threading
+        import time
+
+        def publish_later():
+            time.sleep(0.3)
+            app.state.kiosk_events.put_nowait({"type": "interrupt"})
+
         with client.stream("GET", "/api/system/events") as response:
             assert response.status_code == 200
             assert "text/event-stream" in response.headers.get("content-type", "")
-            for line in response.iter_lines():
-                if "interrupt" in line:
-                    break
-            else:  # pragma: no cover - stream ended without our event
-                pytest.fail("interrupt event was not received on the stream")
+            t = threading.Thread(target=publish_later)
+            t.start()
+            try:
+                for line in response.iter_lines():
+                    if "interrupt" in line:
+                        break
+                else:  # pragma: no cover - stream ended without our event
+                    pytest.fail("interrupt event was not received on the stream")
+            finally:
+                t.join()
 
 
 class TestLEDEndpoints:

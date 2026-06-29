@@ -290,27 +290,34 @@ async def set_led_state(
 async def system_events(request: Request) -> EventSourceResponse:
     """Stream server→kiosk events (GPIO buttons) via Server-Sent Events.
 
-    Drains ``app.state.kiosk_events``, the queue the GpioDispatcher writes to
-    when a physical button fires. Each queued dict carries a ``type`` and is
+    Subscribes to ``app.state.kiosk_events`` (an :class:`EventHub`), the
+    fan-out hub the GpioDispatcher publishes to when a physical button fires.
+    Each connection gets its OWN queue so every connected kiosk page receives
+    every event — a second/zombie SSE consumer can no longer steal an interrupt
+    from the tab playing a story. Each queued dict carries a ``type`` and is
     emitted as an SSE event of that name so the kiosk can
     ``addEventListener("interrupt")`` (return home) and
     ``addEventListener("image")`` (show generated cover).
 
-    The queue only exists once the lifespan has run; when it is missing (e.g. a
+    The hub only exists once the lifespan has run; when it is missing (e.g. a
     bare TestClient with no lifespan) the stream closes immediately rather than
-    raising.
+    raising. The subscription is always released on disconnect/cancel.
     """
 
     async def event_stream() -> AsyncIterator[dict]:
-        queue = getattr(request.app.state, "kiosk_events", None)
-        if queue is None:
+        hub = getattr(request.app.state, "kiosk_events", None)
+        if hub is None:
             return
-        while True:
-            event = await queue.get()
-            yield {
-                "event": event.get("type", "message"),
-                "data": json.dumps(event),
-            }
+        queue = hub.subscribe()
+        try:
+            while True:
+                event = await queue.get()
+                yield {
+                    "event": event.get("type", "message"),
+                    "data": json.dumps(event),
+                }
+        finally:
+            hub.unsubscribe(queue)
 
     return SSEStarletteResponse(event_stream(), media_type="text/event-stream")
 

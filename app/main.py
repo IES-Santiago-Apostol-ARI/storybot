@@ -28,19 +28,34 @@ from app.services.tts_pipeline import TTSPipeline
 
 
 class NoCacheStaticFiles(StaticFiles):
-    """StaticFiles wrapper that adds Cache-Control headers for media files."""
+    """StaticFiles wrapper that adds Cache-Control headers.
+
+    Two cases:
+
+    - Media (audio/image): ``no-store`` — never cache, always fetch fresh.
+    - Kiosk code/markup (.js/.css/.html): ``no-cache, must-revalidate`` — the
+      browser may keep a copy but MUST revalidate (If-None-Match) before using
+      it, so a deployed JS/HTML change is always picked up. Plain StaticFiles
+      sends only ETag/Last-Modified with no Cache-Control, which lets Firefox
+      heuristically reuse a stale ``script.js`` for minutes/hours after a
+      deploy — that is what left the kiosk running old code with no GPIO
+      interrupt listener.
+    """
 
     async def get_response(self, path: str, scope) -> Response:
-        """Get response with Cache-Control headers for audio files."""
+        """Get response with Cache-Control headers for media and code assets."""
         response = await super().get_response(path, scope)
 
-        # Add no-cache headers for audio and image files
+        # Media: never cache.
         if path.endswith(
             (".mp3", ".wav", ".m4a", ".ogg", ".jpg", ".jpeg", ".png", ".webp")
         ):
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
             response.headers["Pragma"] = "no-cache"
             response.headers["Expires"] = "0"
+        # Kiosk code/markup: always revalidate so deploys are never stale.
+        elif path.endswith((".js", ".css", ".html")):
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
 
         return response
 
@@ -261,9 +276,13 @@ async def lifespan(app: FastAPI):
     app.state.playback = None
     gpio_dispatcher_task = None
     try:
+        from app.services.event_hub import EventHub
         from app.services.gpio_dispatcher import GpioDispatcher
 
-        app.state.kiosk_events = asyncio.Queue()
+        # Fan-out hub (not a bare Queue): every connected kiosk page must
+        # receive every button event. A single Queue would let a second/zombie
+        # SSE consumer steal interrupts from the tab playing a story.
+        app.state.kiosk_events = EventHub()
         app.state.gpio_dispatcher = GpioDispatcher(
             gpio_events=app.state.gpio_events,
             kiosk_events=app.state.kiosk_events,
@@ -380,12 +399,16 @@ if generated_static_dir.exists():
         name="generated",
     )
 
-# Mount children's kiosk interface
+# Mount children's kiosk interface.
+# NoCacheStaticFiles (not plain StaticFiles): the kiosk runs unattended and is
+# updated in place, so script.js/index.html must always revalidate — otherwise
+# Firefox serves stale JS after a deploy and new features (e.g. the GPIO
+# interrupt listener) never load.
 children_static_dir = Path("static/children")
 if children_static_dir.exists():
     app.mount(
         "/children",
-        StaticFiles(directory=str(children_static_dir), html=True),
+        NoCacheStaticFiles(directory=str(children_static_dir), html=True),
         name="children",
     )
 
