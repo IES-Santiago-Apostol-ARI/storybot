@@ -566,9 +566,33 @@ if [[ "$AI_MODE" == true ]]; then
     # taps, which arrive over SSE (a network event, not a click/touch), so
     # Firefox's default autoplay block makes audioElement.play() throw
     # NotAllowedError and the UI snaps back to idle. 0 = allow audio & video.
+    # Also suppress every Firefox-level popup that could appear over the kiosk
+    # (update nags, default-browser check, welcome/whatsnew screens, crash
+    # restore, and web-page notification permission prompts). Kiosk users have
+    # no keyboard/mouse, so any of these would soft-lock the UX.
     sudo -u "$INSTALL_USER" tee "$USER_HOME/.storybot-kiosk-profile/user.js" > /dev/null << 'AUTOPLAYEOF'
 user_pref("media.autoplay.default", 0);
 user_pref("media.autoplay.blocking_policy", 0);
+
+// Kiosk: suppress all Firefox-level popups/notifications over the UI
+user_pref("app.update.auto", false);
+user_pref("app.update.enabled", false);
+user_pref("app.update.service.enabled", false);
+user_pref("browser.shell.checkDefaultBrowser", false);
+user_pref("browser.startup.homepage_override.mstone", "ignore");
+user_pref("startup.homepage_welcome_url", "");
+user_pref("startup.homepage_welcome_url.additional", "");
+user_pref("browser.aboutwelcome.enabled", false);
+user_pref("browser.messaging-system.whatsNewPanel.enabled", false);
+user_pref("datareporting.policy.dataSubmissionEnabled", false);
+user_pref("datareporting.healthreport.uploadEnabled", false);
+user_pref("browser.discovery.enabled", false);
+user_pref("browser.crashReports.unsubmittedCheck.autoSubmit2", false);
+user_pref("browser.tabs.crashReporting.sendReport", false);
+user_pref("browser.sessionstore.resume_from_crash", false);
+// Block web push permission prompts (the kiosk app needs no notifications)
+user_pref("dom.webnotifications.enabled", false);
+user_pref("permissions.default.desktop-notification", 2);
 AUTOPLAYEOF
 
     cat > "$USER_HOME/.config/autostart/storybot-kiosk.desktop" << 'KIOSKEOF'
@@ -641,22 +665,40 @@ else
     echo "Step 9: Skipping Firefox kiosk autostart (stories-only mode)..."
 fi
 
-# Step 10: Configure screen-never-blocks (AI/kiosk only)
+# Step 10: Configure screen-never-blocks + silence desktop notifications (AI/kiosk only)
 echo ""
 if [[ "$AI_MODE" == true ]]; then
     echo "Step 10: Configuring screen settings..."
+    # gsettings here must run in the user's GNOME D-Bus session, so they are
+    # applied via a one-shot login autostart (same pattern as screen blanking):
+    #   - show-banners / show-in-lock-screen: kill GNOME notification banners
+    #   - update-notifier: kill the "pending updates" / Ubuntu Pro nags
+    # A kiosk user has no keyboard/mouse, so any banner over the UI is a dead end.
     cat > "$USER_HOME/.config/autostart/storybot-screen-setup.desktop" << 'SCREENEOF'
 [Desktop Entry]
 Type=Application
 Name=StoryBot Screen Setup
-Comment=Disable screen blanking (runs once)
-Exec=bash -c "gsettings set org.gnome.desktop.session idle-delay 0 && gsettings set org.gnome.desktop.screensaver lock-enabled false && rm -f ~/.config/autostart/storybot-screen-setup.desktop"
+Comment=Disable screen blanking and desktop notifications (runs once)
+Exec=bash -c "gsettings set org.gnome.desktop.session idle-delay 0 && gsettings set org.gnome.desktop.screensaver lock-enabled false && gsettings set org.gnome.desktop.notifications show-banners false && gsettings set org.gnome.desktop.notifications show-in-lock-screen false && gsettings set com.ubuntu.update-notifier no-show-notifications true && rm -f ~/.config/autostart/storybot-screen-setup.desktop"
 Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
 SCREENEOF
     chown "$INSTALL_USER:$INSTALL_USER" "$USER_HOME/.config/autostart/storybot-screen-setup.desktop"
-    echo -e "${GREEN}Screen settings configured${NC}"
+
+    # Mask the OS notifier autostarts per-user (overrides /etc/xdg/autostart
+    # without touching system files). These are the processes that actually pop
+    # the "updates available", Ubuntu Pro/ESM, print, disk, and calendar-alarm
+    # banners. A Hidden=true stub in the user's autostart suppresses each one.
+    for notifier in update-notifier ubuntu-advantage-notification \
+                    org.gnome.SettingsDaemon.PrintNotifications \
+                    org.gnome.Evolution-alarm-notify \
+                    org.gnome.SettingsDaemon.DiskUtilityNotify; do
+        printf '[Desktop Entry]\nType=Application\nHidden=true\n' \
+            > "$USER_HOME/.config/autostart/${notifier}.desktop"
+        chown "$INSTALL_USER:$INSTALL_USER" "$USER_HOME/.config/autostart/${notifier}.desktop"
+    done
+    echo -e "${GREEN}Screen settings + notification suppression configured${NC}"
 else
     echo "Step 10: Skipping screen settings (stories-only mode)..."
 fi
@@ -727,6 +769,7 @@ if [[ "$AI_MODE" == true ]]; then
     echo "  - GDM3 autologin for user $INSTALL_USER"
     echo "  - Firefox kiosk autostart"
     echo "  - Screen-never-blocks (activates on first login)"
+    echo "  - Desktop notifications silenced (banners + update/Pro nags)"
     echo "  - Cursor hiding (unclutter)"
     echo "  - Llama-server sudoers entry"
 else
