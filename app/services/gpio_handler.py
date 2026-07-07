@@ -66,9 +66,15 @@ def create_gpio_service() -> GPIOButtonService:
 class RealGPIOButtonService(GPIOButtonService):
     """Real GPIO button service using Jetson.GPIO edge detection.
 
-    Configures 4 pins (BOARD mode) with internal pull-up and falling-edge
-    detection. Edge callbacks on the GPIO thread call into the asyncio loop
-    via loop.call_soon_threadsafe to enqueue the button name.
+    Configures 4 pins (BOARD mode) as pull-down + rising edge (each button
+    ties its pin to 3.3 V when pressed). Edge callbacks on the GPIO thread
+    call into the asyncio loop via loop.call_soon_threadsafe to enqueue the
+    button name.
+
+    NOTE: Jetson.GPIO IGNORES the pull_up_down argument — pulls come from
+    the pinmux (jetson-io), not runtime config. Wire external pull-down
+    resistors (or set the pinmux pull) or the inputs float and produce
+    phantom presses.
     """
 
     def __init__(self) -> None:
@@ -104,6 +110,8 @@ class RealGPIOButtonService(GPIOButtonService):
 
         GPIO.setmode(GPIO.BOARD)
         for pin in pin_map:
+            # pull_up_down is a no-op on Jetson.GPIO (pulls are fixed by the
+            # pinmux) — kept for API symmetry; external pull-downs required.
             GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
             GPIO.add_event_detect(
                 pin,

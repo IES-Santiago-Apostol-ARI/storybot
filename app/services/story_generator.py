@@ -1,7 +1,6 @@
 """StoryGenerator — streaming LLM client for llama-server OpenAI-compat endpoint."""
 
 import json
-import re
 from collections.abc import AsyncGenerator
 
 import httpx
@@ -41,14 +40,6 @@ class StoryGenerator:
     def _build_user_message(self, parameters: list[dict]) -> str:
         parts = [f"{p['category']}={p['value']}" for p in parameters]
         return f"Cuenta una historia con estos elementos: {', '.join(parts)}."
-
-    def _strip_think_tags(self, text: str) -> str:
-        if not text:
-            return ""
-        stripped = re.sub(r"<think\s*/>?", "", text, flags=re.DOTALL)
-        stripped = re.sub(r"<think\b.*?</think\b", "", stripped, flags=re.DOTALL)
-        stripped = stripped.lstrip("\n\r")
-        return stripped
 
     def _build_payload(self, parameters: list[dict]) -> dict:
         return {
@@ -107,9 +98,13 @@ class StoryGenerator:
                         if content is None:
                             continue
 
-                        cleaned = self._strip_think_tags(content)
-                        if cleaned:
-                            yield {"text": cleaned, "done": False}
+                        # No <think> filtering here: reasoning is disabled
+                        # server-side (deploy/llama-server.service runs
+                        # --reasoning off --reasoning-format none), and a
+                        # per-delta filter can't catch tags split across
+                        # chunks anyway.
+                        if content:
+                            yield {"text": content, "done": False}
         except httpx.HTTPError:
             yield {"error": "Failed to connect to llama-server", "done": True}
             return

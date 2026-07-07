@@ -58,32 +58,6 @@ class TestSystemPreamble:
         assert "and " not in SYSTEM_PREAMBLE.lower()
 
 
-class TestStripThinkTags:
-    def test_strips_think_block(self):
-        sg = StoryGenerator()
-        text = "<think\nSome reasoning here\n</think\n\nThe story text"
-        assert sg._strip_think_tags(text) == "The story text"
-
-    def test_no_tags_returns_original(self):
-        sg = StoryGenerator()
-        text = "Una historia simple."
-        assert sg._strip_think_tags(text) == "Una historia simple."
-
-    def test_empty_string(self):
-        sg = StoryGenerator()
-        assert sg._strip_think_tags("") == ""
-
-    def test_think_with_attributes(self):
-        sg = StoryGenerator()
-        text = '<think type="reasoning"\nreasoning\n</think\n\nHello'
-        assert sg._strip_think_tags(text) == "Hello"
-
-    def test_self_closing_think(self):
-        sg = StoryGenerator()
-        text = "<think/\n\nWorld"
-        assert sg._strip_think_tags(text) == "World"
-
-
 class TestGenerateStory:
     """Streaming behavior via an injected httpx.MockTransport (no thread,
     no requests — IMPROVEMENTS.md 1.10)."""
@@ -127,20 +101,6 @@ class TestGenerateStory:
         text_events = [e for e in events if e.get("text")]
         assert len(text_events) == 1
         assert text_events[0]["text"] == "Story text"
-
-    @pytest.mark.asyncio
-    async def test_strips_think_tags_from_chunks(self):
-        body = (
-            'data: {"choices":[{"delta":{"content":'
-            '"<think\\n\\n</think\\n\\nUna historia"}}]}\n'
-            "data: [DONE]\n"
-        )
-        sg = StoryGenerator(transport=self._transport(body))
-        events = await self._collect(sg, [{"category": "objeto", "value": "pelota"}])
-
-        text_events = [e for e in events if e.get("text")]
-        assert "<think" not in text_events[0]["text"]
-        assert "Una historia" in text_events[0]["text"]
 
     @pytest.mark.asyncio
     async def test_connection_error(self):

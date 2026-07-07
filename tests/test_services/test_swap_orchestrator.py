@@ -2,14 +2,23 @@
 
 import asyncio
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.services.swap_orchestrator import (
+    SD_VENV_PYTHON,
     LlamaRelaunchError,
     SwapOrchestrator,
 )
+
+
+class TestSdVenvPython:
+    def test_sd_venv_python_derives_from_home(self):
+        """IMPROVEMENTS.md 1.9: no hardcoded /home/ari — the venv path must
+        follow Path.home() like cover_prompt_builder and sd_cover_worker."""
+        assert SD_VENV_PYTHON == Path.home() / "sd-cover/.venv/bin/python"
 
 
 def _make_subprocess_mock(returncode=0, stdout=b"", stderr=b""):

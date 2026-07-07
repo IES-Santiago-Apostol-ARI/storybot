@@ -9,7 +9,7 @@ from pathlib import Path
 import httpx
 
 # Constants
-SD_VENV_PYTHON = Path("/home/ari/sd-cover/.venv/bin/python")
+SD_VENV_PYTHON = Path.home() / "sd-cover/.venv/bin/python"
 SD_WORKER = (
     Path(__file__).resolve().parent.parent.parent / "scripts" / "sd_cover_worker.py"
 )
