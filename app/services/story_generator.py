@@ -1,12 +1,10 @@
 """StoryGenerator — streaming LLM client for llama-server OpenAI-compat endpoint."""
 
-import asyncio
 import json
 import re
-import threading
 from collections.abc import AsyncGenerator
 
-import requests
+import httpx
 
 SYSTEM_PREAMBLE = (
     "Eres un narrador de cuentos infantiles en español para niños de 3 a 6 años.\n"
@@ -29,6 +27,7 @@ class StoryGenerator:
         top_p: float = 0.95,
         max_tokens: int = 600,
         timeout: int = 600,
+        transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self.base_url = base_url
         self.model = model
@@ -36,6 +35,8 @@ class StoryGenerator:
         self.top_p = top_p
         self.max_tokens = max_tokens
         self.timeout = timeout
+        # Test seam: an httpx.MockTransport here keeps tests off the network.
+        self._transport = transport
 
     def _build_user_message(self, parameters: list[dict]) -> str:
         parts = [f"{p['category']}={p['value']}" for p in parameters]
@@ -49,10 +50,8 @@ class StoryGenerator:
         stripped = stripped.lstrip("\n\r")
         return stripped
 
-    def _fetch_stream(self) -> requests.Response | None:
-        """Run the blocking requests.post in a thread and return the response."""
-        url = f"{self.base_url}/v1/chat/completions"
-        payload = {
+    def _build_payload(self, parameters: list[dict]) -> dict:
+        return {
             "model": self.model,
             "temperature": self.temperature,
             "top_p": self.top_p,
@@ -60,77 +59,59 @@ class StoryGenerator:
             "stream": True,
             "messages": [
                 {"role": "system", "content": SYSTEM_PREAMBLE},
-                {"role": "user", "content": self._build_user_message(self._params)},
+                {"role": "user", "content": self._build_user_message(parameters)},
             ],
         }
-        try:
-            resp = requests.post(
-                url, json=payload, stream=True, timeout=self.timeout
-            )
-            resp.raise_for_status()
-            return resp
-        except (requests.ConnectionError, requests.Timeout):
-            return None
 
-    async def generate_story(self, parameters: list[dict]) -> AsyncGenerator[dict, None]:
-        """Async generator that streams tokens from llama-server.
+    async def generate_story(
+        self, parameters: list[dict]
+    ) -> AsyncGenerator[dict, None]:
+        """Stream story tokens from llama-server as {"text", "done"} events.
 
-        The blocking requests.post call is run in a background thread. SSE lines
-        are collected in a queue and yielded from the async side to avoid blocking
-        the FastAPI event loop.
+        Runs natively on httpx.AsyncClient — no thread/queue bridge, and
+        parameters flow as arguments (no shared instance state between
+        concurrent generations). Any transport or HTTP-status failure
+        (llama-server down, still warming up after a cover swap, 5xx) is
+        reported as a terminal {"error": ..., "done": True} event instead of
+        raising, so the SSE route never dies mid-stream.
         """
-        self._params = parameters
-        resp = await asyncio.to_thread(self._fetch_stream)
+        url = f"{self.base_url}/v1/chat/completions"
+        # Fail fast when the server is unreachable; stay patient once the
+        # stream is open (token gaps on the Jetson can be long).
+        timeout = httpx.Timeout(self.timeout, connect=5.0)
+        try:
+            async with httpx.AsyncClient(
+                timeout=timeout, transport=self._transport
+            ) as client:
+                async with client.stream(
+                    "POST", url, json=self._build_payload(parameters)
+                ) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        data = line[6:]
+                        if data.strip() == "[DONE]":
+                            break
 
-        if resp is None:
+                        try:
+                            obj = json.loads(data)
+                        except json.JSONDecodeError:
+                            continue
+
+                        choices = obj.get("choices", [])
+                        if not choices:
+                            continue
+
+                        content = choices[0].get("delta", {}).get("content")
+                        if content is None:
+                            continue
+
+                        cleaned = self._strip_think_tags(content)
+                        if cleaned:
+                            yield {"text": cleaned, "done": False}
+        except httpx.HTTPError:
             yield {"error": "Failed to connect to llama-server", "done": True}
             return
-
-        # Queue to bridge blocking reader → async consumer
-        queue: asyncio.Queue = asyncio.Queue()
-
-        def read_stream():
-            """Background thread: reads SSE lines and pushes to queue."""
-            try:
-                for line in resp.iter_lines():
-                    queue.put_nowait(line)
-            except Exception:
-                pass
-            finally:
-                queue.put_nowait(None)  # Sentinel
-
-        threading.Thread(target=read_stream, daemon=True).start()
-
-        while True:
-            line = await queue.get()
-            if line is None:
-                break
-            if not line:
-                continue
-            line = line.decode("utf-8", errors="replace")
-            if not line.startswith("data: "):
-                continue
-            data = line[6:]
-            if data.strip() == "[DONE]":
-                break
-
-            try:
-                obj = json.loads(data)
-            except json.JSONDecodeError:
-                continue
-
-            choices = obj.get("choices", [])
-            if not choices:
-                continue
-
-            delta = choices[0].get("delta", {})
-            content = delta.get("content")
-
-            if content is None:
-                continue
-
-            cleaned = self._strip_think_tags(content)
-            if cleaned:
-                yield {"text": cleaned, "done": False}
 
         yield {"text": None, "done": True}

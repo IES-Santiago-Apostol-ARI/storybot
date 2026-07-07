@@ -1,9 +1,9 @@
-"""Tests for StoryGenerator service — TDD red phase."""
+"""Tests for StoryGenerator service."""
 
-from unittest.mock import MagicMock, patch
+import json
 
+import httpx
 import pytest
-import requests
 
 from app.services.story_generator import SYSTEM_PREAMBLE, StoryGenerator
 
@@ -85,12 +85,14 @@ class TestStripThinkTags:
 
 
 class TestGenerateStory:
-    def _mock_response(self, lines):
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.iter_lines.return_value = iter(lines)
-        return mock_resp
+    """Streaming behavior via an injected httpx.MockTransport (no thread,
+    no requests — IMPROVEMENTS.md 1.10)."""
+
+    def _transport(self, body: str, status_code: int = 200):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(status_code, content=body.encode("utf-8"))
+
+        return httpx.MockTransport(handler)
 
     async def _collect(self, sg, params):
         """Collect all events from the async generator."""
@@ -98,15 +100,13 @@ class TestGenerateStory:
 
     @pytest.mark.asyncio
     async def test_streams_text(self):
-        lines = [
-            b'data: {"choices":[{"delta":{"content":"Hola "}}]}',
-            b'data: {"choices":[{"delta":{"content":"mundo"}}]}',
-            b"data: [DONE]",
-        ]
-        with patch("app.services.story_generator.requests.post") as mock_post:
-            mock_post.return_value = self._mock_response(lines)
-            sg = StoryGenerator()
-            events = await self._collect(sg, [{"category": "personaje", "value": "dragón"}])
+        body = (
+            'data: {"choices":[{"delta":{"content":"Hola "}}]}\n'
+            'data: {"choices":[{"delta":{"content":"mundo"}}]}\n'
+            "data: [DONE]\n"
+        )
+        sg = StoryGenerator(transport=self._transport(body))
+        events = await self._collect(sg, [{"category": "personaje", "value": "dragón"}])
 
         assert len(events) == 3
         assert events[0] == {"text": "Hola ", "done": False}
@@ -115,16 +115,14 @@ class TestGenerateStory:
 
     @pytest.mark.asyncio
     async def test_skips_reasoning_content(self):
-        lines = [
-            b'data: {"choices":[{"delta":{"role":"assistant","content":null}}]}',
-            b'data: {"choices":[{"delta":{"reasoning_content":"thinking..."}}]}',
-            b'data: {"choices":[{"delta":{"content":"Story text"}}]}',
-            b"data: [DONE]",
-        ]
-        with patch("app.services.story_generator.requests.post") as mock_post:
-            mock_post.return_value = self._mock_response(lines)
-            sg = StoryGenerator()
-            events = await self._collect(sg, [{"category": "lugar", "value": "jardín"}])
+        body = (
+            'data: {"choices":[{"delta":{"role":"assistant","content":null}}]}\n'
+            'data: {"choices":[{"delta":{"reasoning_content":"thinking..."}}]}\n'
+            'data: {"choices":[{"delta":{"content":"Story text"}}]}\n'
+            "data: [DONE]\n"
+        )
+        sg = StoryGenerator(transport=self._transport(body))
+        events = await self._collect(sg, [{"category": "lugar", "value": "jardín"}])
 
         text_events = [e for e in events if e.get("text")]
         assert len(text_events) == 1
@@ -132,14 +130,13 @@ class TestGenerateStory:
 
     @pytest.mark.asyncio
     async def test_strips_think_tags_from_chunks(self):
-        lines = [
-            b'data: {"choices":[{"delta":{"content":"<think\\n\\n</think\\n\\nUna historia"}}]}',
-            b"data: [DONE]",
-        ]
-        with patch("app.services.story_generator.requests.post") as mock_post:
-            mock_post.return_value = self._mock_response(lines)
-            sg = StoryGenerator()
-            events = await self._collect(sg, [{"category": "objeto", "value": "pelota"}])
+        body = (
+            'data: {"choices":[{"delta":{"content":'
+            '"<think\\n\\n</think\\n\\nUna historia"}}]}\n'
+            "data: [DONE]\n"
+        )
+        sg = StoryGenerator(transport=self._transport(body))
+        events = await self._collect(sg, [{"category": "objeto", "value": "pelota"}])
 
         text_events = [e for e in events if e.get("text")]
         assert "<think" not in text_events[0]["text"]
@@ -147,10 +144,23 @@ class TestGenerateStory:
 
     @pytest.mark.asyncio
     async def test_connection_error(self):
-        with patch("app.services.story_generator.requests.post") as mock_post:
-            mock_post.side_effect = requests.ConnectionError("Connection refused")
-            sg = StoryGenerator()
-            events = await self._collect(sg, [{"category": "personaje", "value": "robot"}])
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("Connection refused")
+
+        sg = StoryGenerator(transport=httpx.MockTransport(handler))
+        events = await self._collect(sg, [{"category": "personaje", "value": "robot"}])
+
+        assert len(events) == 1
+        assert "error" in events[0]
+        assert events[0]["done"] is True
+
+    @pytest.mark.asyncio
+    async def test_http_status_error_yields_error_event(self):
+        """IMPROVEMENTS.md 1.4: a 5xx from llama-server (e.g. still warming
+        up right after a cover swap) must yield a terminal error event —
+        never raise out of the generator and kill the SSE route."""
+        sg = StoryGenerator(transport=self._transport("loading", status_code=503))
+        events = await self._collect(sg, [{"category": "personaje", "value": "oso"}])
 
         assert len(events) == 1
         assert "error" in events[0]
@@ -158,14 +168,19 @@ class TestGenerateStory:
 
     @pytest.mark.asyncio
     async def test_sends_correct_payload(self):
-        lines = [b"data: [DONE]"]
-        with patch("app.services.story_generator.requests.post") as mock_post:
-            mock_post.return_value = self._mock_response(lines)
-            sg = StoryGenerator(temperature=0.7, top_p=0.9, max_tokens=500)
-            await self._collect(sg, [{"category": "personaje", "value": "dragón"}])
+        captured: dict = {}
 
-        call_kwargs = mock_post.call_args
-        payload = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["payload"] = json.loads(request.content)
+            return httpx.Response(200, content=b"data: [DONE]\n")
+
+        sg = StoryGenerator(
+            temperature=0.7, top_p=0.9, max_tokens=500,
+            transport=httpx.MockTransport(handler),
+        )
+        await self._collect(sg, [{"category": "personaje", "value": "dragón"}])
+
+        payload = captured["payload"]
         assert payload["model"] == "qwen35-4b-local"
         assert payload["temperature"] == 0.7
         assert payload["top_p"] == 0.9
@@ -175,3 +190,25 @@ class TestGenerateStory:
         assert payload["messages"][0]["role"] == "system"
         assert payload["messages"][1]["role"] == "user"
         assert "dragón" in payload["messages"][1]["content"]
+
+    @pytest.mark.asyncio
+    async def test_concurrent_generations_do_not_share_state(self):
+        """IMPROVEMENTS.md 1.10: parameters must flow as arguments, not via
+        mutable instance state — two interleaved generations on the same
+        StoryGenerator each get their own user message."""
+        seen_messages: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            payload = json.loads(request.content)
+            seen_messages.append(payload["messages"][1]["content"])
+            return httpx.Response(200, content=b"data: [DONE]\n")
+
+        sg = StoryGenerator(transport=httpx.MockTransport(handler))
+        gen_a = sg.generate_story([{"category": "personaje", "value": "gato"}])
+        gen_b = sg.generate_story([{"category": "personaje", "value": "perro"}])
+        # Interleave: start both before finishing either.
+        await gen_a.__anext__()
+        await gen_b.__anext__()
+
+        assert any("gato" in m for m in seen_messages)
+        assert any("perro" in m for m in seen_messages)
