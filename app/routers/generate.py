@@ -98,7 +98,7 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
     collected_text: list[str] = []
     segments: list[dict] = []
 
-    async def stream():
+    async def _stream_body():
         buf = SentenceBuffer()
         seg_index = 0
 
@@ -278,5 +278,31 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
                 if animator is not None:
                     animator.set_mode(Mode.ERROR)
                 yield _cover_event("cover_failed", {"reason": type(e).__name__})
+
+    async def stream():
+        """Resilience wrapper around the stream body (IMPROVEMENTS.md 1.4).
+
+        The LED engine only ever leaves THINKING/PROGRESS when someone tells
+        it to — on a client disconnect (GeneratorExit) nobody will send the
+        'ended' state, and an unexpected exception would kill the SSE with no
+        error event. Both paths must reset the engine.
+        """
+        inner = _stream_body()
+        try:
+            async for chunk in inner:
+                yield chunk
+        except GeneratorExit:
+            # Kiosk tab closed mid-generation: settle the engine back to idle.
+            if animator is not None:
+                animator.set_mode(Mode.IDLE)
+            raise
+        except Exception as e:
+            # Unexpected failure (TTS raise, disk error, ...): end the stream
+            # with a terminal error event; ERROR mode auto-fades (D-16).
+            if animator is not None:
+                animator.set_mode(Mode.ERROR)
+            yield f"data: {json.dumps({'error': type(e).__name__, 'done': True})}\n\n"
+        finally:
+            await inner.aclose()
 
     return StreamingResponse(stream(), media_type="text/event-stream")

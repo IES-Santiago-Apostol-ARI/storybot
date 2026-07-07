@@ -802,6 +802,91 @@ class TestGenerateLedTriggers:
         assert "text/event-stream" in resp.headers["content-type"]
 
 
+class TestGenerateStreamResilience:
+    """IMPROVEMENTS.md 1.4 (route half): the SSE stream must never die
+    silently nor strand the LED in THINKING/PROGRESS."""
+
+    def test_midstream_exception_yields_error_event_and_error_mode(
+        self, client, mock_story_generator
+    ):
+        """An unexpected exception inside the stream body must end the SSE
+        with a terminal error event and drive the engine to ERROR — not
+        propagate and abort the response with the LED stuck in THINKING."""
+        from app.services.led_animator import Mode
+
+        animator = MagicMock()
+        app.state.led_animator = animator
+        try:
+
+            async def _boom():
+                # No sentence terminator → no TTS side effects before the bang.
+                yield {"text": "Hola", "done": False}
+                raise RuntimeError("tts exploded")
+
+            mock_story_generator.generate_story.return_value = _boom()
+
+            resp = client.post(
+                "/api/generate/story",
+                json={"parameters": [{"category": "personaje", "value": "gato"}]},
+            )
+            assert resp.status_code == 200
+
+            lines = [
+                l for l in resp.text.strip().split("\n") if l.startswith("data: ")
+            ]
+            events = [json.loads(l[6:]) for l in lines]
+            assert events, "stream produced no events"
+            last = events[-1]
+            assert last.get("error") == "RuntimeError"
+            assert last.get("done") is True
+
+            assert any(
+                c.args == (Mode.ERROR,) for c in animator.set_mode.call_args_list
+            ), f"expected set_mode(Mode.ERROR); got {animator.set_mode.call_args_list}"
+        finally:
+            delattr(app.state, "led_animator")
+
+    @pytest.mark.asyncio
+    async def test_client_disconnect_resets_led_to_idle(self):
+        """GeneratorExit (kiosk tab closed mid-generation) must drive the
+        engine to IDLE — nobody else will ever send the 'ended' state, so
+        without this the LED stays in THINKING/PROGRESS forever."""
+        from types import SimpleNamespace
+
+        from app.routers.generate import StoryGenerateRequest, generate_story
+        from app.services.led_animator import Mode
+
+        animator = MagicMock()
+
+        async def _slow_gen(parameters):
+            yield {"text": "Hola ", "done": False}
+            yield {"text": "mundo", "done": False}
+            yield {"text": None, "done": True}
+
+        state = SimpleNamespace(
+            ai_enabled=True,
+            story_generator=SimpleNamespace(generate_story=_slow_gen),
+            led_animator=animator,
+        )
+        fastapi_request = SimpleNamespace(app=SimpleNamespace(state=state))
+
+        resp = await generate_story(
+            StoryGenerateRequest(
+                parameters=[{"category": "personaje", "value": "gato"}]
+            ),
+            fastapi_request,
+        )
+        stream = resp.body_iterator
+        first = await stream.__anext__()
+        assert "Hola" in first
+
+        await stream.aclose()  # client disconnect → GeneratorExit inside
+
+        assert any(
+            c.args == (Mode.IDLE,) for c in animator.set_mode.call_args_list
+        ), f"expected set_mode(Mode.IDLE) on disconnect; got {animator.set_mode.call_args_list}"
+
+
 def _hex_to_rgb(hex_color):
     """Local hex_to_rgb mirroring system.hex_to_rgb (avoids a cross-module import
     in the RED test; the assertion compares against the same resolved tuple)."""
