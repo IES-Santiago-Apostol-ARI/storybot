@@ -323,6 +323,7 @@ echo "Step 4: Creating content directories..."
 sudo -u "$INSTALL_USER" mkdir -p "$INSTALL_DIR/content/stories"
 sudo -u "$INSTALL_USER" mkdir -p "$INSTALL_DIR/content/interactive"
 sudo -u "$INSTALL_USER" mkdir -p "$INSTALL_DIR/content/images"
+sudo -u "$INSTALL_USER" mkdir -p "$INSTALL_DIR/content/generated"
 echo -e "${GREEN}Content directories created${NC}"
 
 # Step 5: Configure hardware permissions

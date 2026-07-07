@@ -381,23 +381,26 @@ app.include_router(wifi_router)
 app.include_router(bt_router)
 app.include_router(updates_router)
 
-# Mount static files for story content (with no-cache for audio)
+# Mount static files for story content (with no-cache for audio).
+# The content dirs are CREATED here, not just checked: nothing creates
+# content/generated before the first generation (install.sh only makes
+# stories/interactive/images), and a mount decided at import time would
+# otherwise be missing until the next restart — first story's audio 404s.
 stories_static_dir = Path("content/stories")
-if stories_static_dir.exists():
-    app.mount(
-        "/static/stories",
-        NoCacheStaticFiles(directory=str(stories_static_dir)),
-        name="stories",
-    )
+stories_static_dir.mkdir(parents=True, exist_ok=True)
+app.mount(
+    "/static/stories",
+    NoCacheStaticFiles(directory=str(stories_static_dir)),
+    name="stories",
+)
 
-# Mount static files for generated content (with no-cache for audio)
 generated_static_dir = Path("content/generated")
-if generated_static_dir.exists():
-    app.mount(
-        "/static/generated",
-        NoCacheStaticFiles(directory=str(generated_static_dir)),
-        name="generated",
-    )
+generated_static_dir.mkdir(parents=True, exist_ok=True)
+app.mount(
+    "/static/generated",
+    NoCacheStaticFiles(directory=str(generated_static_dir)),
+    name="generated",
+)
 
 # Mount children's kiosk interface.
 # NoCacheStaticFiles (not plain StaticFiles): the kiosk runs unattended and is
