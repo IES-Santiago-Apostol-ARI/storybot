@@ -22,6 +22,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services.event_hub import EventHub
 from app.services.led_animator import Mode
 
 
@@ -148,7 +149,7 @@ class TestLifespan:
             task = app.state.gpio_dispatcher_task
             assert task is not None
             assert not task.done()
-            assert isinstance(app.state.kiosk_events, asyncio.Queue)
+            assert isinstance(app.state.kiosk_events, EventHub)
             assert app.state.kiosk_events is not app.state.gpio_events
             assert hasattr(app.state, "playback")
 

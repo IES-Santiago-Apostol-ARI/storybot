@@ -69,35 +69,50 @@ class TestSystemEndpoints:
 class TestSystemEventsStream:
     """Test the GPIO→kiosk SSE channel (GET /api/system/events)."""
 
-    def test_events_streams_published_interrupt(self, client):
+    @pytest.mark.asyncio
+    async def test_events_streams_published_interrupt(self):
         """An event published on the hub AFTER a connection subscribes reaches it.
 
         kiosk_events is an EventHub (fan-out), so the publish must happen once
         the stream is open and subscribed — a publish before any subscriber is
         broadcast to nobody (by design; that is what stops zombie consumers from
-        buffering/stealing). A background thread publishes shortly after the
-        stream opens.
+        buffering/stealing).
+
+        The infinite SSE stream cannot be driven through TestClient (the test
+        transport buffers the complete body, so headers never return), so —
+        mirroring TestNFCEventStreamLogic — the route handler is invoked
+        directly and its body iterator consumed in-loop.
         """
-        import threading
-        import time
+        import asyncio
+        from types import SimpleNamespace
 
-        def publish_later():
-            time.sleep(0.3)
-            app.state.kiosk_events.put_nowait({"type": "interrupt"})
+        from app.routers.system import system_events
+        from app.services.event_hub import EventHub
 
-        with client.stream("GET", "/api/system/events") as response:
-            assert response.status_code == 200
-            assert "text/event-stream" in response.headers.get("content-type", "")
-            t = threading.Thread(target=publish_later)
-            t.start()
-            try:
-                for line in response.iter_lines():
-                    if "interrupt" in line:
-                        break
-                else:  # pragma: no cover - stream ended without our event
-                    pytest.fail("interrupt event was not received on the stream")
-            finally:
-                t.join()
+        hub = EventHub()
+        request = SimpleNamespace(
+            app=SimpleNamespace(state=SimpleNamespace(kiosk_events=hub))
+        )
+        response = await system_events(request)
+        assert "text/event-stream" in response.media_type
+
+        stream = response.body_iterator
+        first_event = asyncio.ensure_future(stream.__anext__())
+        # Let the generator run until it subscribes and awaits its queue.
+        for _ in range(10):
+            if hub._subscribers:
+                break
+            await asyncio.sleep(0)
+        assert hub._subscribers, "stream never subscribed to the hub"
+
+        hub.put_nowait({"type": "interrupt"})
+        event = await asyncio.wait_for(first_event, timeout=2)
+        assert event["event"] == "interrupt"
+        assert "interrupt" in event["data"]
+
+        # Disconnect: the generator's finally must release the subscription.
+        await stream.aclose()
+        assert not hub._subscribers
 
 
 class TestLEDEndpoints:
