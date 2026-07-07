@@ -34,8 +34,13 @@ class NFCService(HardwareService):
         """
         ...
 
-    async def stop_polling(self) -> None:
-        """Stop polling for NFC cards."""
+    async def stop_polling(self, callback: Callable[[str], None] | None = None) -> None:
+        """Stop polling / unregister a callback.
+
+        Args:
+            callback: Specific callback to unregister (the /api/nfc/read SSE
+                stream passes its own on disconnect); None unregisters all.
+        """
         ...
 
     @property
@@ -228,7 +233,7 @@ class MockNFCService(NFCService):
     def __init__(self) -> None:
         """Initialize mock NFC service."""
         self._polling = False
-        self._callback: Callable[[str], None] | None = None
+        self._callbacks: list[Callable[[str], None]] = []
 
     @property
     def is_mock(self) -> bool:
@@ -236,14 +241,23 @@ class MockNFCService(NFCService):
         return True
 
     async def start_polling(self, callback: Callable[[str], None]) -> None:
-        """Start mock polling (just stores callback)."""
-        self._callback = callback
+        """Register a callback (list, mirroring RealNFCService — kiosk and
+        admin SSE streams can both be connected at once)."""
+        if callback not in self._callbacks:
+            self._callbacks.append(callback)
         self._polling = True
 
-    async def stop_polling(self) -> None:
-        """Stop mock polling."""
-        self._polling = False
-        self._callback = None
+    async def stop_polling(self, callback: Callable[[str], None] | None = None) -> None:
+        """Unregister a callback; None unregisters all.
+
+        Signature matches RealNFCService — the /api/nfc/read SSE stream calls
+        stop_polling(card_callback) on disconnect and must not TypeError here.
+        """
+        if callback is None:
+            self._callbacks.clear()
+        elif callback in self._callbacks:
+            self._callbacks.remove(callback)
+        self._polling = bool(self._callbacks)
 
     @property
     def is_polling(self) -> bool:
@@ -256,8 +270,8 @@ class MockNFCService(NFCService):
         Args:
             uid: Card UID as hex string (e.g., "04:A3:5B:C2:D4:30").
         """
-        if self._callback:
-            self._callback(uid)
+        for cb in list(self._callbacks):
+            cb(uid)
 
     async def get_status(self) -> dict:
         """Get mock NFC service status."""

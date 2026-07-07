@@ -120,6 +120,48 @@ class TestMockNFCService:
         await mock_nfc_service.stop_polling()
         assert mock_nfc_service.is_polling is False
 
+    @pytest.mark.asyncio
+    async def test_mock_stop_polling_accepts_callback_like_real(
+        self, mock_nfc_service
+    ):
+        """IMPROVEMENTS.md 1.3: /api/nfc/read's finally calls
+        stop_polling(card_callback); the mock must accept the same signature
+        as RealNFCService or every SSE disconnect raises TypeError on devices
+        where pyscard is unavailable (Arduino UNO Q)."""
+
+        def cb(uid: str) -> None:
+            pass
+
+        await mock_nfc_service.start_polling(cb)
+        await mock_nfc_service.stop_polling(cb)  # must not raise
+        assert mock_nfc_service.is_polling is False
+
+    @pytest.mark.asyncio
+    async def test_mock_supports_multiple_subscribers(self, mock_nfc_service):
+        """Kiosk + admin can be connected at once: a tap must reach every
+        registered callback, and unregistering one must keep the others
+        (mirrors RealNFCService's callback list)."""
+        seen1: list[str] = []
+        seen2: list[str] = []
+
+        def cb1(uid: str) -> None:
+            seen1.append(uid)
+
+        def cb2(uid: str) -> None:
+            seen2.append(uid)
+
+        await mock_nfc_service.start_polling(cb1)
+        await mock_nfc_service.start_polling(cb2)
+        mock_nfc_service.simulate_tap("AA:BB:CC:01")
+        assert seen1 == ["AA:BB:CC:01"]
+        assert seen2 == ["AA:BB:CC:01"]
+
+        await mock_nfc_service.stop_polling(cb1)
+        mock_nfc_service.simulate_tap("AA:BB:CC:02")
+        assert seen1 == ["AA:BB:CC:01"]  # unregistered — no second tap
+        assert seen2 == ["AA:BB:CC:01", "AA:BB:CC:02"]
+        assert mock_nfc_service.is_polling is True  # cb2 still registered
+
 
 class TestRealNFCService:
     """Test real NFC service functionality."""
