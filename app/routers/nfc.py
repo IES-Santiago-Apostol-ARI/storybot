@@ -27,8 +27,7 @@ import json
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import EventSourceResponse
-from sse_starlette import EventSourceResponse as SSEStarletteResponse
+from sse_starlette import EventSourceResponse
 
 from app.dependencies import get_hardware, get_story_manager
 from app.services.hardware_manager import HardwareManager
@@ -151,7 +150,7 @@ async def read_nfc_cards(
         finally:
             await nfc_service.stop_polling(card_callback)
 
-    return SSEStarletteResponse(event_stream(), media_type="text/event-stream")
+    return EventSourceResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.get("/status")

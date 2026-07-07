@@ -48,12 +48,7 @@ async def list_cards(
     story_manager: StoryManager = Depends(get_story_manager),
 ) -> CardsListResponse:
     """List all registered cards, optionally filtered by type."""
-    index = story_manager._load_index()
-    cards = list(index.get("cards", {}).values())
-
-    if type:
-        cards = [c for c in cards if c.get("type") == type]
-
+    cards = story_manager.list_cards(type=type)
     return CardsListResponse(cards=cards, total=len(cards))
 
 

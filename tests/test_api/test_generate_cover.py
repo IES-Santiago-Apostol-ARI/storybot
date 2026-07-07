@@ -1,6 +1,7 @@
 """Tests for cover generation SSE events — AC-4 + AC-7."""
 
 import json
+import zlib
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -121,6 +122,36 @@ class TestCoverReadyEmitted:
                 assert "/static/generated/" in cover["preview_url"]
                 assert cover["gen_seconds"] == 9.5
                 break
+
+    def test_seed_is_deterministic_crc32_of_story_id(
+        self, mock_story_generator, mock_story_manager, mock_tts, tmp_path
+    ):
+        """IMPROVEMENTS.md 2.6: same story → same cover must survive a
+        restart, so the seed is crc32(story_id), never hash()."""
+        orchestrator = AsyncMock(spec=SwapOrchestrator)
+        orchestrator.generate_cover_for_story.return_value = (
+            Path("/tmp/preview.png"),
+            Path("/tmp/print.png"),
+            1.0,
+        )
+        app.state.swap_orchestrator = orchestrator
+
+        generated_dir, original = _setup_dir(tmp_path)
+        try:
+            client = TestClient(app)
+            resp = client.post(
+                "/api/generate/story",
+                json={"parameters": [{"category": "personaje", "value": "robot"}]},
+            )
+        finally:
+            _restore_dir(original)
+            delattr(app.state, "swap_orchestrator")
+
+        assert resp.status_code == 200
+        orchestrator.generate_cover_for_story.assert_awaited_once()
+        args = orchestrator.generate_cover_for_story.call_args[0]
+        story_id, seed = args[0], args[3]
+        assert seed == zlib.crc32(story_id.encode())
 
     def test_attach_cover_called_on_success(
         self, mock_story_generator, mock_story_manager, mock_tts, tmp_path

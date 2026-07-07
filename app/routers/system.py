@@ -6,9 +6,8 @@ from collections.abc import AsyncIterator
 from enum import Enum
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import EventSourceResponse
 from pydantic import BaseModel, Field, field_validator
-from sse_starlette import EventSourceResponse as SSEStarletteResponse
+from sse_starlette import EventSourceResponse
 
 from app.dependencies import get_hardware, get_led_animator, get_story_manager
 from app.models.system import SystemStatus
@@ -307,7 +306,7 @@ async def system_events(request: Request) -> EventSourceResponse:
         finally:
             hub.unsubscribe(queue)
 
-    return SSEStarletteResponse(event_stream(), media_type="text/event-stream")
+    return EventSourceResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.post("/poweroff")

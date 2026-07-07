@@ -14,6 +14,7 @@ seams (no hardware):
 """
 
 import asyncio
+import zlib
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -188,6 +189,9 @@ class TestImageHandler:
 
         orch.generate_cover_for_story.assert_awaited_once()
         assert orch.generate_cover_for_story.call_args[0][0] == "story-1"
+        # IMPROVEMENTS.md 2.6: seed must be crc32 (deterministic), not hash()
+        # (randomized per process by PYTHONHASHSEED).
+        assert orch.generate_cover_for_story.call_args[0][3] == zlib.crc32(b"story-1")
         assert kiosk.get_nowait() == {
             "type": "image",
             "url": "/static/generated/story-1/cover-preview.png",

@@ -1,5 +1,6 @@
 """Cover prompt builder — CLIP-budget-safe prompts from session parameters."""
 
+import zlib
 from pathlib import Path
 
 STYLE_PREAMBLE = (
@@ -71,6 +72,16 @@ _SUBSTITUTION_MAP = {
 }
 
 _DROP_ORDER = ["lugar", "objeto", "emoción"]
+
+
+def story_seed(story_id: str) -> int:
+    """Deterministic 32-bit SD seed for a story id.
+
+    crc32 instead of hash(): hash() is randomized per process via
+    PYTHONHASHSEED, so "same story → same cover" would not survive a
+    restart (IMPROVEMENTS.md 2.6).
+    """
+    return zlib.crc32(story_id.encode())
 
 
 def build(params: list[dict]) -> tuple[str, str]:

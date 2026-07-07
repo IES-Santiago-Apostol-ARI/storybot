@@ -368,3 +368,19 @@ class TestStoryManagerUpdate:
         # Verify created_at is preserved
         assert result is not None
         assert result.created_at == original_timestamp
+
+
+class TestCreatedAtTimestamp:
+    """IMPROVEMENTS.md 2.5: standardize on datetime.now(timezone.utc)."""
+
+    def test_created_at_is_timezone_aware_utc(
+        self, story_manager: StoryManager, story_create_data: dict
+    ):
+        """created_at must parse with datetime.fromisoformat (no 'Z' suffix
+        from the deprecated utcnow() idiom) and carry a UTC offset."""
+        from datetime import datetime, timedelta
+
+        story = story_manager.create_story(**story_create_data)
+        parsed = datetime.fromisoformat(story.created_at)
+        assert parsed.tzinfo is not None
+        assert parsed.utcoffset() == timedelta(0)

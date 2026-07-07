@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from app.config import ConfigManager
 from app.services.cover_prompt_builder import build as build_cover_prompt
+from app.services.cover_prompt_builder import story_seed
 from app.services.led_animator import Mode
 from app.services.led_effects import hex_to_rgb
 from app.services.sentence_buffer import SentenceBuffer
@@ -229,7 +230,7 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
         # Cover generation (after story save, audio fully flushed)
         if collected_text and orchestrator and story_manager:
             positive, negative = build_cover_prompt(request.parameters)
-            seed = hash(story_id) & 0xFFFFFFFF
+            seed = story_seed(story_id)
 
             try:
                 # The orchestrator bounds the SD worker internally (WORKER_

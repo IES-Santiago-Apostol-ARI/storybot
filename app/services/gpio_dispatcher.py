@@ -206,7 +206,7 @@ class GpioDispatcher:
             if preview_path.exists():
                 _log("cover_reused_existing", story_id=story_id)
             else:
-                seed = hash(story_id) & 0xFFFFFFFF
+                seed = cover_prompt_builder.story_seed(story_id)
                 preview_path, _print_path, _gen_seconds = (
                     await self._swap_orchestrator.generate_cover_for_story(
                         story_id, positive, negative, seed

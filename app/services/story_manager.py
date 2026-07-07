@@ -108,7 +108,7 @@ class StoryManager:
                 "audio_file": audio_file,
                 "cover_image": cover_image,
                 "nfc_uid": nfc_uid,
-                "created_at": datetime.utcnow().isoformat() + "Z",
+                "created_at": datetime.now(timezone.utc).isoformat(),
             }
 
             index["stories"][id] = story_data
@@ -299,6 +299,23 @@ class StoryManager:
         with self._lock:
             index = self._load_index()
             return index.get("cards", {}).get(uid)
+
+    def list_cards(self, type: str | None = None) -> list[dict]:
+        """List registered cards, optionally filtered by type.
+
+        Args:
+            type: Card type to filter by (e.g. "parameter", "go", "story"),
+                or None for all cards.
+
+        Returns:
+            List of card dicts.
+        """
+        with self._lock:
+            index = self._load_index()
+            cards = list(index.get("cards", {}).values())
+        if type:
+            cards = [c for c in cards if c.get("type") == type]
+        return cards
 
     def create_card(self, card_data: dict) -> dict:
         """Register a new card (parameter or go type).

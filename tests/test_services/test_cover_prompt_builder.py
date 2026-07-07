@@ -1,5 +1,6 @@
 """Tests for cover_prompt_builder — AC-1."""
 
+import zlib
 from unittest.mock import patch
 
 from app.services.cover_prompt_builder import (
@@ -7,6 +8,7 @@ from app.services.cover_prompt_builder import (
     NEGATIVE_PROMPT,
     STYLE_PREAMBLE,
     build,
+    story_seed,
 )
 
 
@@ -146,3 +148,17 @@ class TestEdgeCases:
         )
         assert "cute cartoon robot" in positive
         assert "cat" not in positive
+
+
+class TestStorySeed:
+    """IMPROVEMENTS.md 2.6: deterministic SD seed shared by all call sites."""
+
+    def test_story_seed_is_crc32_of_story_id(self):
+        # hash() is randomized per process (PYTHONHASHSEED); crc32 is not.
+        assert story_seed("story-1") == zlib.crc32(b"story-1")
+
+    def test_story_seed_stable_across_calls(self):
+        assert story_seed("abc-123") == story_seed("abc-123")
+
+    def test_story_seed_fits_32_bits(self):
+        assert 0 <= story_seed("x" * 200) <= 0xFFFFFFFF

@@ -317,3 +317,44 @@ class TestStoryDeleteRemovesCard:
 
         story_manager.delete_story("s1")
         assert story_manager.get_card("AA:BB:CC:DD") is None
+
+
+class TestListCards:
+    """IMPROVEMENTS.md 2.7: list_cards holds the lock; routers must not
+    reach into _load_index()."""
+
+    def _register_cards(self, story_manager: StoryManager) -> None:
+        story_manager.create_card(
+            {
+                "uid": "P1",
+                "type": "parameter",
+                "category": "personaje",
+                "value": "gato",
+                "emoji": "🐱",
+                "label": "Gato",
+            }
+        )
+        story_manager.create_card({"uid": "G1", "type": "go"})
+
+    def test_list_cards_returns_all(self, story_manager: StoryManager):
+        self._register_cards(story_manager)
+        cards = story_manager.list_cards()
+        assert {c["uid"] for c in cards} == {"P1", "G1"}
+
+    def test_list_cards_filters_by_type(self, story_manager: StoryManager):
+        self._register_cards(story_manager)
+        cards = story_manager.list_cards(type="go")
+        assert [c["uid"] for c in cards] == ["G1"]
+
+    def test_list_cards_empty_index(self, story_manager: StoryManager):
+        assert story_manager.list_cards() == []
+
+    def test_cards_route_uses_list_cards(self):
+        """The router must go through the locked accessor, not _load_index."""
+        import inspect
+
+        from app.routers import cards as cards_router
+
+        src = inspect.getsource(cards_router)
+        assert "_load_index" not in src
+        assert "list_cards(" in src
