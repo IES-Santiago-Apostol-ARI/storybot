@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class Settings(BaseModel):
@@ -54,9 +54,9 @@ class Settings(BaseModel):
     poweroff_cmd: list[str] = ["/usr/bin/sudo", "/sbin/poweroff"]
     gpio_enabled: bool = True
 
-    class Config:
-        json_encoders = {Path: str}
-        validate_default = True
+    # json_encoders was dropped in the ConfigDict migration: no field is
+    # Path-typed and save() serializes via model_dump_json.
+    model_config = ConfigDict(validate_default=True)
 
 
 class ConfigManager:

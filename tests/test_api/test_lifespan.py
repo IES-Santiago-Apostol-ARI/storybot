@@ -185,7 +185,7 @@ class TestLifespanLEDEngineWiring:
             "hardware": {
                 "nfc": HardwareState(
                     name="nfc", is_mock=True, status="error", error_message="x"
-                ).dict()
+                ).model_dump()
             },
             "uptime_seconds": 1.0,
             "version": "0.1.0",

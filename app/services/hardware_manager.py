@@ -50,7 +50,7 @@ class HardwareManager:
             uptime_seconds=time.time() - self._start_time,
             version=self._version,
         )
-        return status.dict()
+        return status.model_dump()
 
     async def detect_hardware(self, ai_enabled: bool) -> None:
         """Detect available hardware and register services.
