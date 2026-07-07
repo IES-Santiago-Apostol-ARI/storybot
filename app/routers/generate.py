@@ -219,6 +219,13 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
                 if meta.get("error") and animator is not None:
                     animator.set_mode(Mode.ERROR)
 
+        # Kiosk contract (IMPROVEMENTS.md 1.1): every audio segment has now
+        # been emitted. The {"text": None, "done": true} sentinel above CANNOT
+        # serve as the end-of-audio signal — it arrives before the flushed
+        # tail. The kiosk marks its playback queue complete here and keeps
+        # reading the stream for cover_ready/cover_failed.
+        yield f"data: {json.dumps({'audio_complete': True, 'done': False})}\n\n"
+
         if collected_text:
             _save_generated_story(
                 story_id,

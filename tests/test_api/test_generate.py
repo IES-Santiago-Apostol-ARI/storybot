@@ -349,6 +349,49 @@ class TestGenerateStoryWithAudio:
         data = json.loads(saved[0].read_text())
         assert len(data["segments"]) == 1
 
+    def test_audio_complete_emitted_after_all_audio(
+        self, mock_story_generator, mock_tts_pipeline, tmp_path
+    ):
+        """IMPROVEMENTS.md 1.1: one {"audio_complete": true} event follows the
+        LAST audio_ready — including the flushed tail, which is emitted AFTER
+        the {"text": None, "done": true} sentinel — so the kiosk can mark its
+        playback queue complete while keeping the stream open for
+        cover_ready/cover_failed."""
+        mock_story_generator.generate_story.return_value = _async_gen(
+            [
+                {"text": "Primera frase. ", "done": False},
+                {"text": "Cola sin punto final", "done": False},
+                {"text": None, "done": True},
+            ]
+        )
+
+        ctx = self._make_client_with_dir(
+            mock_story_generator, mock_tts_pipeline, tmp_path
+        )
+        try:
+            resp = ctx.client.post(
+                "/api/generate/story",
+                json={"parameters": [{"category": "personaje", "value": "lobo"}]},
+            )
+        finally:
+            self._restore_dir(ctx)
+
+        lines = [l for l in resp.text.strip().split("\n") if l.startswith("data: ")]
+        events = [json.loads(l[6:]) for l in lines]
+
+        complete_indices = [
+            i for i, e in enumerate(events) if e.get("audio_complete") is True
+        ]
+        assert len(complete_indices) == 1, (
+            f"expected exactly one audio_complete event; got {events}"
+        )
+
+        audio_indices = [i for i, e in enumerate(events) if "audio_ready" in e]
+        assert len(audio_indices) == 2  # terminated sentence + flushed tail
+        assert all(ai < complete_indices[0] for ai in audio_indices), (
+            "audio_complete must come after every audio_ready (incl. flushed tail)"
+        )
+
     def test_synth_failure_emits_error_in_audio_ready(
         self, mock_story_generator, mock_tts_pipeline_failing, tmp_path
     ):

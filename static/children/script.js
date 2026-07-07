@@ -865,10 +865,19 @@ const generationAudioQueue = (() => {
         if (!currentlyPlaying) _playNext();
     }
 
+    function _fireComplete() {
+        // Fire-once: markStreamComplete is called on audio_complete AND again
+        // at stream end (fallback), so the THANKYOU transition must not fire twice.
+        if (!onCompleteCallback) return;
+        const cb = onCompleteCallback;
+        onCompleteCallback = null;
+        cb();
+    }
+
     function markStreamComplete() {
         streamComplete = true;
-        if (pendingUrls.length === 0 && !currentlyPlaying && onCompleteCallback) {
-            onCompleteCallback();
+        if (pendingUrls.length === 0 && !currentlyPlaying) {
+            _fireComplete();
         }
     }
 
@@ -899,8 +908,8 @@ const generationAudioQueue = (() => {
             _playNext();
         } else {
             currentlyPlaying = false;
-            if (streamComplete && onCompleteCallback) {
-                onCompleteCallback();
+            if (streamComplete) {
+                _fireComplete();
             }
         }
     }
@@ -1010,13 +1019,23 @@ async function startGeneration(parameters) {
                         // Phase 16 D-06: buffer until THANKYOU. Don't swap during PLAYING.
                         bufferedCoverUrl = event.cover_ready.preview_url || null;
                         try { console.timeEnd('cover-roundtrip'); } catch (_) {}
-                        // Edge case: if playback already finished (queue idle and we are still in PLAYING
-                        // because the THANKYOU transition hasn't fired yet for some reason), apply now.
-                        if (bufferedCoverUrl && !generationAudioQueue.isActive() && currentState === STATES.PLAYING) {
+                        // Late arrival: playback already finished (queue idle, still in
+                        // PLAYING) or the THANKYOU transition already ran with a null
+                        // buffer — the cover elements stay on screen through THANKYOU,
+                        // so apply now instead of dropping the cover.
+                        if (bufferedCoverUrl && !generationAudioQueue.isActive()
+                            && (currentState === STATES.PLAYING || currentState === STATES.THANKYOU)) {
                             applyCoverSwap(bufferedCoverUrl);
                         }
                     } else if (event.cover_failed) {
                         // Phase 16 D-08: silent. Leave bufferedCoverUrl null → chip-collage stays through THANKYOU.
+                    } else if (event.audio_complete) {
+                        // All audio segments are in (the {"text": null, "done": true}
+                        // sentinel arrives EARLIER, before the flushed tail — it must
+                        // not end this loop). Mark the queue complete and KEEP READING:
+                        // cover_ready/cover_failed arrive 60-120s later on this stream.
+                        cancelBridge();
+                        generationAudioQueue.markStreamComplete();
                     } else if (event.error && event.done) {
                         cancelBridge();
                         console.error('Generation error:', event.error);
@@ -1024,10 +1043,6 @@ async function startGeneration(parameters) {
                         if (overlay) overlay.classList.remove('visible');
                         _generationActive = false;
                         transitionTo(STATES.IDLE);
-                        return;
-                    } else if (event.text === null && event.done === true) {
-                        cancelBridge();
-                        generationAudioQueue.markStreamComplete();
                         return;
                     }
                 }
