@@ -85,7 +85,12 @@ class HardwareManager:
 
             # TTS: Always real, load model at startup (eager load)
             tts_engine = TTSEngine()
-            await tts_engine.initialize(model_name=ConfigManager().load().tts_voice)
+            tts_cfg = ConfigManager().load()
+            await tts_engine.initialize(
+                model_name=tts_cfg.tts_voice,
+                length_scale=tts_cfg.tts_length_scale,
+                speaker=tts_cfg.tts_speaker,
+            )
             self.register_service("tts", tts_engine)
 
         # NFC: Try real, fall back to mock

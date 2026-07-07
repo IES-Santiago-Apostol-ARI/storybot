@@ -269,3 +269,74 @@ class TestTTSEngine:
 
             assert result is False
             assert engine.is_loaded is False
+
+
+class TestSpeakerAndRate:
+    """Random M/F speaker per story + configurable speaking rate.
+
+    es_ES-sharvard-medium is a 2-speaker model (speaker_id_map {M: 0, F: 1});
+    the engine picks a speaker per story and slows speech via length_scale.
+    """
+
+    TWO_SPEAKER_JSON = '{"num_speakers": 2, "speaker_id_map": {"M": 0, "F": 1}}'
+
+    async def _loaded_engine(self, tmp_path, config_json, **init_kwargs):
+        import sys
+
+        model_name = "test-model"
+        (tmp_path / f"{model_name}.onnx").write_bytes(b"fake")
+        (tmp_path / f"{model_name}.onnx.json").write_text(config_json)
+        engine = TTSEngine(model_path=tmp_path)
+
+        mock_piper_module = MagicMock()
+        chunk = MagicMock()
+        chunk.audio_int16_bytes = b"pcm"
+        self.mock_voice = MagicMock()
+        self.mock_voice.synthesize.return_value = [chunk]
+        mock_piper_module.PiperVoice.load.return_value = self.mock_voice
+
+        with patch.dict(sys.modules, {"piper": mock_piper_module}):
+            await engine.initialize(model_name=model_name, **init_kwargs)
+        return engine
+
+    @pytest.mark.asyncio
+    async def test_synthesize_forwards_speaker_and_length_scale(self, tmp_path):
+        engine = await self._loaded_engine(
+            tmp_path, self.TWO_SPEAKER_JSON, length_scale=1.3
+        )
+        engine.synthesize("Hola mundo", speaker_id=1)
+        syn_config = self.mock_voice.synthesize.call_args.kwargs["syn_config"]
+        assert syn_config.speaker_id == 1
+        assert syn_config.length_scale == 1.3
+
+    @pytest.mark.asyncio
+    async def test_pick_speaker_fixed_female(self, tmp_path):
+        engine = await self._loaded_engine(
+            tmp_path, self.TWO_SPEAKER_JSON, speaker="F"
+        )
+        assert engine.pick_speaker() == 1
+
+    @pytest.mark.asyncio
+    async def test_pick_speaker_fixed_male(self, tmp_path):
+        engine = await self._loaded_engine(
+            tmp_path, self.TWO_SPEAKER_JSON, speaker="M"
+        )
+        assert engine.pick_speaker() == 0
+
+    @pytest.mark.asyncio
+    async def test_pick_speaker_random_covers_both_speakers(self, tmp_path):
+        engine = await self._loaded_engine(
+            tmp_path, self.TWO_SPEAKER_JSON, speaker="random"
+        )
+        seen = {engine.pick_speaker() for _ in range(60)}
+        assert seen == {0, 1}
+
+    @pytest.mark.asyncio
+    async def test_pick_speaker_single_speaker_model_returns_none(self, tmp_path):
+        engine = await self._loaded_engine(
+            tmp_path, '{"num_speakers": 1}', speaker="random"
+        )
+        assert engine.pick_speaker() is None
+
+    def test_pick_speaker_unloaded_returns_none(self, tts_engine):
+        assert tts_engine.pick_speaker() is None

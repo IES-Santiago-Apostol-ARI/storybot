@@ -71,3 +71,17 @@ class TestConfigManager:
         # Reload and verify
         reloaded_settings = config_manager.reload()
         assert reloaded_settings.led_brightness == 100
+
+
+class TestTTSSpeechDefaults:
+    """Random speaker + child-friendly speaking rate (§4 follow-up)."""
+
+    def test_default_tts_speaker_is_random(self):
+        from app.config import Settings
+
+        assert Settings().tts_speaker == "random"
+
+    def test_default_tts_length_scale_slows_speech_for_children(self):
+        from app.config import Settings
+
+        assert Settings().tts_length_scale == 1.2

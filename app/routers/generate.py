@@ -89,6 +89,9 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
     story_id = str(uuid.uuid4())
     collected_text: list[str] = []
     segments: list[dict] = []
+    # One narrator per story: pick the speaker (random M/F for sharvard,
+    # per settings.tts_speaker) once and hold it for every segment.
+    story_speaker = tts_pipeline.pick_speaker() if tts_pipeline else None
 
     async def _stream_body():
         buf = SentenceBuffer()
@@ -107,6 +110,7 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
                 sentence,
                 GENERATED_DIR / story_id,
                 index=seg_index,
+                speaker_id=story_speaker,
             )
             url = (
                 f"/static/generated/{story_id}/{meta['audio']}"

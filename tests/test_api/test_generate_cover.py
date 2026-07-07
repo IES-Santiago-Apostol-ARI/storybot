@@ -56,7 +56,7 @@ def mock_story_manager():
 def mock_tts():
     pipeline = MagicMock(spec=TTSPipeline)
 
-    async def fake_synthesize(text, out_dir, index):
+    async def fake_synthesize(text, out_dir, index, speaker_id=None):
         return {"index": index, "text": text, "audio": None, "error": "no engine"}
 
     pipeline.synthesize_segment = fake_synthesize
@@ -270,7 +270,7 @@ class TestAudioStillFlows:
         # Real-ish TTS that creates a file
         pipeline = MagicMock(spec=TTSPipeline)
 
-        async def fake_synthesize(text, out_dir, index):
+        async def fake_synthesize(text, out_dir, index, speaker_id=None):
             audio_dir = Path(str(out_dir)) / "audio"
             audio_dir.mkdir(parents=True, exist_ok=True)
             wav = audio_dir / f"{index:03d}.wav"

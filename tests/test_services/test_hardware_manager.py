@@ -195,12 +195,16 @@ class TestDetectHardwareTTSVoice:
             patch("app.services.tts_engine.TTSEngine") as MockTTS,
         ):
             MockCM.return_value.load.return_value = Settings(
-                tts_voice="es_ES-custom-voice"
+                tts_voice="es_ES-custom-voice",
+                tts_speaker="F",
+                tts_length_scale=1.5,
             )
             MockTTS.return_value.initialize = AsyncMock()
             await hw.detect_hardware(ai_enabled=True)
             MockTTS.return_value.initialize.assert_awaited_once_with(
-                model_name="es_ES-custom-voice"
+                model_name="es_ES-custom-voice",
+                length_scale=1.5,
+                speaker="F",
             )
         await hw.shutdown()
 

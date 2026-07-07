@@ -40,6 +40,12 @@ class Settings(BaseModel):
     led_crossfade_s: float = 0.5  # D-17: default cross-fade duration
     audio_volume: float = 1.0
     tts_voice: str = "es_ES-sharvard-medium"
+    # Speaker choice for multi-speaker voices (sharvard: M=0, F=1).
+    # "random" picks one per story so children don't know who narrates.
+    tts_speaker: str = "random"  # "random" | "M" | "F"
+    # Piper phoneme-duration multiplier; >1 = slower. 1.2 ≈ 20% slower —
+    # the default rate is too fast for ages 3-6.
+    tts_length_scale: float = 1.2
     nfc_reader_device: str = "usb:072f:2200"
     printer_model: str = "QL-800"
     # GPIO button pin mapping (Jetson.GPIO BOARD mode = physical J2 pin)

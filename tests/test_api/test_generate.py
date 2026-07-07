@@ -48,7 +48,9 @@ def mock_tts_pipeline():
     """Create a mock TTSPipeline that writes dummy WAV files."""
     pipeline = MagicMock(spec=TTSPipeline)
 
-    async def fake_synthesize(text: str, out_dir: Path, index: int) -> dict:
+    async def fake_synthesize(
+        text: str, out_dir: Path, index: int, speaker_id=None
+    ) -> dict:
         audio_dir = out_dir / "audio"
         audio_dir.mkdir(parents=True, exist_ok=True)
         wav_path = audio_dir / f"{index:03d}.wav"
@@ -71,7 +73,9 @@ def mock_tts_pipeline_failing():
     """Pipeline that always returns error metadata (no file written)."""
     pipeline = MagicMock(spec=TTSPipeline)
 
-    async def failing_synthesize(text: str, out_dir: Path, index: int) -> dict:
+    async def failing_synthesize(
+        text: str, out_dir: Path, index: int, speaker_id=None
+    ) -> dict:
         return {
             "index": index,
             "text": text,
@@ -979,3 +983,41 @@ def _hex_to_rgb(hex_color):
     in the RED test; the assertion compares against the same resolved tuple)."""
     h = hex_color.lstrip("#")
     return tuple(int(h[i : i + 2], 16) for i in (0, 2, 4))
+
+
+class TestStorySpeakerConsistency:
+    """One randomly picked voice per story, held across every segment."""
+
+    def test_all_segments_use_the_story_speaker(self, mock_story_generator):
+        pipeline = MagicMock(spec=TTSPipeline)
+        pipeline.pick_speaker.return_value = 1
+        captured: list = []
+
+        async def fake_synthesize(
+            text: str, out_dir: Path, index: int, speaker_id=None
+        ) -> dict:
+            captured.append(speaker_id)
+            return {"index": index, "text": text, "audio": f"audio/{index:03d}.wav"}
+
+        pipeline.synthesize_segment = fake_synthesize
+        app.state.tts_pipeline = pipeline
+        try:
+            mock_story_generator.generate_story.return_value = _async_gen(
+                [
+                    {"text": "Primera frase. ", "done": False},
+                    {"text": "Segunda frase. ", "done": False},
+                    {"text": "Tercera frase. ", "done": False},
+                    {"text": None, "done": True},
+                ]
+            )
+            resp = TestClient(app).post(
+                "/api/generate/story",
+                json={"parameters": [{"category": "personaje", "value": "gato"}]},
+            )
+        finally:
+            delattr(app.state, "tts_pipeline")
+
+        assert resp.status_code == 200
+        assert len(captured) >= 3
+        assert set(captured) == {1}
+        pipeline.pick_speaker.assert_called_once()

@@ -120,3 +120,45 @@ class TestTTSPipelineDirCreation:
         out_dir = tmp_path / "nested" / "story"
         await pipeline.synthesize_segment("test", out_dir, index=0)
         assert (out_dir / "audio").is_dir()
+
+
+class RecordingSynthesizer(FakeSynthesizer):
+    """Fake synth that records the speaker_id of each call."""
+
+    def __init__(self):
+        super().__init__()
+        self.speaker_calls = []
+
+    def synthesize(self, text: str, speaker_id=None) -> bytes:
+        self.speaker_calls.append(speaker_id)
+        return self._output
+
+
+class TestSpeakerForwarding:
+    """Pipeline forwards the per-story speaker to the synthesizer."""
+
+    @pytest.mark.asyncio
+    async def test_forwards_speaker_id(self, tmp_path):
+        synth = RecordingSynthesizer()
+        p = TTSPipeline(synth)
+        meta = await p.synthesize_segment("Hola.", tmp_path, index=0, speaker_id=1)
+        assert meta["audio"]
+        assert synth.speaker_calls == [1]
+
+    @pytest.mark.asyncio
+    async def test_legacy_synth_without_speaker_kw_still_works(self, tmp_path):
+        # A synthesizer exposing only synthesize(text) must keep working
+        # when no speaker is requested.
+        p = TTSPipeline(FakeSynthesizer())
+        meta = await p.synthesize_segment("Hola.", tmp_path, index=0)
+        assert meta["audio"]
+
+    def test_pick_speaker_delegates_to_synthesizer(self):
+        class PickingSynth(FakeSynthesizer):
+            def pick_speaker(self):
+                return 1
+
+        assert TTSPipeline(PickingSynth()).pick_speaker() == 1
+
+    def test_pick_speaker_none_when_synth_lacks_support(self):
+        assert TTSPipeline(FakeSynthesizer()).pick_speaker() is None

@@ -36,7 +36,9 @@ def mock_tts_pipeline():
     """Create a mock TTSPipeline that writes dummy WAV files."""
     pipeline = MagicMock(spec=TTSPipeline)
 
-    async def fake_synthesize(text: str, out_dir: Path, index: int) -> dict:
+    async def fake_synthesize(
+        text: str, out_dir: Path, index: int, speaker_id=None
+    ) -> dict:
         audio_dir = out_dir / "audio"
         audio_dir.mkdir(parents=True, exist_ok=True)
         wav_path = audio_dir / f"{index:03d}.wav"
