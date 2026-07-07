@@ -1,7 +1,7 @@
 {
   "led_brightness": 255,
   "audio_volume": 1.0,
-  "tts_voice": "es_ES-glow_tenor",
+  "tts_voice": "es_ES-sharvard-medium",
   "nfc_reader_device": "usb:072f:2200",
   "printer_model": "QL-800",
   "led_strip_device": "/dev/ttyUSB0"
