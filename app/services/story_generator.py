@@ -8,12 +8,18 @@ import httpx
 SYSTEM_PREAMBLE = (
     "Eres un narrador de cuentos infantiles en español para niños de 3 a 6 años.\n"
     "Cada historia debe:\n"
-    "- Usar un vocabulario sencillo y cotidiano en español, sin extranjerismos salvo palabras muy comunes.\n"
-    "- Tener un arco narrativo claro: presentación del personaje y el entorno, un pequeño conflicto o problema, y una resolución tranquila y positiva.\n"
+    "- Usar un vocabulario sencillo y cotidiano en español, sin extranjerismos "
+    "salvo palabras muy comunes.\n"
+    "- Tener un arco narrativo claro: presentación del personaje y el entorno, "
+    "un pequeño conflicto o problema, y una resolución tranquila y positiva.\n"
     "- Desarrollarse en 3 a 5 párrafos cortos, cada uno de 2 a 4 frases.\n"
-    "- Terminar la historia en este turno — no preguntes nada al final ni dejes la historia abierta.\n"
-    "- Incluir por nombre a todos los personajes, lugares, objetos y emociones que se mencionen en la consigna del usuario. Todos deben aparecer y ser relevantes en la historia.\n"
-    "- Escribir solo prosa narrativa. Sin títulos, sin encabezados, sin listas, sin metadatos. Solo el texto del cuento."
+    "- Terminar la historia en este turno — no preguntes nada al final ni dejes "
+    "la historia abierta.\n"
+    "- Incluir por nombre a todos los personajes, lugares, objetos y emociones "
+    "que se mencionen en la consigna del usuario. Todos deben aparecer y ser "
+    "relevantes en la historia.\n"
+    "- Escribir solo prosa narrativa. Sin títulos, sin encabezados, sin listas, "
+    "sin metadatos. Solo el texto del cuento."
 )
 
 
@@ -70,6 +76,7 @@ class StoryGenerator:
         # Fail fast when the server is unreachable; stay patient once the
         # stream is open (token gaps on the Jetson can be long).
         timeout = httpx.Timeout(self.timeout, connect=5.0)
+        finish_reason: str | None = None
         try:
             async with httpx.AsyncClient(
                 timeout=timeout, transport=self._transport
@@ -94,6 +101,9 @@ class StoryGenerator:
                         if not choices:
                             continue
 
+                        if choices[0].get("finish_reason") is not None:
+                            finish_reason = choices[0]["finish_reason"]
+
                         content = choices[0].get("delta", {}).get("content")
                         if content is None:
                             continue
@@ -109,4 +119,10 @@ class StoryGenerator:
             yield {"error": "Failed to connect to llama-server", "done": True}
             return
 
-        yield {"text": None, "done": True}
+        # IMPROVEMENTS.md 3.2: max_tokens cut the story short — mark the
+        # sentinel so the route can drop the mid-word tail instead of
+        # narrating it. Normal completions keep the exact legacy shape.
+        if finish_reason == "length":
+            yield {"text": None, "done": True, "truncated": True}
+        else:
+            yield {"text": None, "done": True}

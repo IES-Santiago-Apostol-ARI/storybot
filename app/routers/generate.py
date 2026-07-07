@@ -1,6 +1,7 @@
 """Generate router — AI story generation endpoint."""
 
 import json
+import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +14,7 @@ from pydantic import BaseModel
 from app.config import ConfigManager
 from app.services.cover_prompt_builder import build as build_cover_prompt
 from app.services.led_animator import Mode
+from app.services.led_effects import hex_to_rgb
 from app.services.sentence_buffer import SentenceBuffer
 from app.services.swap_orchestrator import LlamaRelaunchError
 
@@ -28,18 +30,7 @@ GENERATED_DIR = Path("content/generated")
 _settings = ConfigManager().load()
 
 
-def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
-    """Convert a ``#RRGGBB`` config color to an (r, g, b) tuple.
-
-    Mirrors ``app.routers.system.hex_to_rgb`` — kept local to avoid importing
-    the system router (which has its own Pydantic models) into the generate
-    router.
-    """
-    h = hex_color.lstrip("#")
-    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
-
-
-GEN_PROGRESS_RGB: tuple[int, int, int] = _hex_to_rgb(_settings.led_accum_color)
+GEN_PROGRESS_RGB: tuple[int, int, int] = hex_to_rgb(_settings.led_accum_color)
 
 
 class StoryGenerateRequest(BaseModel):
@@ -101,6 +92,58 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
     async def _stream_body():
         buf = SentenceBuffer()
         seg_index = 0
+        truncated = False
+
+        async def _synth_and_events(sentence):
+            """Synthesize one sentence and yield its SSE event(s).
+
+            Appends the segment meta to ``segments`` and drives the LED
+            progress/error modes. Shared by the main loop and the flush path
+            (IMPROVEMENTS.md 2.1) — behavior identical in both.
+            """
+            nonlocal seg_index
+            meta = await tts_pipeline.synthesize_segment(
+                sentence,
+                GENERATED_DIR / story_id,
+                index=seg_index,
+            )
+            url = (
+                f"/static/generated/{story_id}/{meta['audio']}"
+                if meta.get("audio")
+                else None
+            )
+            audio_event = {
+                "audio_ready": {
+                    "index": meta["index"],
+                    "url": url,
+                    "text": meta["text"],
+                },
+                "done": False,
+            }
+            if meta.get("error"):
+                audio_event["audio_ready"]["error"] = meta["error"]
+            yield f"data: {json.dumps(audio_event, ensure_ascii=False)}\n\n"
+            segments.append(meta)
+            seg_index += 1
+
+            # LED-20 / D-21 (PLAN DECISION): each audio_ready advances the
+            # per-pixel progress bar with RUNNING-KNOWN-COUNT N (i == n each
+            # step), in the defined neutral accent (settings.led_accum_color
+            # -> GEN_PROGRESS_RGB) because no story led_color exists
+            # mid-stream. The bar self-corrects and ends full on the final
+            # flush. Driven through the engine, the sole writer. None-guarded.
+            if animator is not None:
+                animator.set_mode(
+                    Mode.PROGRESS,
+                    i=seg_index,
+                    n=seg_index,
+                    color=GEN_PROGRESS_RGB,
+                )
+            # LED-15 / D-09 / D-15: a per-segment synth error drives the
+            # engine into gentle amber error mode (never red, never strobe).
+            # The engine auto-fades back (D-16).
+            if meta.get("error") and animator is not None:
+                animator.set_mode(Mode.ERROR)
 
         # Self-heal: a prior cover swap that timed out or was cancelled can
         # leave llama-server stopped, which otherwise wedges every later
@@ -126,49 +169,8 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
                 completed = buf.feed(event["text"])
                 for sentence in completed:
                     if tts_pipeline:
-                        meta = await tts_pipeline.synthesize_segment(
-                            sentence,
-                            GENERATED_DIR / story_id,
-                            index=seg_index,
-                        )
-                        url = (
-                            f"/static/generated/{story_id}/{meta['audio']}"
-                            if meta.get("audio")
-                            else None
-                        )
-                        audio_event = {
-                            "audio_ready": {
-                                "index": meta["index"],
-                                "url": url,
-                                "text": meta["text"],
-                            },
-                            "done": False,
-                        }
-                        if meta.get("error"):
-                            audio_event["audio_ready"]["error"] = meta["error"]
-                        yield f"data: {json.dumps(audio_event, ensure_ascii=False)}\n\n"
-                        segments.append(meta)
-                        seg_index += 1
-
-                        # LED-20 / D-21 (PLAN DECISION): each audio_ready advances
-                        # the per-pixel progress bar with RUNNING-KNOWN-COUNT N
-                        # (i == n each step), in the defined neutral accent
-                        # (settings.led_accum_color -> GEN_PROGRESS_RGB) because
-                        # no story led_color exists mid-stream. The bar
-                        # self-corrects and ends full on the final flush. Driven
-                        # through the engine, the sole writer. None-guarded.
-                        if animator is not None:
-                            animator.set_mode(
-                                Mode.PROGRESS,
-                                i=seg_index,
-                                n=seg_index,
-                                color=GEN_PROGRESS_RGB,
-                            )
-                        # LED-15 / D-09 / D-15: a per-segment synth error drives
-                        # the engine into gentle amber error mode (never red,
-                        # never strobe). The engine auto-fades back (D-16).
-                        if meta.get("error") and animator is not None:
-                            animator.set_mode(Mode.ERROR)
+                        async for chunk in _synth_and_events(sentence):
+                            yield chunk
 
             # LED-15 / D-09: a stream-level generation error (the LLM/TTS
             # pipeline emitted {"error": ...}) drives the engine into error
@@ -177,47 +179,36 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
                 animator.set_mode(Mode.ERROR)
 
             if event.get("done"):
+                truncated = bool(event.get("truncated"))
                 break
 
         # Flush remaining buffer
         remaining = buf.flush()
+        # IMPROVEMENTS.md 3.2: on finish_reason == "length" the buffer tail is
+        # a mid-word fragment, not a sentence — drop it from narration and from
+        # the saved text (a story ending one sentence early beats one that
+        # stops mid-word). All-fragment stories save nothing at all.
+        if truncated and remaining:
+            fragment = remaining[0]
+            remaining = []
+            full_text = "".join(collected_text).rstrip()
+            if full_text.endswith(fragment):
+                full_text = full_text[: -len(fragment)].rstrip()
+            collected_text[:] = [full_text] if full_text else []
+            print(
+                json.dumps(
+                    {
+                        "event": "story_truncated",
+                        "story_id": story_id,
+                        "dropped_chars": len(fragment),
+                    }
+                ),
+                file=sys.stderr,
+            )
         for sentence in remaining:
             if tts_pipeline:
-                meta = await tts_pipeline.synthesize_segment(
-                    sentence,
-                    GENERATED_DIR / story_id,
-                    index=seg_index,
-                )
-                url = (
-                    f"/static/generated/{story_id}/{meta['audio']}"
-                    if meta.get("audio")
-                    else None
-                )
-                audio_event = {
-                    "audio_ready": {
-                        "index": meta["index"],
-                        "url": url,
-                        "text": meta["text"],
-                    },
-                    "done": False,
-                }
-                if meta.get("error"):
-                    audio_event["audio_ready"]["error"] = meta["error"]
-                yield f"data: {json.dumps(audio_event, ensure_ascii=False)}\n\n"
-                segments.append(meta)
-                seg_index += 1
-
-                # LED-20 flush path: same running-known-count N progress advance.
-                if animator is not None:
-                    animator.set_mode(
-                        Mode.PROGRESS,
-                        i=seg_index,
-                        n=seg_index,
-                        color=GEN_PROGRESS_RGB,
-                    )
-                # LED-15 flush path: per-segment synth error -> error mode.
-                if meta.get("error") and animator is not None:
-                    animator.set_mode(Mode.ERROR)
+                async for chunk in _synth_and_events(sentence):
+                    yield chunk
 
         # Kiosk contract (IMPROVEMENTS.md 1.1): every audio segment has now
         # been emitted. The {"text": None, "done": true} sentinel above CANNOT

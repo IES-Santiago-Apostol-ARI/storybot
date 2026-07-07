@@ -10,7 +10,9 @@ class WifiNetwork(BaseModel):
     ssid: str = Field(..., description="Network name")
     signal: int = Field(..., ge=0, le=100, description="Signal strength 0-100")
     security: str = Field(..., description="Security type: open, WPA2, WPA3, etc.")
-    connected: bool = Field(False, description="Whether device is connected to this network")
+    connected: bool = Field(
+        False, description="Whether device is connected to this network"
+    )
 
 
 class WifiConnectRequest(BaseModel):

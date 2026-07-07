@@ -127,6 +127,35 @@ class TestGenerateStory:
         assert events[0]["done"] is True
 
     @pytest.mark.asyncio
+    async def test_length_finish_reason_marks_sentinel_truncated(self):
+        """IMPROVEMENTS.md 3.2: when llama-server stops at max_tokens
+        (finish_reason == "length") the terminal sentinel must carry
+        truncated=True so the route can drop the mid-word tail."""
+        body = (
+            'data: {"choices":[{"delta":{"content":"Frase cortad"}}]}\n'
+            'data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n'
+            "data: [DONE]\n"
+        )
+        sg = StoryGenerator(transport=self._transport(body))
+        events = await self._collect(sg, [{"category": "personaje", "value": "oso"}])
+
+        assert events[-1] == {"text": None, "done": True, "truncated": True}
+
+    @pytest.mark.asyncio
+    async def test_stop_finish_reason_keeps_plain_sentinel(self):
+        """IMPROVEMENTS.md 3.2: a normal completion (finish_reason == "stop")
+        keeps the exact legacy sentinel shape — no truncated key."""
+        body = (
+            'data: {"choices":[{"delta":{"content":"Fin."}}]}\n'
+            'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n'
+            "data: [DONE]\n"
+        )
+        sg = StoryGenerator(transport=self._transport(body))
+        events = await self._collect(sg, [{"category": "personaje", "value": "oso"}])
+
+        assert events[-1] == {"text": None, "done": True}
+
+    @pytest.mark.asyncio
     async def test_sends_correct_payload(self):
         captured: dict = {}
 

@@ -14,6 +14,7 @@ from app.dependencies import get_hardware, get_led_animator, get_story_manager
 from app.models.system import SystemStatus
 from app.services.hardware_manager import HardwareManager
 from app.services.led_animator import Mode
+from app.services.led_effects import hex_to_rgb
 from app.services.platform_detect import detect_platform
 from app.services.story_manager import StoryManager
 
@@ -90,19 +91,6 @@ def _load_story_params(story_id: str | None) -> list[dict]:
         return params if isinstance(params, list) else []
     except Exception:
         return []
-
-
-def hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
-    """Convert hex color to RGB tuple.
-
-    Args:
-        hex_color: Hex color string like "#FF0000"
-
-    Returns:
-        Tuple of (r, g, b) values (0-255 each)
-    """
-    hex_color = hex_color.lstrip("#")
-    return tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
 
 
 @router.get("/status", response_model=SystemStatus)

@@ -49,6 +49,7 @@ from enum import IntEnum
 
 from app.config import ConfigManager
 from app.services import led_effects
+from app.services.led_effects import hex_to_rgb
 from app.services.led_spi import encode_ws2812
 
 settings = ConfigManager().load()
@@ -57,12 +58,6 @@ settings = ConfigManager().load()
 def _log_event(event: str, **kwargs: object) -> None:
     """Structured JSON log to stderr (mirrors led_controller._log_event)."""
     print(json.dumps({"event": event, **kwargs}), file=sys.stderr)
-
-
-def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
-    """Convert a ``#RRGGBB`` config color to an (r, g, b) tuple."""
-    h = hex_color.lstrip("#")
-    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
 
 
 class Mode(IntEnum):
@@ -145,7 +140,9 @@ class LedAnimator:
         # Two-slot state (D-07 / D-10).
         self._base: tuple[int, int, int] = (0, 0, 0)
         self._overlay: tuple[int, int, int] | None = None
-        self._overlay_fn: Callable[[float, int], list[tuple[int, int, int]]] | None = None
+        self._overlay_fn: Callable[[float, int], list[tuple[int, int, int]]] | None = (
+            None
+        )
         self._overlay_started_at: float = 0.0
         self._overlay_until: float = 0.0
         # D-06 dirty-check cache (value-equality on encoded bytes).
@@ -188,9 +185,9 @@ class LedAnimator:
         )
 
         # Precompute config RGB colors once (avoid re-parsing each tick).
-        self._idle_rgb = _hex_to_rgb(settings.led_idle_color)
-        self._error_rgb = _hex_to_rgb(settings.led_error_color)
-        self._accum_rgb = _hex_to_rgb(settings.led_accum_color)
+        self._idle_rgb = hex_to_rgb(settings.led_idle_color)
+        self._error_rgb = hex_to_rgb(settings.led_error_color)
+        self._accum_rgb = hex_to_rgb(settings.led_accum_color)
         self._boot_color = (0, 150, 255)  # distinct from idle amber
         self._thinking_color = (200, 200, 255)  # cool white, distinct from amber
         # Low-amber beacon accent (idle only, D-14).
@@ -457,7 +454,9 @@ class LedAnimator:
         ``_base`` tuple.
         """
         if self._overlay_fn is not None and self._now() < self._overlay_until:
-            frame = self._overlay_fn(self._now() - self._overlay_started_at, settings.led_count)
+            frame = self._overlay_fn(
+                self._now() - self._overlay_started_at, settings.led_count
+            )
             return frame[0] if frame else (0, 0, 0)
         if self._overlay is not None:
             if self._now() < self._overlay_until:

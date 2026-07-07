@@ -22,6 +22,7 @@ import asyncio
 import json
 import sys
 import time
+from pathlib import Path
 from typing import Any
 
 from app.config import ConfigManager
@@ -29,6 +30,10 @@ from app.services import cover_prompt_builder, system_control
 from app.services.led_animator import Mode
 
 settings = ConfigManager().load()
+
+# Where generated covers land (same tree the SD worker writes via the
+# orchestrator's out_dir and generate.py's GENERATED_DIR).
+GENERATED_DIR = Path("content/generated")
 
 
 def _log(event: str, **fields: Any) -> None:
@@ -193,17 +198,25 @@ class GpioDispatcher:
         The in-flight guard is reset in ``finally`` regardless of outcome.
         """
         try:
-            seed = hash(story_id) & 0xFFFFFFFF
-            preview_path, _print_path, _gen_seconds = (
-                await self._swap_orchestrator.generate_cover_for_story(
-                    story_id, positive, negative, seed
+            # IMPROVEMENTS.md 3.3: the seed derives from story_id, so a
+            # re-press after success would regenerate the SAME image through a
+            # full llama-stop → SD → llama-start cycle. Reuse an existing
+            # cover instead of swapping.
+            preview_path = GENERATED_DIR / story_id / "cover-preview.png"
+            if preview_path.exists():
+                _log("cover_reused_existing", story_id=story_id)
+            else:
+                seed = hash(story_id) & 0xFFFFFFFF
+                preview_path, _print_path, _gen_seconds = (
+                    await self._swap_orchestrator.generate_cover_for_story(
+                        story_id, positive, negative, seed
+                    )
                 )
-            )
 
-            # Busy-lock or failure → (None, None, None).
-            if preview_path is None:
-                self._error_blink()
-                return
+                # Busy-lock or failure → (None, None, None).
+                if preview_path is None:
+                    self._error_blink()
+                    return
 
             # Derive the URL from the actual output filename (avoids a silent
             # 404 if the worker's basename ever changes).

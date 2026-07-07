@@ -48,12 +48,9 @@ class RealAudioPlayer(AudioPlayer):
 
     def _check_availability(self) -> bool:
         """Check if audio system is available."""
-        try:
-            import simpleaudio as sa
+        import importlib.util
 
-            return True
-        except (ImportError, OSError):
-            return False
+        return importlib.util.find_spec("simpleaudio") is not None
 
     async def play(self, file_path: Path) -> None:
         """Play audio file (WAV or MP3).

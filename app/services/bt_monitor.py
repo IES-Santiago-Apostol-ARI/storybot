@@ -126,7 +126,8 @@ class BtMonitor:
                 logger.exception(f"bt_monitor_loop_error: {e}")
 
             await self.sleep(POLL_INTERVAL)
-            # Ensure we yield to the event loop, especially when using fake/instant sleeps in tests
+            # Ensure we yield to the event loop, especially when using
+            # fake/instant sleeps in tests
             await asyncio.sleep(0)
 
     def status(self) -> dict[str, Any]:

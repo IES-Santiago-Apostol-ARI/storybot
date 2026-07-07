@@ -195,6 +195,56 @@ class TestImageHandler:
         led.rainbow.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_image_reuses_existing_cover_without_swap(
+        self, fake_clock, tmp_path, monkeypatch
+    ):
+        """IMPROVEMENTS.md 3.3: the seed derives from story_id, so a re-press
+        after success would regenerate the SAME image through a full
+        llama-stop → SD → llama-start cycle. An existing cover-preview.png is
+        reused: enqueue its URL + rainbow ack, never touch the orchestrator."""
+        from app.services import gpio_dispatcher
+
+        monkeypatch.setattr(gpio_dispatcher, "GENERATED_DIR", tmp_path)
+        cover = tmp_path / "story-1" / "cover-preview.png"
+        cover.parent.mkdir(parents=True)
+        cover.write_bytes(b"png")
+
+        orch = MagicMock()
+        orch.generate_cover_for_story = AsyncMock()
+        led = MagicMock()
+        kiosk: asyncio.Queue = asyncio.Queue()
+        holder = _holder(
+            {
+                "story_id": "story-1",
+                "params": [{"category": "personaje", "value": "gato"}],
+                "title": "Cuento",
+            }
+        )
+        d = _dispatcher(
+            kiosk_events=kiosk,
+            swap_orchestrator=orch,
+            led_animator=led,
+            playback_holder=holder,
+            now=fake_clock,
+        )
+
+        await d._handle_event("image")
+        await _drain_tasks()
+
+        orch.generate_cover_for_story.assert_not_awaited()
+        assert kiosk.get_nowait() == {
+            "type": "image",
+            "url": "/static/generated/story-1/cover-preview.png",
+        }
+        led.rainbow.assert_called_once()
+
+        # The busy guard must reset so a later press still works.
+        fake_clock.now += 1.0
+        await d._handle_event("image")
+        await _drain_tasks()
+        assert kiosk.get_nowait()["type"] == "image"
+
+    @pytest.mark.asyncio
     async def test_image_drop_on_busy(self, fake_clock):
         release = asyncio.Event()
         calls: list[str] = []

@@ -320,3 +320,28 @@ class TestGamma:
         )
         # Just verify it produces non-zero output
         assert encoded != b'\x00' * len(encoded)
+
+
+# --- IMPROVEMENTS.md 2.2: single hex_to_rgb ----------------------------
+
+class TestHexToRgb:
+    """One shared hex_to_rgb lives here; generate.py, system.py and
+    led_animator.py all import it (IMPROVEMENTS.md 2.2)."""
+
+    def test_converts_hash_prefixed_hex(self):
+        from app.services.led_effects import hex_to_rgb
+
+        assert hex_to_rgb("#FF8000") == (255, 128, 0)
+
+    def test_converts_bare_hex(self):
+        from app.services.led_effects import hex_to_rgb
+
+        assert hex_to_rgb("00ff00") == (0, 255, 0)
+
+    def test_all_users_share_the_led_effects_implementation(self):
+        from app.routers import generate, system
+        from app.services import led_animator, led_effects
+
+        assert system.hex_to_rgb is led_effects.hex_to_rgb
+        assert generate.hex_to_rgb is led_effects.hex_to_rgb
+        assert led_animator.hex_to_rgb is led_effects.hex_to_rgb

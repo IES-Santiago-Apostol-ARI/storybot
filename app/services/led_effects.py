@@ -46,6 +46,16 @@ _PARAM_FILL_COLOR = (0, 255, 128)  # teal
 _PROGRESS_COLOR = (0, 200, 255)  # cyan
 
 
+def hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    """Convert a ``#RRGGBB`` config color to an (r, g, b) tuple.
+
+    The single shared implementation (IMPROVEMENTS.md 2.2) — imported by
+    generate.py, system.py and led_animator.py.
+    """
+    h = hex_color.lstrip("#")
+    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+
 def breathe(
     now: float,
     count: int,
@@ -154,10 +164,10 @@ def rainbow(elapsed: float, count: int) -> list[tuple[int, int, int]]:
     Pure RGB out (gamma/cap applied by encoder below the boundary).
     Returns `count` pixels, each with a different hue offset.
     """
-    _RAINBOW_PERIOD = 1.5  # seconds for one full hue cycle
+    rainbow_period = 1.5  # seconds for one full hue cycle
     fb = []
     for i in range(count):
-        hue = ((elapsed / _RAINBOW_PERIOD) + (i / count)) % 1.0
+        hue = ((elapsed / rainbow_period) + (i / count)) % 1.0
         r, g, b = _hsv_to_rgb(hue, 1.0, 1.0)
         fb.append((round(r * 255), round(g * 255), round(b * 255)))
     return fb

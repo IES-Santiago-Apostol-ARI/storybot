@@ -452,6 +452,93 @@ class TestGenerateStoryWithAudio:
         assert text_events[0]["text"] == "Hola. "
 
 
+class TestGenerateTruncatedStory:
+    """IMPROVEMENTS.md 3.2: finish_reason == "length" (sentinel truncated=True)
+    must NOT narrate the mid-word buffer tail as a sentence."""
+
+    def _run(self, mock_story_generator, mock_tts_pipeline, tmp_path, events):
+        mock_story_generator.generate_story.return_value = _async_gen(events)
+        helper = TestGenerateStoryWithAudio()
+        ctx = helper._make_client_with_dir(
+            mock_story_generator, mock_tts_pipeline, tmp_path
+        )
+        try:
+            resp = ctx.client.post(
+                "/api/generate/story",
+                json={"parameters": [{"category": "personaje", "value": "oso"}]},
+            )
+        finally:
+            helper._restore_dir(ctx)
+        lines = [l for l in resp.text.strip().split("\n") if l.startswith("data: ")]
+        return ctx, [json.loads(l[6:]) for l in lines]
+
+    def test_truncated_tail_not_synthesized(
+        self, mock_story_generator, mock_tts_pipeline, tmp_path
+    ):
+        """The fragment after the last complete sentence is dropped: no
+        audio_ready for it, and the saved text ends at the sentence."""
+        ctx, events = self._run(
+            mock_story_generator,
+            mock_tts_pipeline,
+            tmp_path,
+            [
+                {"text": "Primera frase completa. ", "done": False},
+                {"text": "Fragmento cortad", "done": False},
+                {"text": None, "done": True, "truncated": True},
+            ],
+        )
+
+        audio_events = [e for e in events if "audio_ready" in e]
+        assert len(audio_events) == 1
+        assert audio_events[0]["audio_ready"]["text"] == "Primera frase completa."
+
+        # audio_complete still closes the audio phase for the kiosk.
+        assert any(e.get("audio_complete") is True for e in events)
+
+        saved = list(ctx.dir.glob("*/story.json"))
+        assert len(saved) == 1
+        data = json.loads(saved[0].read_text())
+        assert data["text"] == "Primera frase completa."
+        assert len(data["segments"]) == 1
+
+    def test_truncated_stream_with_no_complete_sentence_saves_nothing(
+        self, mock_story_generator, mock_tts_pipeline, tmp_path
+    ):
+        """All-fragment output (truncated before any terminator) narrates and
+        saves nothing rather than a mid-word story."""
+        ctx, events = self._run(
+            mock_story_generator,
+            mock_tts_pipeline,
+            tmp_path,
+            [
+                {"text": "Fragmento cortad", "done": False},
+                {"text": None, "done": True, "truncated": True},
+            ],
+        )
+
+        assert not [e for e in events if "audio_ready" in e]
+        assert list(ctx.dir.glob("*/story.json")) == []
+
+    def test_untruncated_flush_behavior_unchanged(
+        self, mock_story_generator, mock_tts_pipeline, tmp_path
+    ):
+        """Without truncated=True the tail is still flushed and narrated
+        (pins that 3.2 only fires on finish_reason == "length")."""
+        ctx, events = self._run(
+            mock_story_generator,
+            mock_tts_pipeline,
+            tmp_path,
+            [
+                {"text": "Un final abierto", "done": False},
+                {"text": None, "done": True},
+            ],
+        )
+
+        audio_events = [e for e in events if "audio_ready" in e]
+        assert len(audio_events) == 1
+        assert audio_events[0]["audio_ready"]["text"] == "Un final abierto"
+
+
 class TestPhase13Deployment:
     """Tests verifying deployment artifacts from Phase 13-02 (AC-3, AC-4)."""
 

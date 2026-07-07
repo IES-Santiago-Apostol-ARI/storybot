@@ -89,7 +89,8 @@ async def lifespan(app: FastAPI):
         app.state.story_generator = StoryGenerator()
         app.state.swap_orchestrator = SwapOrchestrator()
 
-    # Phase 16 D-18: attach printer service for /api/printer/print (router added in 16-04).
+    # Phase 16 D-18: attach printer service for /api/printer/print (router
+    # added in 16-04).
     try:
         from app.services.printer_handler import create_printer_service
 
