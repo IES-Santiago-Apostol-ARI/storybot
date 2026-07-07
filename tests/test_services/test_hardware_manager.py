@@ -118,6 +118,93 @@ class TestHardwareManager:
         assert status_after["status"] == "not_connected"
 
 
+class TestRescanShutsDownReplacedServices:
+    """rescan() must shut down the services it replaces (IMPROVEMENTS 1.6).
+
+    Without this the old NFC CardMonitor observer keeps firing and Piper
+    (~400 MB) is loaded a second time while the old engine is still alive.
+    """
+
+    @pytest.mark.asyncio
+    async def test_rescan_shuts_down_replaced_nfc_service(
+        self, hardware_manager, monkeypatch
+    ):
+        """The old nfc service's shutdown() is awaited before re-detection."""
+        monkeypatch.setenv("TESTING", "1")
+        await hardware_manager.detect_hardware(ai_enabled=False)
+
+        spy_nfc = MockService("nfc")
+        spy_nfc.shutdown = AsyncMock()
+        hardware_manager.register_service("nfc", spy_nfc)
+
+        await hardware_manager.rescan()
+
+        spy_nfc.shutdown.assert_awaited_once()
+        assert hardware_manager._services["nfc"] is not spy_nfc, (
+            "IMPROVEMENTS 1.6: rescan must replace the old service instance"
+        )
+
+    @pytest.mark.asyncio
+    async def test_rescan_does_not_shut_down_gpio(
+        self, hardware_manager, monkeypatch
+    ):
+        """gpio is registered by the lifespan, not detect_hardware — leave it."""
+        monkeypatch.setenv("TESTING", "1")
+        await hardware_manager.detect_hardware(ai_enabled=False)
+
+        gpio = MockService("gpio")
+        gpio.shutdown = AsyncMock()
+        hardware_manager.register_service("gpio", gpio)
+
+        await hardware_manager.rescan()
+
+        gpio.shutdown.assert_not_awaited()
+        assert hardware_manager._services["gpio"] is gpio
+
+    @pytest.mark.asyncio
+    async def test_rescan_survives_failing_old_service_shutdown(
+        self, hardware_manager, monkeypatch
+    ):
+        """A raising shutdown() on an old service must not abort the rescan."""
+        monkeypatch.setenv("TESTING", "1")
+        await hardware_manager.detect_hardware(ai_enabled=False)
+
+        bad_audio = MockService("audio")
+        bad_audio.shutdown = AsyncMock(side_effect=RuntimeError("boom"))
+        hardware_manager.register_service("audio", bad_audio)
+
+        await hardware_manager.rescan()
+
+        bad_audio.shutdown.assert_awaited_once()
+        status = await hardware_manager.get_status()
+        assert "audio" in status["hardware"]
+
+
+class TestDetectHardwareTTSVoice:
+    """detect_hardware must load the configured tts_voice (IMPROVEMENTS 1.7)."""
+
+    @pytest.mark.asyncio
+    async def test_detect_hardware_passes_configured_tts_voice(self, monkeypatch):
+        """TTSEngine.initialize receives Settings.tts_voice, not a hardcoded voice."""
+        from app.config import Settings
+
+        monkeypatch.setenv("TESTING", "1")
+        hw = HardwareManager()
+        with (
+            patch("app.config.ConfigManager") as MockCM,
+            patch("app.services.tts_engine.TTSEngine") as MockTTS,
+        ):
+            MockCM.return_value.load.return_value = Settings(
+                tts_voice="es_ES-custom-voice"
+            )
+            MockTTS.return_value.initialize = AsyncMock()
+            await hw.detect_hardware(ai_enabled=True)
+            MockTTS.return_value.initialize.assert_awaited_once_with(
+                model_name="es_ES-custom-voice"
+            )
+        await hw.shutdown()
+
+
 class TestDetectHardwareAiGated:
     """Tests for detect_hardware(ai_enabled) TTS gating (Plan 17-03, CONTEXT.md D-14/D-15/D-16)."""
 

@@ -44,6 +44,11 @@ class TestConfigManager:
         assert settings.audio_volume == 0.5
         assert settings.tts_voice == "es_ES-glow_tenor"
 
+    def test_default_tts_voice_matches_shipped_model(self, config_manager):
+        """Default tts_voice is the voice download-models.sh installs (§1.7)."""
+        settings = config_manager.load()
+        assert settings.tts_voice == "es_ES-sharvard-medium"
+
     def test_save_writes_current_settings_to_file(self, config_manager, temp_config_file):
         """ConfigManager.save() writes current settings to config.json."""
         settings = Settings(led_brightness=200, audio_volume=0.8)

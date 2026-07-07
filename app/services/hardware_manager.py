@@ -64,12 +64,28 @@ class HardwareManager:
         from app.services.led_controller import create_led_service
         from app.services.nfc_handler import create_nfc_service
 
+        # rescan() re-enters here with live services registered: shut down the
+        # instances about to be replaced first, or the old NFC CardMonitor
+        # observer keeps firing and Piper (~400MB) loads a second time next to
+        # the old engine. "gpio" is registered by the lifespan, not here —
+        # leave it alone.
+        for name in ("tts", "nfc", "led", "audio"):
+            old_service = self._services.pop(name, None)
+            if old_service is None:
+                continue
+            try:
+                await old_service.shutdown()
+            except Exception:
+                # A failing old service must not block the rescan
+                pass
+
         if ai_enabled:
+            from app.config import ConfigManager
             from app.services.tts_engine import TTSEngine
 
             # TTS: Always real, load model at startup (eager load)
             tts_engine = TTSEngine()
-            await tts_engine.initialize()
+            await tts_engine.initialize(model_name=ConfigManager().load().tts_voice)
             self.register_service("tts", tts_engine)
 
         # NFC: Try real, fall back to mock

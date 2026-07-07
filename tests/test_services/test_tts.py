@@ -102,6 +102,13 @@ class TestTTSEngine:
             mock_load.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_tts_engine_initialize_passes_model_name(self, tts_engine):
+        """initialize(model_name=...) forwards the voice to load_model (§1.7)."""
+        with patch.object(tts_engine, "load_model", return_value=True) as mock_load:
+            await tts_engine.initialize(model_name="es_ES-custom-voice")
+            mock_load.assert_called_once_with(model_name="es_ES-custom-voice")
+
+    @pytest.mark.asyncio
     async def test_tts_engine_shutdown_clears_state(self, tts_engine):
         """Test that shutdown() clears model state."""
         # Set some state manually

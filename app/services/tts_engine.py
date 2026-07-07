@@ -145,9 +145,9 @@ class TTSEngine(HardwareService):
             "error_message": error_msg,
         }
 
-    async def initialize(self) -> None:
-        """Initialize TTS engine (loads default model)."""
-        await self.load_model()
+    async def initialize(self, model_name: str = "es_ES-sharvard-medium") -> None:
+        """Initialize TTS engine (loads the given voice model)."""
+        await self.load_model(model_name=model_name)
 
     async def shutdown(self) -> None:
         """Shutdown TTS engine and free memory."""

@@ -39,7 +39,7 @@ class Settings(BaseModel):
     led_boot_wipe_s: float = 1.0  # D-10: boot wipe duration
     led_crossfade_s: float = 0.5  # D-17: default cross-fade duration
     audio_volume: float = 1.0
-    tts_voice: str = "es_ES-glow_tenor"
+    tts_voice: str = "es_ES-sharvard-medium"
     nfc_reader_device: str = "usb:072f:2200"
     printer_model: str = "QL-800"
     # GPIO button pin mapping (Jetson.GPIO BOARD mode = physical J2 pin)
