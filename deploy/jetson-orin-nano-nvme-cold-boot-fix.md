@@ -326,6 +326,113 @@ sudo ./flash.sh -k B_cpu-bootloader \
 
 ---
 
+## Part 3: Reapplying After a Firmware Capsule Update (2026-07 regression)
+
+**Any QSPI firmware capsule update reverts this entire fix** — it replaces the
+patched UEFI (Part 2) *and* the L4TConfiguration defaults (Part 1) with
+NVIDIA's stock build. This happened on 2026-07-11 when
+`deploy/enable-super-firmware.sh` applied the stock super capsule to unlock
+the 25W Super clocks (EMC 3199 MHz / GPU 918 MHz): the cold-boot PXE/shell
+drop returned immediately. Telltale signs of stock firmware: `sudo
+efibootmgr -v` shows regenerated PXE/HTTP boot entries and `Timeout: 5
+seconds` instead of 15.
+
+The fix and the Super clocks are NOT mutually exclusive: the Super profile
+lives in the BPMP firmware clock tables, the cold-boot patch lives in the
+UEFI binary. A self-generated capsule containing the patched UEFI keeps both,
+because capsule payload selection keys off `/etc/nv_boot_control.conf`, which
+already says `jetson-orin-nano-devkit-super-`.
+
+This route needs **no recovery mode and no USB cable** — the capsule is
+applied from the running Jetson, and the A/B bootloader slots give automatic
+fallback if it fails.
+
+### 3.1 Rebuild the patched UEFI (host PC)
+
+Follow **Part 1** (steps 1.1–1.4: BSP download + L4TConfiguration edits) and
+**Part 2** (steps 2.1–2.5: Docker EDK2 build with the PCIe patches) exactly
+as written above. Stop before 2.6 — do NOT recovery-flash. You end with:
+
+- `~/jetson/Linux_for_Tegra/kernel/dtb/L4TConfiguration.dtbo` (modified)
+- `~/nvidia-uefi-build/nvidia-uefi/images/uefi_t23x_general_RELEASE.bin`
+  (patched; verify with `strings ... | grep retry`)
+
+The L4TConfiguration.dtbo gets folded into the cpu-bootloader image at
+payload-generation time, so the capsule carries both Part 1 and Part 2.
+
+### 3.2 Generate the capsule (host PC)
+
+```bash
+cd ~/jetson/Linux_for_Tegra
+
+# Patched UEFI in place of the stock binary
+cp ~/nvidia-uefi-build/nvidia-uefi/images/uefi_t23x_general_RELEASE.bin \
+   bootloader/uefi_jetson.bin
+
+# Host prerequisites for payload generation (once)
+sudo ./tools/l4t_flash_prerequisites.sh
+
+# Multi-spec bootloader update payload (covers the -super TNSPEC too)
+sudo ./l4t_generate_soc_bup.sh t23x
+
+# Wrap it as a UEFI capsule
+sudo ./generate_capsule/l4t_generate_soc_capsule.sh \
+  -i bootloader/payloads_t23x/bl_only_payload \
+  -o ./TEGRA_BL_patched.Cap t234
+```
+
+Copy it over: `scp TEGRA_BL_patched.Cap ari@<jetson>:/home/ari/`
+
+### 3.3 Stage and apply (on the Jetson)
+
+Same capsule-on-disk mechanism as `deploy/enable-super-firmware.sh` (fwupd
+can't be used — the 63 MB ESP is too small for its 2x-size check):
+
+```bash
+sudo bash -s <<'EOS'
+set -e
+OSIND=/sys/firmware/efi/efivars/OsIndications-8be4df61-93ca-11d2-aa0d-00e098032b8c
+mkdir -p /boot/efi/EFI/UpdateCapsule
+cp /home/ari/TEGRA_BL_patched.Cap /boot/efi/EFI/UpdateCapsule/TEGRA_BL.Cap
+sync
+existing=0
+if [[ -f "$OSIND" ]]; then
+    chattr -i "$OSIND" 2>/dev/null || true
+    existing=$(od -An -tu1 -j4 -N1 "$OSIND" | tr -d ' ')
+fi
+lowbyte=$(printf '\\x%02x' $((existing | 4)))
+printf "\x07\x00\x00\x00${lowbyte}\x00\x00\x00\x00\x00\x00\x00" > "$OSIND"
+EOS
+sudo reboot
+# UEFI shows a progress bar for 1-5 minutes. DO NOT POWER OFF.
+```
+
+### 3.4 Verify
+
+```bash
+sudo nvbootctrl dump-slots-info   # bootloader slot flipped, update status 1
+sudo efibootmgr -v                # Timeout: 15 seconds, NO PXE/HTTP entries
+sudo nvpmodel -q                  # 25W (Super profile survived)
+sudo cat /sys/kernel/debug/bpmp/debug/clk/emc/max_rate   # 3199000000
+```
+
+Then the real test: full shutdown, unplug power, wait a few seconds, plug
+back in — it must boot straight from NVMe.
+
+### 3.5 Prevent the next regression
+
+An apt upgrade of `nvidia-l4t-bootloader` stages a stock capsule again and
+silently undoes the patch. Pin it:
+
+```bash
+sudo apt-mark hold nvidia-l4t-bootloader
+```
+
+Unhold only when deliberately taking a bootloader update — and re-run this
+Part 3 afterwards.
+
+---
+
 ## Temporary Workaround (USB Stick)
 
 If you need a quick fix before applying the UEFI patch, you can use a USB stick with a `startup.nsh` script. When the UEFI shell can't find the NVMe, it looks for `startup.nsh` on any available filesystem (including USB):
