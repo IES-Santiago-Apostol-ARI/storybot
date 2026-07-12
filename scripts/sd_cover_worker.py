@@ -63,7 +63,12 @@ def build_pipeline():
     pipe.enable_vae_slicing()
     pipe.enable_vae_tiling()
     pipe.enable_attention_slicing(1)
-    pipe.enable_sequential_cpu_offload()
+    # Jetson has unified memory shared with the stopped llama-server; per-model
+    # offload keeps one submodule GPU-resident at a time — ~39% faster than
+    # sequential (per-submodule) offload on-device, and fits the free window.
+    # Full GPU residency (pipe.to("cuda")) OOMs here even with VAE tiling.
+    # (IMPROVEMENTS.md 3.4; bench 2026-07-11: sequential 31.5s → model 19.3s.)
+    pipe.enable_model_cpu_offload()
     return pipe
 
 
