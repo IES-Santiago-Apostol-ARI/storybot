@@ -29,6 +29,16 @@ def _make_subprocess_mock(returncode=0, stdout=b"", stderr=b""):
     return proc
 
 
+@pytest.fixture(autouse=True)
+def _no_mem_settle(monkeypatch):
+    """Skip the real 3 s memory-settle sleep in _run_swap.
+
+    The subprocesses are mocked, so the settle delay only slows the suite
+    (IMPROVEMENTS.md §6 suite-speed note: ~3 s per swap test).
+    """
+    monkeypatch.setattr("app.services.swap_orchestrator.MEM_SETTLE_S", 0)
+
+
 @pytest.fixture
 def orchestrator():
     return SwapOrchestrator()

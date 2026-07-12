@@ -15,6 +15,7 @@ async def _async_gen(events):
     for e in events:
         yield e
 
+
 from app.main import app
 from app.services.story_generator import StoryGenerator
 from app.services.tts_pipeline import TTSPipeline
@@ -123,9 +124,7 @@ class TestGenerateStory:
         assert first["done"] is False
 
     def test_generate_empty_params_returns_400(self, client):
-        resp = client.post(
-            "/api/generate/story", json={"parameters": []}
-        )
+        resp = client.post("/api/generate/story", json={"parameters": []})
         assert resp.status_code == 400
 
     def test_generate_error_streams_error(self, client, mock_story_generator):
@@ -191,9 +190,7 @@ class TestGenerateStory:
 class TestGenerateStoryWithAudio:
     """Tests for interleaved audio_ready events (AC-3, AC-4)."""
 
-    def _make_client_with_dir(
-        self, mock_story_generator, mock_tts_pipeline, tmp_path
-    ):
+    def _make_client_with_dir(self, mock_story_generator, mock_tts_pipeline, tmp_path):
         generated_dir = tmp_path / "content" / "generated"
         generated_dir.mkdir(parents=True)
 
@@ -386,15 +383,15 @@ class TestGenerateStoryWithAudio:
         complete_indices = [
             i for i, e in enumerate(events) if e.get("audio_complete") is True
         ]
-        assert len(complete_indices) == 1, (
-            f"expected exactly one audio_complete event; got {events}"
-        )
+        assert (
+            len(complete_indices) == 1
+        ), f"expected exactly one audio_complete event; got {events}"
 
         audio_indices = [i for i, e in enumerate(events) if "audio_ready" in e]
         assert len(audio_indices) == 2  # terminated sentence + flushed tail
-        assert all(ai < complete_indices[0] for ai in audio_indices), (
-            "audio_complete must come after every audio_ready (incl. flushed tail)"
-        )
+        assert all(
+            ai < complete_indices[0] for ai in audio_indices
+        ), "audio_complete must come after every audio_ready (incl. flushed tail)"
 
     def test_synth_failure_emits_error_in_audio_ready(
         self, mock_story_generator, mock_tts_pipeline_failing, tmp_path
@@ -552,9 +549,11 @@ class TestPhase13Deployment:
         assert service_path.exists(), "llama-server.service must exist"
         content = service_path.read_text()
 
-        # Frozen config from 13-01 report.md
-        assert "-c 8192" in content, "Must contain context size -c 8192"
-        assert "--n-gpu-layers" in content, "Must specify GPU layers"
+        # Frozen config from 13-01 report.md, retuned by IMPROVEMENTS.md 3.1
+        # (2026-07-12): -c 2048 (prompt ~200 tok + output <=600) frees 192 MiB
+        # of KV and lets all 33 layers offload to the GPU.
+        assert "-c 2048" in content, "Must contain context size -c 2048"
+        assert "--n-gpu-layers 99" in content, "Must offload all layers to GPU"
         assert "--no-mmap" in content, "Must disable mmap for safety"
         assert "--mlock" in content, "Must enable memory locking"
         assert "--reasoning off" in content, "Must disable reasoning output"
@@ -575,20 +574,26 @@ class TestPhase13Deployment:
         """AC-4: ollama dependency fully removed from pyproject.toml."""
         toml_path = Path("pyproject.toml")
         content = toml_path.read_text()
-        assert "ollama" not in content.lower(), "ollama must be removed from dependencies"
+        assert (
+            "ollama" not in content.lower()
+        ), "ollama must be removed from dependencies"
 
     def test_no_ollama_imports_in_app(self):
         """AC-4: no app/ code imports ollama."""
         import subprocess
+
         result = subprocess.run(
             ["grep", "-r", "ollama", "app/", "--include=*.py"],
-            capture_output=True, text=True, cwd=str(Path(".").resolve()),
+            capture_output=True,
+            text=True,
+            cwd=str(Path(".").resolve()),
         )
         assert result.returncode != 0, f"Found ollama imports in app/: {result.stdout}"
 
     def test_story_generator_default_params_match_report(self):
         """Verify StoryGenerator defaults match the recommended gen params from report.md."""
         from app.services.story_generator import StoryGenerator
+
         sg = StoryGenerator()
         assert sg.temperature == 0.8, "Default temp must be 0.8"
         assert sg.top_p == 0.95, "Default top_p must be 0.95"
@@ -597,6 +602,7 @@ class TestPhase13Deployment:
     def test_story_generator_model_name(self):
         """Verify model name matches the chosen Qwen 3.5 4B."""
         from app.services.story_generator import StoryGenerator
+
         sg = StoryGenerator()
         assert sg.model == "qwen35-4b-local", "Model must be qwen35-4b-local"
 
@@ -643,12 +649,12 @@ class TestGenerateAiGuard:
                 "/api/generate/story",
                 json={"parameters": [{"category": "personaje", "value": "dragón"}]},
             )
-            assert resp.status_code == 503, (
-                "API-02: must return 503 when ai_enabled=False"
-            )
-            assert resp.json() == {"error": "AI not available on this device"}, (
-                "API-02: literal body shape locked"
-            )
+            assert (
+                resp.status_code == 503
+            ), "API-02: must return 503 when ai_enabled=False"
+            assert resp.json() == {
+                "error": "AI not available on this device"
+            }, "API-02: literal body shape locked"
 
     def test_guard_fires_before_param_validation(self, lifespan_env_ai_off):
         """503 must come BEFORE the 400 empty-params check (CONTEXT.md)."""
@@ -657,12 +663,13 @@ class TestGenerateAiGuard:
         _reset_app_state(app)
         with TestClient(app) as client:
             resp = client.post("/api/generate/story", json={"parameters": []})
-            assert resp.status_code == 503, (
-                "API-02: AI guard must fire before 400 empty-params check"
-            )
+            assert (
+                resp.status_code == 503
+            ), "API-02: AI guard must fire before 400 empty-params check"
 
     def test_succeeds_when_ai_enabled(self, client, mock_story_generator):
         """Existing 200 SSE path still works when ai_enabled=True."""
+
         async def _fake_async_gen(events):
             for e in events:
                 yield e
@@ -683,9 +690,7 @@ class TestGenerateAiGuard:
 
     def test_400_still_works_when_ai_enabled(self, client):
         """Existing 400 empty-params path still works when ai_enabled=True."""
-        resp = client.post(
-            "/api/generate/story", json={"parameters": []}
-        )
+        resp = client.post("/api/generate/story", json={"parameters": []})
         assert resp.status_code == 400
 
 
@@ -714,9 +719,7 @@ class TestGenerateLedTriggers:
         if hasattr(app.state, "led_animator"):
             delattr(app.state, "led_animator")
 
-    def test_generation_start_drives_thinking_mode(
-        self, client, mock_story_generator
-    ):
+    def test_generation_start_drives_thinking_mode(self, client, mock_story_generator):
         """LED-17: stream start -> animator.set_mode(Mode.THINKING)."""
         animator = self._attach_animator()
         try:
@@ -832,9 +835,7 @@ class TestGenerateLedTriggers:
                 delattr(gen_module, "GENERATED_DIR")
             self._detach_animator()
 
-    def test_generation_error_drives_error_mode(
-        self, client, mock_story_generator
-    ):
+    def test_generation_error_drives_error_mode(self, client, mock_story_generator):
         """LED-15: a generation error event -> animator.set_mode(Mode.ERROR)."""
         animator = self._attach_animator()
         try:
@@ -864,9 +865,7 @@ class TestGenerateLedTriggers:
         finally:
             self._detach_animator()
 
-    def test_missing_animator_does_not_break_stream(
-        self, client, mock_story_generator
-    ):
+    def test_missing_animator_does_not_break_stream(self, client, mock_story_generator):
         """T-33-11: a missing engine degrades to no LED feedback, the stream
         still works (None-guard on every animator call)."""
         # Ensure no animator is set (mirrors TestClient-without-lifespan).
@@ -922,9 +921,7 @@ class TestGenerateStreamResilience:
             )
             assert resp.status_code == 200
 
-            lines = [
-                l for l in resp.text.strip().split("\n") if l.startswith("data: ")
-            ]
+            lines = [l for l in resp.text.strip().split("\n") if l.startswith("data: ")]
             events = [json.loads(l[6:]) for l in lines]
             assert events, "stream produced no events"
             last = events[-1]

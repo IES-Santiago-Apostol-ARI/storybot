@@ -119,3 +119,37 @@ class _StubRoute:
 def stub_route() -> _StubRoute:
     """A stubbed audio router (no pactl) recording bt/wired route calls."""
     return _StubRoute()
+
+
+# --- IMPROVEMENTS.md §6: filesystem + hardware isolation for every test ---
+# Root cause found on-device 2026-07-12: lifespan tests run with the device's
+# .env (STORYBOT_AI=1), which installs a REAL SwapOrchestrator on the
+# module-level `app`; app.state is never wiped between tests, so later tests
+# that post /api/generate/story (mock LLM/TTS, unmocked orchestrator) drove
+# the real `sudo systemctl stop llama-server` + SD worker cycle — 22 llama
+# restarts and 11 real covers in one partial suite run — and wrote real story
+# dirs under content/generated.
+
+
+@pytest.fixture(autouse=True)
+def _isolate_generated_dir_and_swap(request, monkeypatch, tmp_path):
+    """Point module GENERATED_DIRs at tmp and neuter the real swap cycle.
+
+    test_swap_orchestrator.py is exempt from the method stubs — it tests the
+    real methods (with subprocess/httpx mocked at a lower level).
+    """
+    gen = tmp_path / "generated"
+    monkeypatch.setattr("app.routers.generate.GENERATED_DIR", gen)
+    monkeypatch.setattr("app.services.gpio_dispatcher.GENERATED_DIR", gen)
+
+    if "test_swap_orchestrator" not in request.node.nodeid:
+        from app.services.swap_orchestrator import SwapOrchestrator
+
+        async def _no_swap(self, *args, **kwargs):
+            return (None, None, None)
+
+        async def _already_healthy(self):
+            return True
+
+        monkeypatch.setattr(SwapOrchestrator, "generate_cover_for_story", _no_swap)
+        monkeypatch.setattr(SwapOrchestrator, "ensure_llama_running", _already_healthy)

@@ -64,45 +64,56 @@ NON_AI_ROUTES = [
 ]
 
 
-def _collect_status(method: str, url: str, ai_value: str, monkeypatch, tmp_path) -> int:
-    """Collect HTTP status code for a route under a specific AI lifespan branch.
+@pytest.fixture(scope="module")
+def branch_statuses(tmp_path_factory):
+    """Status codes for every NON_AI_ROUTE under both lifespan branches.
 
-    Performs the lifespan fixture setup inline to avoid double-injection conflict
-    when parametrizing over both AI-on and AI-off branches.
+    One TestClient (= one full lifespan startup) per branch for the whole
+    module instead of two per parametrized route — 12 lifespans -> 2
+    (IMPROVEMENTS.md §6 suite-speed note). Parity is a property of the
+    lifespan branch, not of per-test isolation, so sharing the client per
+    branch does not weaken the assertion.
     """
     from app.main import app
     from app.services.story_manager import StoryManager
 
-    # Setup lifespan environment for the specified ai_value ("1" or "0")
-    monkeypatch.delenv("TESTING", raising=False)
-    monkeypatch.setenv("STORYBOT_AI", ai_value)
-    monkeypatch.setenv("STORYBOT_LIFESPAN_TEST", "1")
+    statuses: dict[tuple[str, str], dict[str, int]] = {
+        route: {} for route in NON_AI_ROUTES
+    }
+    mp = pytest.MonkeyPatch()
+    try:
+        for ai_value in ("1", "0"):
+            mp.delenv("TESTING", raising=False)
+            mp.setenv("STORYBOT_AI", ai_value)
+            mp.setenv("STORYBOT_LIFESPAN_TEST", "1")
 
-    # Use separate tmp dirs for each branch to avoid collision
-    generated = tmp_path / f"generated_{ai_value}"
-    generated.mkdir(exist_ok=True)
-    monkeypatch.setattr(StoryManager, "GENERATED_DIR", generated)
+            # Separate tmp dirs for each branch to avoid collision
+            generated = tmp_path_factory.mktemp(f"generated_{ai_value}")
+            mp.setattr(StoryManager, "GENERATED_DIR", generated)
 
-    _reset_app_state(app)
-
-    with TestClient(app) as client:
-        return client.request(method, url).status_code
+            _reset_app_state(app)
+            with TestClient(app) as client:
+                for method, url in NON_AI_ROUTES:
+                    statuses[(method, url)][ai_value] = client.request(
+                        method, url
+                    ).status_code
+    finally:
+        mp.undo()
+    return statuses
 
 
 @pytest.mark.parametrize("method,url", NON_AI_ROUTES)
-def test_non_ai_routes_behave_identically(
-    method: str, url: str, monkeypatch, tmp_path
-):
+def test_non_ai_routes_behave_identically(method: str, url: str, branch_statuses):
     """Assert each non-AI route returns the same status under both lifespan branches.
 
     API-03 contract: parity, not a specific status code. If a route returns 200
     with AI on, it must return 200 with AI off. If it returns 422 with AI on,
     it must return 422 with AI off.
     """
-    on_status = _collect_status(method, url, "1", monkeypatch, tmp_path)
-    off_status = _collect_status(method, url, "0", monkeypatch, tmp_path)
+    on_status = branch_statuses[(method, url)]["1"]
+    off_status = branch_statuses[(method, url)]["0"]
 
-    assert (
-        on_status == off_status
-    ), f"API-03: {method} {url} returned {on_status} with AI on and "
-    f"{off_status} with AI off — must match"
+    assert on_status == off_status, (
+        f"API-03: {method} {url} returned {on_status} with AI on and "
+        f"{off_status} with AI off — must match"
+    )
