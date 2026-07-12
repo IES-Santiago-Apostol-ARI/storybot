@@ -296,6 +296,23 @@ async function loadStories() {
     }
 }
 
+// Scale story cards to fill the free grid space: few stories = big
+// emojis, many = the original size (scale 1 is the floor).
+function updateCardScale(grid) {
+    const BASE_CELL = 160; // avg card ~136px + 24px gap at scale 1
+    const MAX_SCALE = 2.5;
+    const width = grid.clientWidth || window.innerWidth;
+    const height = grid.clientHeight || window.innerHeight;
+    const cell = Math.sqrt((width * height) / Math.max(stories.length, 1));
+    const scale = Math.min(Math.max(cell / BASE_CELL, 1), MAX_SCALE);
+    grid.style.setProperty('--card-scale', scale.toFixed(3));
+}
+
+window.addEventListener('resize', () => {
+    const grid = document.querySelector('.story-grid');
+    if (grid && stories.length > 0) updateCardScale(grid);
+});
+
 function renderStoryGrid() {
     const grid = document.querySelector('.story-grid');
     const emptyState = document.getElementById('empty-state');
@@ -312,6 +329,7 @@ function renderStoryGrid() {
     // Hide empty state, show grid
     if (emptyState) emptyState.classList.add('hidden');
     grid.style.display = ''; // Reset to CSS default (flex)
+    updateCardScale(grid);
 
     stories.forEach((story, index) => {
         const card = document.createElement('div');
@@ -596,8 +614,8 @@ function startProgressTracking() {
     function updateProgress() {
         if (audioElement.duration > 0) {
             const progress = audioElement.currentTime / audioElement.duration;
-            // Move from 20px to (window.innerWidth - 80px)
-            const maxX = window.innerWidth - 80;
+            // Move from 20px to (window.innerWidth - 140px): 120px robot + 20px margin
+            const maxX = window.innerWidth - 140;
             const x = 20 + (progress * (maxX - 20));
             character.style.left = x + 'px';
         }

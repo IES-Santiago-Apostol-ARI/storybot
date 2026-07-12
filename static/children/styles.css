@@ -101,20 +101,21 @@ html, body {
     flex-wrap: wrap;
     justify-content: center;
     align-content: center;
-    gap: var(--space-lg);
+    gap: calc(var(--space-lg) * var(--card-scale, 1));
     padding: var(--space-xl);
     min-height: 100%;
 }
 
 .story-card {
-    /* Base sizing */
-    width: 130px;
-    height: 130px;
+    /* Base sizing, scaled by --card-scale (set by renderStoryGrid():
+       few stories = bigger tiles; 1 is the floor = the original size) */
+    width: calc(130px * var(--card-scale, 1));
+    height: calc(130px * var(--card-scale, 1));
     border-radius: var(--radius-xl);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 4rem;
+    font-size: calc(4rem * var(--card-scale, 1));
     cursor: pointer;
     transition: transform var(--duration-fast) var(--ease-bounce);
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
@@ -131,9 +132,9 @@ html, body {
 .story-card:nth-child(4n)   { transform: rotate(5deg); }
 
 /* Varied sizes */
-.story-card:nth-child(3n+1) { width: 140px; height: 140px; }
-.story-card:nth-child(3n+2) { width: 120px; height: 120px; }
-.story-card:nth-child(3n)   { width: 135px; height: 135px; }
+.story-card:nth-child(3n+1) { width: calc(140px * var(--card-scale, 1)); height: calc(140px * var(--card-scale, 1)); }
+.story-card:nth-child(3n+2) { width: calc(120px * var(--card-scale, 1)); height: calc(120px * var(--card-scale, 1)); }
+.story-card:nth-child(3n)   { width: calc(135px * var(--card-scale, 1)); height: calc(135px * var(--card-scale, 1)); }
 
 /* Organic vertical offsets */
 .story-card:nth-child(5n+1) { margin-top: 16px; }
@@ -371,7 +372,7 @@ html, body {
   bottom: 40px;
   left: 0;
   width: 100%;
-  height: 80px;
+  height: 130px; /* fits the 120px walking robot */
   pointer-events: none;
 }
 
