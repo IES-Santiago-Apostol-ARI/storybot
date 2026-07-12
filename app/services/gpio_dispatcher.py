@@ -25,11 +25,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-from app.config import ConfigManager
+from app.config import get_settings
 from app.services import cover_prompt_builder, system_control
 from app.services.led_animator import Mode
-
-settings = ConfigManager().load()
 
 # Where generated covers land (same tree the SD worker writes via the
 # orchestrator's out_dir and generate.py's GENERATED_DIR).
@@ -104,7 +102,7 @@ class GpioDispatcher:
         last = self._last_fired.get(button)
         if last is None:
             return False
-        return (self._now() - last) * 1000 < settings.gpio_debounce_ms
+        return (self._now() - last) * 1000 < get_settings().gpio_debounce_ms
 
     # ------------------------------------------------------------------ #
     # Dispatch

@@ -11,7 +11,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from app.config import ConfigManager
+from app.config import get_settings
 from app.services.cover_prompt_builder import build as build_cover_prompt
 from app.services.cover_prompt_builder import story_seed
 from app.services.led_animator import Mode
@@ -23,15 +23,14 @@ router = APIRouter()
 
 GENERATED_DIR = Path("content/generated")
 
+
 # LED-20 / D-21 (PLAN DECISION): the in-flight generation progress bar fills in
 # a DEFINED NEUTRAL ACCENT — settings.led_accum_color — because during generation
 # no story is saved yet (no led_color). Once the story is saved its real
 # led_color governs playback (plan 04). Pinned by test_audio_ready_drives_
 # progress_mode_with_accum_color so the color is verifiable, not undefined.
-_settings = ConfigManager().load()
-
-
-GEN_PROGRESS_RGB: tuple[int, int, int] = hex_to_rgb(_settings.led_accum_color)
+def _gen_progress_rgb() -> tuple[int, int, int]:
+    return hex_to_rgb(get_settings().led_accum_color)
 
 
 class StoryGenerateRequest(BaseModel):
@@ -134,7 +133,7 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
             # LED-20 / D-21 (PLAN DECISION): each audio_ready advances the
             # per-pixel progress bar with RUNNING-KNOWN-COUNT N (i == n each
             # step), in the defined neutral accent (settings.led_accum_color
-            # -> GEN_PROGRESS_RGB) because no story led_color exists
+            # -> _gen_progress_rgb()) because no story led_color exists
             # mid-stream. The bar self-corrects and ends full on the final
             # flush. Driven through the engine, the sole writer. None-guarded.
             if animator is not None:
@@ -142,7 +141,7 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
                     Mode.PROGRESS,
                     i=seg_index,
                     n=seg_index,
-                    color=GEN_PROGRESS_RGB,
+                    color=_gen_progress_rgb(),
                 )
             # LED-15 / D-09 / D-15: a per-segment synth error drives the
             # engine into gentle amber error mode (never red, never strobe).

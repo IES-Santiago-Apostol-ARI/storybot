@@ -8,10 +8,8 @@ import asyncio
 import os
 import platform
 
-from app.config import ConfigManager
+from app.config import get_settings
 from app.services.base import HardwareService
-
-settings = ConfigManager().load()
 
 
 class GPIOButtonService(HardwareService):
@@ -38,10 +36,7 @@ def _real_gpio_available() -> bool:
     Mirrors _real_led_available in led_controller.py.
     """
     try:
-        return (
-            platform.machine() == "aarch64"
-            and bool(__import__("Jetson.GPIO"))
-        )
+        return platform.machine() == "aarch64" and bool(__import__("Jetson.GPIO"))
     except Exception:
         return False
 
@@ -100,6 +95,7 @@ class RealGPIOButtonService(GPIOButtonService):
         self._loop = asyncio.get_running_loop()
 
         # Pin-to-name map from Settings defaults
+        settings = get_settings()
         pin_map = {
             settings.gpio_power_pin: "power",
             settings.gpio_interrupt_pin: "interrupt",

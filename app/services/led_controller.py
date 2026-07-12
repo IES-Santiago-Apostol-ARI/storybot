@@ -5,11 +5,9 @@ import os
 import platform
 import sys
 
-from app.config import ConfigManager
+from app.config import get_settings
 from app.services.base import HardwareService
 from app.services.led_spi import SpiWriter, encode_ws2812
-
-settings = ConfigManager().load()
 
 
 class LEDService(HardwareService):
@@ -82,7 +80,7 @@ class RealLEDService(LEDService):
         """Initialize real LED service."""
         self._color: tuple[int, int, int] = (0, 0, 0)
         self._available = False
-        self._framebuffer = [(0, 0, 0)] * settings.led_count
+        self._framebuffer = [(0, 0, 0)] * get_settings().led_count
         self._writer: SpiWriter | None = None
 
     @property
@@ -100,18 +98,18 @@ class RealLEDService(LEDService):
         b = max(0, min(255, b))
 
         self._color = (r, g, b)
-        self._framebuffer = [(r, g, b)] * settings.led_count
+        self._framebuffer = [(r, g, b)] * get_settings().led_count
 
         if self._available and self._writer:
             # Sync write to SPI (Phase 32 wraps this with asyncio.to_thread).
             self._writer.write(
                 encode_ws2812(
                     self._framebuffer,
-                    count=settings.led_count,
-                    cap=settings.led_max_brightness,
-                    gamma=settings.led_gamma,
-                    order=settings.led_color_order,
-                    speed_hz=settings.led_spi_speed_hz,
+                    count=get_settings().led_count,
+                    cap=get_settings().led_max_brightness,
+                    gamma=get_settings().led_gamma,
+                    order=get_settings().led_color_order,
+                    speed_hz=get_settings().led_spi_speed_hz,
                 )
             )
 
@@ -145,9 +143,9 @@ class RealLEDService(LEDService):
         try:
             # Construct writer only on real path to avoid spidev import on x86.
             self._writer = SpiWriter(
-                bus=settings.led_spi_bus,
-                dev=settings.led_spi_dev,
-                speed_hz=settings.led_spi_speed_hz,
+                bus=get_settings().led_spi_bus,
+                dev=get_settings().led_spi_dev,
+                speed_hz=get_settings().led_spi_speed_hz,
             )
             self._available = True
         except (RuntimeError, OSError, ImportError) as e:
@@ -219,8 +217,8 @@ def create_led_service() -> LEDService:
     if os.environ.get("TESTING"):
         return MockLEDService()
 
-    bus = settings.led_spi_bus
-    dev = settings.led_spi_dev
+    bus = get_settings().led_spi_bus
+    dev = get_settings().led_spi_dev
 
     if not _real_led_available(bus, dev):
         _log_event("led_init_fallback", reason="no_spi_node")

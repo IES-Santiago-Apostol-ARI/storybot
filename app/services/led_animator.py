@@ -47,12 +47,10 @@ import time
 from collections.abc import Callable
 from enum import IntEnum
 
-from app.config import ConfigManager
+from app.config import get_settings
 from app.services import led_effects
 from app.services.led_effects import hex_to_rgb
 from app.services.led_spi import encode_ws2812
-
-settings = ConfigManager().load()
 
 
 def _log_event(event: str, **kwargs: object) -> None:
@@ -185,9 +183,9 @@ class LedAnimator:
         )
 
         # Precompute config RGB colors once (avoid re-parsing each tick).
-        self._idle_rgb = hex_to_rgb(settings.led_idle_color)
-        self._error_rgb = hex_to_rgb(settings.led_error_color)
-        self._accum_rgb = hex_to_rgb(settings.led_accum_color)
+        self._idle_rgb = hex_to_rgb(get_settings().led_idle_color)
+        self._error_rgb = hex_to_rgb(get_settings().led_error_color)
+        self._accum_rgb = hex_to_rgb(get_settings().led_accum_color)
         self._boot_color = (0, 150, 255)  # distinct from idle amber
         self._thinking_color = (200, 200, 255)  # cool white, distinct from amber
         # Low-amber beacon accent (idle only, D-14).
@@ -285,11 +283,11 @@ class LedAnimator:
 
         now = self._now()
         # Pitfall 5: snapshot the from-frame BEFORE swapping the mode.
-        self._fade_from = self._render_mode(now, settings.led_count)
+        self._fade_from = self._render_mode(now, get_settings().led_count)
         # Crossfade began one tick ago so the first post-change frame already
         # shows a small blend toward the destination (frames render "next").
         self._fade_start = now - self._period
-        self._fade_duration = settings.led_crossfade_s
+        self._fade_duration = get_settings().led_crossfade_s
 
         self._mode = mode
         self._mode_started_at = now
@@ -331,7 +329,7 @@ class LedAnimator:
         if self._mode != Mode.PLAYBACK:
             return
         self._paused = True
-        period = settings.led_breathe_period_s
+        period = get_settings().led_breathe_period_s
         self._frozen_phase = (self._now() - self._phase0) % period
         # Freeze the frame: clear any in-progress cross-fade so the held frame
         # is the pure breathing-at-frozen-phase and stays constant across ticks
@@ -385,23 +383,25 @@ class LedAnimator:
         now = self._now()
         if self._overlay_fn is not None and now < self._overlay_until:
             # Rainbow overlay-fn renders a per-pixel hue cycle
-            frame = self._overlay_fn(now - self._overlay_started_at, settings.led_count)
+            frame = self._overlay_fn(
+                now - self._overlay_started_at, get_settings().led_count
+            )
         elif self._overlay is not None and now < self._overlay_until:
             # D-11: flashes stay solid (no per-pixel / cross-fade).
-            frame = [self._overlay] * settings.led_count
+            frame = [self._overlay] * get_settings().led_count
         else:
             # Auto-restore: clear expired overlay, resume base
             self._overlay = None
             self._overlay_fn = None
-            frame = self._render_base(now, settings.led_count)
+            frame = self._render_base(now, get_settings().led_count)
         # Encode on the loop (pure CPU, microseconds for 21 px).
         encoded = encode_ws2812(
             frame,
-            count=settings.led_count,
-            cap=settings.led_max_brightness,
-            gamma=settings.led_gamma,
-            order=settings.led_color_order,
-            speed_hz=settings.led_spi_speed_hz,
+            count=get_settings().led_count,
+            cap=get_settings().led_max_brightness,
+            gamma=get_settings().led_gamma,
+            order=get_settings().led_color_order,
+            speed_hz=get_settings().led_spi_speed_hz,
         )
         # D-06 dirty-check: value equality, never ``is`` (Pitfall 5).
         if encoded != self._last_written:
@@ -455,7 +455,7 @@ class LedAnimator:
         """
         if self._overlay_fn is not None and self._now() < self._overlay_until:
             frame = self._overlay_fn(
-                self._now() - self._overlay_started_at, settings.led_count
+                self._now() - self._overlay_started_at, get_settings().led_count
             )
             return frame[0] if frame else (0, 0, 0)
         if self._overlay is not None:
@@ -517,7 +517,7 @@ class LedAnimator:
         # wipe until ``led_boot_wipe_s`` elapses, then auto-settles.
         if self._boot_started_at is not None and not self._boot_done:
             elapsed = now - self._boot_started_at
-            if elapsed < settings.led_boot_wipe_s:
+            if elapsed < get_settings().led_boot_wipe_s:
                 return led_effects.boot_wipe(elapsed, count, self._boot_color)
             # Wipe complete — settle to the resolved mode (idle by default).
             self._boot_done = True
@@ -540,7 +540,7 @@ class LedAnimator:
                 self._error_lifetime_s,
             )
             self._fade_start = now - self._period
-            self._fade_duration = settings.led_crossfade_s
+            self._fade_duration = get_settings().led_crossfade_s
             mode = Mode.IDLE
 
         if mode == Mode.IDLE:

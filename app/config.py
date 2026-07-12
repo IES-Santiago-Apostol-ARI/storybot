@@ -120,3 +120,26 @@ class ConfigManager:
         """
         self._settings = None
         return self.load()
+
+
+# Process-wide shared manager (IMPROVEMENTS.md 2.3). Modules must NOT keep
+# private module-level `ConfigManager().load()` copies — those are frozen at
+# import and a reload() on app.state.config never reaches them. Call
+# get_settings() at use time instead; app.state.config is this same manager,
+# so reload()/save() on it propagates everywhere.
+_manager = ConfigManager()
+
+
+def get_config_manager() -> ConfigManager:
+    """Return the process-wide shared ConfigManager."""
+    return _manager
+
+
+def get_settings() -> Settings:
+    """Return the process-wide cached Settings (cheap: cached after first read)."""
+    return _manager.load()
+
+
+def invalidate_settings() -> None:
+    """Drop the cached Settings; the next get_settings() re-reads config.json."""
+    _manager.reload()

@@ -7,7 +7,7 @@ from fastapi import FastAPI, Response
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.config import ConfigManager
+from app.config import get_config_manager
 from app.routers.bt import router as bt_router
 from app.routers.capabilities import router as capabilities_router
 from app.routers.cards import router as cards_router
@@ -71,7 +71,9 @@ async def lifespan(app: FastAPI):
 
     # Startup
     hardware = HardwareManager()
-    config = ConfigManager()
+    # The shared process-wide manager (IMPROVEMENTS.md 2.3): reload()/save()
+    # on app.state.config propagates to every get_settings() caller.
+    config = get_config_manager()
     story_manager = StoryManager()
 
     # Store in app state

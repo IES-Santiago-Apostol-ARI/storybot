@@ -10,9 +10,7 @@ power off.
 
 import asyncio
 
-from app.config import ConfigManager
-
-settings = ConfigManager().load()
+from app.config import get_settings
 
 
 async def poweroff() -> None:
@@ -22,4 +20,4 @@ async def poweroff() -> None:
     default) via ``asyncio.create_subprocess_exec`` so the event loop is not
     held while the OS shuts down (RESEARCH Q7 / D-03).
     """
-    await asyncio.create_subprocess_exec(*settings.poweroff_cmd)
+    await asyncio.create_subprocess_exec(*get_settings().poweroff_cmd)
