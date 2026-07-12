@@ -91,6 +91,18 @@ class TestTTSSpeechDefaults:
 
         assert Settings().tts_length_scale == 1.2
 
+    def test_default_tts_speed_is_current_speed(self):
+        """PLAN.md Task 2: tts_speed 1.0 == today's speaking speed."""
+        from app.config import Settings
+
+        assert Settings().tts_speed == 1.0
+
+    def test_tts_speed_clamps_to_sane_range(self):
+        from app.config import Settings
+
+        assert Settings(tts_speed=5.0).tts_speed == 2.0
+        assert Settings(tts_speed=0.1).tts_speed == 0.5
+
 
 class TestTranscriptionSettings:
     """Whisper.cpp transcription of /admin audio uploads (PLAN.md Task 4)."""

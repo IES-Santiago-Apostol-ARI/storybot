@@ -1,4 +1,5 @@
 """Tests for hardware manager."""
+
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -30,12 +31,12 @@ class MockService(HardwareService):
                 "name": self._name,
                 "is_mock": self._is_mock,
                 "status": "error",
-                "error_message": self._error
+                "error_message": self._error,
             }
         return {
             "name": self._name,
             "is_mock": self._is_mock,
-            "status": "ok" if self._initialized else "not_connected"
+            "status": "ok" if self._initialized else "not_connected",
         }
 
     async def initialize(self) -> None:
@@ -140,14 +141,12 @@ class TestRescanShutsDownReplacedServices:
         await hardware_manager.rescan()
 
         spy_nfc.shutdown.assert_awaited_once()
-        assert hardware_manager._services["nfc"] is not spy_nfc, (
-            "IMPROVEMENTS 1.6: rescan must replace the old service instance"
-        )
+        assert (
+            hardware_manager._services["nfc"] is not spy_nfc
+        ), "IMPROVEMENTS 1.6: rescan must replace the old service instance"
 
     @pytest.mark.asyncio
-    async def test_rescan_does_not_shut_down_gpio(
-        self, hardware_manager, monkeypatch
-    ):
+    async def test_rescan_does_not_shut_down_gpio(self, hardware_manager, monkeypatch):
         """gpio is registered by the lifespan, not detect_hardware — leave it."""
         monkeypatch.setenv("TESTING", "1")
         await hardware_manager.detect_hardware(ai_enabled=False)
@@ -208,6 +207,28 @@ class TestDetectHardwareTTSVoice:
             )
         await hw.shutdown()
 
+    @pytest.mark.asyncio
+    async def test_tts_speed_divides_effective_length_scale(self, monkeypatch):
+        """PLAN.md Task 2: length_scale passed to Piper is
+        tts_length_scale / tts_speed (speed is the inverse of duration)."""
+        from app.config import Settings
+
+        monkeypatch.setenv("TESTING", "1")
+        hw = HardwareManager()
+        with (
+            patch("app.config.ConfigManager") as MockCM,
+            patch("app.services.tts_engine.TTSEngine") as MockTTS,
+        ):
+            MockCM.return_value.load.return_value = Settings(
+                tts_length_scale=1.5,
+                tts_speed=1.25,
+            )
+            MockTTS.return_value.initialize = AsyncMock()
+            await hw.detect_hardware(ai_enabled=True)
+            kwargs = MockTTS.return_value.initialize.await_args.kwargs
+            assert kwargs["length_scale"] == pytest.approx(1.2)
+        await hw.shutdown()
+
 
 class TestDetectHardwareAiGated:
     """Tests for detect_hardware(ai_enabled) TTS gating (Plan 17-03, CONTEXT.md D-14/D-15/D-16)."""
@@ -230,19 +251,21 @@ class TestDetectHardwareAiGated:
         monkeypatch.setenv("TESTING", "1")
         await hw.detect_hardware(ai_enabled=True)
         status = await hw.get_status()
-        assert "tts" in status["hardware"], (
-            "Plan 17-03: tts must be registered when ai_enabled=True"
-        )
+        assert (
+            "tts" in status["hardware"]
+        ), "Plan 17-03: tts must be registered when ai_enabled=True"
 
     @pytest.mark.asyncio
-    async def test_ai_enabled_false_does_not_register_tts_service(self, hw, monkeypatch):
+    async def test_ai_enabled_false_does_not_register_tts_service(
+        self, hw, monkeypatch
+    ):
         """When ai_enabled=False, tts is NOT registered and get_status omits it (D-16)."""
         monkeypatch.setenv("TESTING", "1")
         await hw.detect_hardware(ai_enabled=False)
         status = await hw.get_status()
-        assert "tts" not in status["hardware"], (
-            "Plan 17-03: tts must NOT be in hardware status when ai_enabled=False (D-16)"
-        )
+        assert (
+            "tts" not in status["hardware"]
+        ), "Plan 17-03: tts must NOT be in hardware status when ai_enabled=False (D-16)"
 
     @pytest.mark.asyncio
     async def test_ai_enabled_false_does_not_call_tts_initialize(self, hw, monkeypatch):
@@ -254,15 +277,17 @@ class TestDetectHardwareAiGated:
             MockTTS.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_ai_enabled_false_still_registers_nfc_led_audio(self, hw, monkeypatch):
+    async def test_ai_enabled_false_still_registers_nfc_led_audio(
+        self, hw, monkeypatch
+    ):
         """Non-TTS peripherals are untouched by ai_enabled=False (D-15)."""
         monkeypatch.setenv("TESTING", "1")
         await hw.detect_hardware(ai_enabled=False)
         status = await hw.get_status()
         for key in ("nfc", "led", "audio"):
-            assert key in status["hardware"], (
-                f"Plan 17-03: {key} must still be registered when ai_enabled=False"
-            )
+            assert (
+                key in status["hardware"]
+            ), f"Plan 17-03: {key} must still be registered when ai_enabled=False"
 
     @pytest.mark.asyncio
     async def test_rescan_preserves_ai_enabled_false(self, hw, monkeypatch):
@@ -271,9 +296,9 @@ class TestDetectHardwareAiGated:
         await hw.detect_hardware(ai_enabled=False)
         await hw.rescan()
         status = await hw.get_status()
-        assert "tts" not in status["hardware"], (
-            "Plan 17-03: rescan must preserve ai_enabled=False — tts still absent"
-        )
+        assert (
+            "tts" not in status["hardware"]
+        ), "Plan 17-03: rescan must preserve ai_enabled=False — tts still absent"
 
     @pytest.mark.asyncio
     async def test_rescan_preserves_ai_enabled_true(self, hw, monkeypatch):
@@ -282,6 +307,6 @@ class TestDetectHardwareAiGated:
         await hw.detect_hardware(ai_enabled=True)
         await hw.rescan()
         status = await hw.get_status()
-        assert "tts" in status["hardware"], (
-            "Plan 17-03: rescan must preserve ai_enabled=True — tts still present"
-        )
+        assert (
+            "tts" in status["hardware"]
+        ), "Plan 17-03: rescan must preserve ai_enabled=True — tts still present"

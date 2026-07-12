@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class Settings(BaseModel):
@@ -46,6 +46,9 @@ class Settings(BaseModel):
     # Piper phoneme-duration multiplier; >1 = slower. 1.2 ≈ 20% slower —
     # the default rate is too fast for ages 3-6.
     tts_length_scale: float = 1.2
+    # Story speaking-speed multiplier on top of tts_length_scale;
+    # 1.0 = current speed, >1 faster, <1 slower. Clamped to [0.5, 2.0].
+    tts_speed: float = 1.0
     # Whisper.cpp transcription of /admin audio uploads. Effective only when
     # the binary, model and ffmpeg exist on disk — dev machines without them
     # silently skip transcription (uploads still succeed).
@@ -69,6 +72,13 @@ class Settings(BaseModel):
     # json_encoders was dropped in the ConfigDict migration: no field is
     # Path-typed and save() serializes via model_dump_json.
     model_config = ConfigDict(validate_default=True)
+
+    @field_validator("tts_speed")
+    @classmethod
+    def _clamp_tts_speed(cls, v: float) -> float:
+        # Clamp instead of raising: a bad config.json value must not crash
+        # the app at startup (matches the load()-falls-back-to-defaults ethos).
+        return min(max(v, 0.5), 2.0)
 
 
 class ConfigManager:

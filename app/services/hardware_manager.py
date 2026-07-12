@@ -88,7 +88,9 @@ class HardwareManager:
             tts_cfg = ConfigManager().load()
             await tts_engine.initialize(
                 model_name=tts_cfg.tts_voice,
-                length_scale=tts_cfg.tts_length_scale,
+                # tts_speed is a user-facing speed multiplier; Piper's
+                # length_scale is its inverse (>1 = slower), so divide.
+                length_scale=tts_cfg.tts_length_scale / tts_cfg.tts_speed,
                 speaker=tts_cfg.tts_speaker,
             )
             self.register_service("tts", tts_engine)
