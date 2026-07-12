@@ -295,6 +295,47 @@ class TestCommonSteps:
         )
 
 
+class TestSuperFirmware:
+    """Jetson Super firmware: helper script + install.sh clock-table check."""
+
+    SUPER_SCRIPT = Path("deploy/enable-super-firmware.sh")
+
+    @pytest.fixture(scope="class")
+    def super_script_text(self):
+        return self.SUPER_SCRIPT.read_text(encoding="utf-8")
+
+    def test_enable_super_firmware_script_exists(self):
+        """deploy/enable-super-firmware.sh exists."""
+        assert self.SUPER_SCRIPT.exists(), (
+            "Missing deploy/enable-super-firmware.sh"
+        )
+
+    def test_super_script_stages_capsule(self, super_script_text):
+        """Script stages the super capsule for UEFI capsule-on-disk."""
+        assert "TEGRA_BL_3767_super.Cap" in super_script_text
+        assert "UpdateCapsule" in super_script_text
+        assert "OsIndications" in super_script_text
+
+    def test_super_script_requires_super_dtb(self, super_script_text):
+        """Script refuses to run unless the super DTB is booted."""
+        assert "/proc/device-tree/compatible" in super_script_text
+
+    def test_install_checks_emc_max_rate(self, script_text):
+        """install.sh reads the BPMP EMC max_rate to detect old firmware."""
+        assert "/sys/kernel/debug/bpmp/debug/clk/emc/max_rate" in script_text
+
+    def test_install_checks_nvpmodel_mode(self, script_text):
+        """install.sh queries nvpmodel -q for the active power mode."""
+        assert "nvpmodel -q" in script_text
+
+    def test_install_warns_to_run_super_script(self, script_text):
+        """install.sh warns (in capitals) to run enable-super-firmware.sh."""
+        assert "enable-super-firmware.sh" in script_text
+        assert re.search(r"WARNING[^a-z]*SUPER", script_text), (
+            "Missing capital-letters warning about super firmware"
+        )
+
+
 class TestCompletionBanner:
     """D-11: completion banner shows AI vs stories-only mode."""
 

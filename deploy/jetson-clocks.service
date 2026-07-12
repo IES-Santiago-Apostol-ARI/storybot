@@ -1,0 +1,14 @@
+[Unit]
+Description=Pin Jetson clocks to the maximum of the active nvpmodel power mode
+# jetson_clocks reads the caps set by the active power mode, so it must run
+# after nvpmodel has applied it at boot.
+After=nvpmodel.service
+ConditionPathExists=/usr/bin/jetson_clocks
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/jetson_clocks
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

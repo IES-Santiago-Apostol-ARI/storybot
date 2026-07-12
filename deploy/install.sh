@@ -229,6 +229,66 @@ SUBSYSTEM=="spidev", GROUP="spi", MODE="0660"
 EOF
 echo -e "${GREEN}SPI udev rule installed${NC}"
 
+# Step 1f: Jetson performance — 25W "Super" power mode + persistent jetson_clocks
+# "Super" mode on the Orin Nano is enabled by the KERNEL DTB, not by nvpmodel:
+# the official devkit-super flash config differs from the plain devkit only in
+# selecting the *-super.dtb variant (shipped in /boot on JetPack 6.x). Booting
+# it (a) makes the device-tree compatible string contain "super", so NVIDIA's
+# nvpower.sh links /etc/nvpmodel.conf to the _super conf whose default mode is
+# 25W, and (b) exposes the higher clock tables (GPU 624→918 MHz, EMC
+# 2133→3199 MHz). Editing the nvpmodel symlink directly does NOT work:
+# nvpower.sh force-reverts it at every boot while the DTB is non-super, and
+# the clock tables stay capped anyway. LLM decode is memory-bandwidth bound,
+# so the EMC bump is a direct speedup. jetson_clocks pins clocks to the active
+# mode's maximums but does not survive reboot — a oneshot unit re-applies it.
+if [ -f /etc/nv_tegra_release ] && [[ "$AI_MODE" == true ]]; then
+    EXTLINUX=/boot/extlinux/extlinux.conf
+    FDT_PATH="$(sed -n 's/^[[:space:]]*FDT[[:space:]]\+//p' "$EXTLINUX" 2>/dev/null | head -1)"
+    if [[ "$FDT_PATH" == *-super.dtb ]]; then
+        echo -e "${GREEN}Super DTB already selected in extlinux.conf${NC}"
+    elif [[ -n "$FDT_PATH" ]]; then
+        # jetson-io copies the base DTB to dtb/kernel_<name>.dtb; the super
+        # variant lives in /boot without the kernel_ prefix.
+        FDT_BASE="$(basename "$FDT_PATH" .dtb)"
+        SUPER_SRC="/boot/${FDT_BASE#kernel_}-super.dtb"
+        SUPER_DST="$(dirname "$FDT_PATH")/${FDT_BASE}-super.dtb"
+        if [[ -f "$SUPER_SRC" ]]; then
+            cp "$SUPER_SRC" "$SUPER_DST"
+            cp "$EXTLINUX" "${EXTLINUX}.pre-super.bak"
+            sed -i "s|$FDT_PATH|$SUPER_DST|" "$EXTLINUX"
+            REBOOT_REQUIRED=1
+            echo -e "${GREEN}Super DTB selected — 25W mode + full clocks after REBOOT${NC}"
+        else
+            echo -e "${YELLOW}No super DTB variant for $FDT_PATH — leaving boot config unchanged${NC}"
+        fi
+    else
+        echo -e "${YELLOW}No FDT line in $EXTLINUX — enable the Super DTB manually if supported${NC}"
+    fi
+    cp "$INSTALL_DIR/deploy/jetson-clocks.service" /etc/systemd/system/jetson-clocks.service
+    systemctl daemon-reload
+    systemctl enable --now jetson-clocks.service
+    echo -e "${GREEN}jetson_clocks pinned at boot via jetson-clocks.service${NC}"
+
+    # Devkits originally flashed as non-super carry old QSPI clock tables
+    # (EMC capped at 2133 MHz) that the DTB/nvpmodel cannot raise — that
+    # migration is a one-time firmware update deliberately kept OUT of this
+    # installer (see deploy/enable-super-firmware.sh). Detect and warn only.
+    EMC_MAX_RATE="$(cat /sys/kernel/debug/bpmp/debug/clk/emc/max_rate 2>/dev/null || echo 0)"
+    POWER_MODE="$(nvpmodel -q 2>/dev/null | sed -n 's/^NV Power Mode: //p')"
+    if [[ "$EMC_MAX_RATE" -lt 3199000000 || ( "$POWER_MODE" != "25W" && "$POWER_MODE" != "MAXN_SUPER" ) ]]; then
+        echo ""
+        echo -e "${YELLOW}=========================================================================${NC}"
+        echo -e "${YELLOW}WARNING: SUPER CLOCKS NOT ACTIVE (power mode: ${POWER_MODE:-unknown}, EMC max: ${EMC_MAX_RATE} Hz).${NC}"
+        echo -e "${YELLOW}REBOOT FIRST; IF THIS WARNING PERSISTS ON THE NEXT INSTALL RUN, EXECUTE:${NC}"
+        echo -e "${YELLOW}    sudo bash deploy/enable-super-firmware.sh${NC}"
+        echo -e "${YELLOW}AND REBOOT AGAIN TO APPLY THE SUPER QSPI FIRMWARE.${NC}"
+        echo -e "${YELLOW}=========================================================================${NC}"
+        echo ""
+    fi
+else
+    echo -e "${YELLOW}Not a Jetson in AI mode — skipping power mode / jetson_clocks setup${NC}"
+fi
+
 echo -e "${GREEN}System dependencies installed${NC}"
 
 # Enable pcscd socket (PC/SC daemon for NFC reader)
