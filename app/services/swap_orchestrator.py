@@ -18,8 +18,10 @@ LLAMA_TIMEOUT_S = 30
 # Upper bound on the SD cover worker. Enforced INSIDE the orchestrator so the
 # llama-server restart (in a finally) always runs — unlike the old external
 # asyncio.wait_for() in generate.py, which cancelled the swap mid-cycle and
-# left llama dead. Generous because a cold SD load on the Jetson is slow.
-WORKER_TIMEOUT_S = 120
+# left llama dead. Measured cold run on-device 2026-07-12 (fused checkpoint +
+# per-model offload + 25W Super clocks): 23 s — 60 s is ~2.6x that
+# (IMPROVEMENTS.md 3.6).
+WORKER_TIMEOUT_S = 60
 LLAMA_HEALTH_URL = "http://127.0.0.1:8080/v1/models"
 
 

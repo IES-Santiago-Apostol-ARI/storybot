@@ -33,6 +33,11 @@ THRESHOLD = 128
 LINEART_WEIGHT = 0.9
 LCM_WEIGHT = 1.0
 
+# Pre-fused checkpoint written by scripts/fuse_sd_loras.py (IMPROVEMENTS.md
+# 3.5): base + LCM + lineart LoRAs baked in offline, so cover time pays a
+# single from_pretrained instead of base load + 2x LoRA load + fuse.
+FUSED_MODEL = Path.home() / "sd-cover/models/sd15-storybot-fused"
+
 
 def build_pipeline():
     import gc
@@ -45,19 +50,31 @@ def build_pipeline():
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
 
-    pipe = StableDiffusionPipeline.from_pretrained(
-        str(SD_MODEL),
-        torch_dtype=torch.float16,
-        safety_checker=None,
-        requires_safety_checker=False,
-    )
-    pipe.load_lora_weights(str(LCM_LORA), adapter_name="lcm")
-    pipe.load_lora_weights(
-        str(LINEART), weight_name=LINEART_WEIGHTS, adapter_name="lineart"
-    )
-    pipe.set_adapters(["lcm", "lineart"], adapter_weights=[LCM_WEIGHT, LINEART_WEIGHT])
-    pipe.fuse_lora(adapter_names=["lcm", "lineart"])
-    pipe.unload_lora_weights()
+    if (FUSED_MODEL / "model_index.json").exists():
+        pipe = StableDiffusionPipeline.from_pretrained(
+            str(FUSED_MODEL),
+            torch_dtype=torch.float16,
+            safety_checker=None,
+            requires_safety_checker=False,
+        )
+    else:
+        # Legacy path: fuse at cover time (run scripts/fuse_sd_loras.py once
+        # on the device to skip this).
+        pipe = StableDiffusionPipeline.from_pretrained(
+            str(SD_MODEL),
+            torch_dtype=torch.float16,
+            safety_checker=None,
+            requires_safety_checker=False,
+        )
+        pipe.load_lora_weights(str(LCM_LORA), adapter_name="lcm")
+        pipe.load_lora_weights(
+            str(LINEART), weight_name=LINEART_WEIGHTS, adapter_name="lineart"
+        )
+        pipe.set_adapters(
+            ["lcm", "lineart"], adapter_weights=[LCM_WEIGHT, LINEART_WEIGHT]
+        )
+        pipe.fuse_lora(adapter_names=["lcm", "lineart"])
+        pipe.unload_lora_weights()
     pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
 
     pipe.enable_vae_slicing()
