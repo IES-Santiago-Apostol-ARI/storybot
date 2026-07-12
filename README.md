@@ -212,6 +212,51 @@ sudo apt install \
 | OpenGL | 4.6 |
 | OpenGLES | 3.2 |
 
+#### Compilar whisper.cpp (transcripción de audio)
+
+Las historias subidas en audio desde `/admin` se transcriben a texto con
+[whisper.cpp](https://github.com/ggml-org/whisper.cpp). Se necesita `ffmpeg`
+(conversión a WAV 16 kHz mono) y el binario `whisper-cli`:
+
+```bash
+sudo apt install ccache ffmpeg
+
+git clone https://github.com/ggml-org/whisper.cpp
+cd whisper.cpp
+
+cmake -B build \
+    -DGGML_CUDA=ON \
+    -DCMAKE_CUDA_COMPILER=/usr/local/cuda-12.6/bin/nvcc \
+    -DCMAKE_CUDA_ARCHITECTURES="87" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DGGML_NATIVE=ON
+
+cmake --build build --config Release -j$(nproc)
+
+# Descargar el modelo multilingüe small (~466 MB)
+./models/download-ggml-model.sh small
+```
+
+Después, copiar el modelo y dar acceso al binario:
+
+```bash
+# Desde el directorio whisper.cpp; ~/storybot = raíz de este repositorio
+mkdir -p ~/storybot/models/whisper
+cp models/ggml-small.bin ~/storybot/models/whisper/
+sudo ln -s "$(pwd)/build/bin/whisper-cli" /usr/local/bin/whisper-cli
+```
+
+Configuración en `content/config.json` (valores por defecto):
+
+- `transcription_enabled`: `true`
+- `whisper_bin`: `whisper-cli` (se resuelve vía PATH; admite ruta absoluta)
+- `whisper_model`: `models/whisper/ggml-small.bin` (relativa a la raíz del proyecto)
+
+La transcripción se ejecuta en segundo plano al subir/reemplazar el audio de
+una historia, en CPU (`--no-gpu`) para no competir con llama-server/SD por la
+memoria unificada de 8 GB. Si falta el binario, el modelo o ffmpeg, la subida
+funciona igualmente y simplemente no se genera transcripción.
+
 ### Configuración del entorno
 
 ```bash

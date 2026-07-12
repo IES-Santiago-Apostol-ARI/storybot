@@ -241,6 +241,7 @@ class StoryManager:
         audio_file: str | None = None,
         cover_image: str | None = None,
         remove_cover: bool = False,
+        transcript: str | None = None,
     ) -> Story | None:
         """Update a story's metadata and/or files.
 
@@ -252,6 +253,7 @@ class StoryManager:
             audio_file: New audio filename (optional)
             cover_image: New cover filename (optional)
             remove_cover: If True, clear cover_image field
+            transcript: New speech-to-text transcript (optional)
 
         Returns:
             Updated Story or None if story_id not found
@@ -276,6 +278,8 @@ class StoryManager:
                 story_data["audio_file"] = audio_file
             if cover_image is not None:
                 story_data["cover_image"] = cover_image
+            if transcript is not None:
+                story_data["transcript"] = transcript
 
             # Handle remove_cover flag
             if remove_cover:

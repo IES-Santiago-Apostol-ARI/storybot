@@ -92,9 +92,7 @@ class TestStoryManagerList:
         assert stories[0].title == "Test Story"
         assert stories[1].title == "Another Story"
 
-    def test_list_stories_empty_returns_empty_list(
-        self, story_manager: StoryManager
-    ):
+    def test_list_stories_empty_returns_empty_list(self, story_manager: StoryManager):
         """Test that list_stories returns empty list when no stories."""
         stories = story_manager.list_stories()
         assert stories == []
@@ -119,9 +117,7 @@ class TestStoryManagerGet:
         assert story.title == "Test Story"
         assert story.emoji == "📚"
 
-    def test_get_story_not_found_returns_none(
-        self, story_manager: StoryManager
-    ):
+    def test_get_story_not_found_returns_none(self, story_manager: StoryManager):
         """Test that get_story returns None for non-existent story."""
         story = story_manager.get_story("non-existent")
         assert story is None
@@ -151,9 +147,7 @@ class TestStoryManagerDelete:
         index = json.loads(story_manager.INDEX_FILE.read_text())
         assert "test-story-1" not in index["stories"]
 
-    def test_delete_story_not_found_returns_false(
-        self, story_manager: StoryManager
-    ):
+    def test_delete_story_not_found_returns_false(self, story_manager: StoryManager):
         """Test that delete_story returns False for non-existent story."""
         result = story_manager.delete_story("non-existent")
         assert result is False
@@ -208,9 +202,7 @@ class TestStoryManagerNFC:
         assert story.id == "test-story-1"
         assert story.title == "Test Story"
 
-    def test_get_story_by_nfc_not_found_returns_none(
-        self, story_manager: StoryManager
-    ):
+    def test_get_story_by_nfc_not_found_returns_none(self, story_manager: StoryManager):
         """Test that get_story_by_nfc returns None for unknown NFC UID."""
         story = story_manager.get_story_by_nfc("unknown-uid")
         assert story is None
@@ -238,7 +230,9 @@ class TestStoryManagerNFC:
 class TestStoryManagerUpdate:
     """Test StoryManager.update_story()."""
 
-    def test_update_story_title(self, story_manager: StoryManager, story_create_data: dict):
+    def test_update_story_title(
+        self, story_manager: StoryManager, story_create_data: dict
+    ):
         """Test that update_story updates title."""
         # Create story
         story_manager.create_story(**story_create_data)
@@ -368,6 +362,68 @@ class TestStoryManagerUpdate:
         # Verify created_at is preserved
         assert result is not None
         assert result.created_at == original_timestamp
+
+
+class TestStoryTranscript:
+    """PLAN.md Task 4: transcript stored as story text metadata."""
+
+    def test_created_story_has_no_transcript(
+        self, story_manager: StoryManager, story_create_data: dict
+    ):
+        story = story_manager.create_story(**story_create_data)
+
+        assert story.transcript is None
+
+    def test_update_story_transcript_persists_to_index(
+        self, story_manager: StoryManager, story_create_data: dict
+    ):
+        story_manager.create_story(**story_create_data)
+
+        result = story_manager.update_story(
+            "test-story-1", transcript="Había una vez un robot."
+        )
+
+        assert result is not None
+        assert result.transcript == "Había una vez un robot."
+        index = json.loads(story_manager.INDEX_FILE.read_text())
+        assert (
+            index["stories"]["test-story-1"]["transcript"] == "Había una vez un robot."
+        )
+
+    def test_update_story_transcript_leaves_other_fields_untouched(
+        self, story_manager: StoryManager, story_create_data: dict
+    ):
+        created = story_manager.create_story(**story_create_data)
+
+        result = story_manager.update_story("test-story-1", transcript="Texto.")
+
+        assert result.title == created.title
+        assert result.audio_file == created.audio_file
+        assert result.created_at == created.created_at
+
+    def test_update_without_transcript_preserves_existing_transcript(
+        self, story_manager: StoryManager, story_create_data: dict
+    ):
+        story_manager.create_story(**story_create_data)
+        story_manager.update_story("test-story-1", transcript="Texto.")
+
+        result = story_manager.update_story("test-story-1", title="New Title")
+
+        assert result.transcript == "Texto."
+
+    def test_pre_transcript_index_entries_load_fine(
+        self, story_manager: StoryManager, story_create_data: dict
+    ):
+        """Old stories.json entries have no transcript key at all."""
+        story_manager.create_story(**story_create_data)
+        index = json.loads(story_manager.INDEX_FILE.read_text())
+        index["stories"]["test-story-1"].pop("transcript", None)
+        story_manager.INDEX_FILE.write_text(json.dumps(index))
+
+        story = story_manager.get_story("test-story-1")
+
+        assert story is not None
+        assert story.transcript is None
 
 
 class TestCreatedAtTimestamp:

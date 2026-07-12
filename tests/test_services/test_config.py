@@ -92,6 +92,25 @@ class TestTTSSpeechDefaults:
         assert Settings().tts_length_scale == 1.2
 
 
+class TestTranscriptionSettings:
+    """Whisper.cpp transcription of /admin audio uploads (PLAN.md Task 4)."""
+
+    def test_transcription_enabled_by_default(self):
+        from app.config import Settings
+
+        assert Settings().transcription_enabled is True
+
+    def test_default_whisper_bin_resolves_via_path(self):
+        from app.config import Settings
+
+        assert Settings().whisper_bin == "whisper-cli"
+
+    def test_default_whisper_model_lives_under_models_dir(self):
+        from app.config import Settings
+
+        assert Settings().whisper_model == "models/whisper/ggml-small.bin"
+
+
 class TestGetSettings:
     """IMPROVEMENTS.md 2.3: process-wide shared settings accessor."""
 

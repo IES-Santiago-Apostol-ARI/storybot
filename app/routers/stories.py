@@ -1,20 +1,51 @@
 """Story CRUD API endpoints."""
 
+import json
 import shutil
+import sys
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from fastapi.requests import Request
 
 from app.dependencies import get_story_manager
 from app.models.story import NFCAssignRequest, Story, StoryList
+from app.services import transcriber
 from app.services.story_manager import StoryManager
 
 router = APIRouter()
 
 # Valid audio content types
 VALID_AUDIO_TYPES = {"audio/mpeg", "audio/wav", "audio/x-wav"}
+
+
+async def _transcribe_story_audio(
+    story_manager: StoryManager, story_id: str, audio_path: Path
+) -> None:
+    """Background task: transcribe uploaded audio and store the transcript.
+
+    Any failure is logged and swallowed — the upload must never break.
+    """
+    try:
+        text = await transcriber.transcribe(audio_path)
+    except Exception as exc:  # noqa: BLE001 — background task must not raise
+        print(
+            json.dumps({"event": "transcribe_task_failed", "error": str(exc)}),
+            file=sys.stderr,
+        )
+        return
+    if text:
+        story_manager.update_story(story_id=story_id, transcript=text)
 
 
 # NFC lookup endpoint MUST be defined before /{story_id} to avoid path conflicts
@@ -75,6 +106,7 @@ async def assign_nfc_to_story(
 @router.post("/api/stories", response_model=Story, status_code=status.HTTP_201_CREATED)
 async def create_story(
     request: Request,
+    background_tasks: BackgroundTasks,
     title: str = Form(...),
     emoji: str = Form(...),
     led_color: str = Form(...),
@@ -138,12 +170,17 @@ async def create_story(
         cover_image=cover_filename,
     )
 
+    background_tasks.add_task(
+        _transcribe_story_audio, story_manager, story_id, audio_path
+    )
+
     return story
 
 
 @router.put("/api/stories/{story_id}", response_model=Story)
 async def update_story(
     story_id: str,
+    background_tasks: BackgroundTasks,
     title: str = Form(...),
     emoji: str = Form(...),
     led_color: str = Form(...),
@@ -201,6 +238,11 @@ async def update_story(
         old_audio_path = story_dir / existing_story.audio_file
         if old_audio_path.exists() and old_audio_path != new_audio_path:
             old_audio_path.unlink()
+
+        # Re-transcribe the replaced audio
+        background_tasks.add_task(
+            _transcribe_story_audio, story_manager, story_id, new_audio_path
+        )
 
     # Handle cover image replacement/removal
     cover_image = existing_story.cover_image

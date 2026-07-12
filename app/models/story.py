@@ -1,6 +1,5 @@
 """Story models for API requests and responses."""
 
-
 from pydantic import BaseModel, Field
 
 
@@ -25,6 +24,9 @@ class Story(BaseModel):
     )
     nfc_uid: str | None = Field(None, description="NFC card UID assigned to story")
     created_at: str = Field(..., description="ISO timestamp of creation")
+    transcript: str | None = Field(
+        None, description="Speech-to-text transcript of the story audio"
+    )
 
 
 class StoryList(BaseModel):

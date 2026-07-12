@@ -46,6 +46,12 @@ class Settings(BaseModel):
     # Piper phoneme-duration multiplier; >1 = slower. 1.2 ≈ 20% slower —
     # the default rate is too fast for ages 3-6.
     tts_length_scale: float = 1.2
+    # Whisper.cpp transcription of /admin audio uploads. Effective only when
+    # the binary, model and ffmpeg exist on disk — dev machines without them
+    # silently skip transcription (uploads still succeed).
+    transcription_enabled: bool = True
+    whisper_bin: str = "whisper-cli"  # bare name resolves via PATH
+    whisper_model: str = "models/whisper/ggml-small.bin"
     nfc_reader_device: str = "usb:072f:2200"
     printer_model: str = "QL-800"
     # GPIO button pin mapping (Jetson.GPIO BOARD mode = physical J2 pin)
