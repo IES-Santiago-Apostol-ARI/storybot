@@ -138,12 +138,14 @@ variables {
 > *stock* UEFI anyway (the patched one isn't built until Part 2).
 
 Put the Jetson in recovery mode:
+1. Apaga la Jetson y desconéctala de la corriente.
+2. Asegúrate de que el SSD NVMe de 500 GB está instalado en la ranura M.2.
+3. Localiza el header de J14 (12 pines) en la carrier board.
+4. Cortocircuita los pines **FC REC** y **GND** (pines 9 y 10) con un jumper o cable.
+5. Conecta el cable USB-C de la Jetson al puerto USB-A del PC host.
+6. Conecta la fuente de alimentación a la Jetson para encenderla.
+7. Deja el jumper conectado hasta que el flasheo comience.
 
-1. Shut down the Jetson.
-2. Connect USB-C cable between the Jetson and host PC.
-3. Hold the **recovery button** (middle button on dev kit).
-4. Press and release the **power button**.
-5. Release the recovery button after ~2 seconds.
 
 Verify:
 
