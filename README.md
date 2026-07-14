@@ -212,6 +212,28 @@ sudo apt install \
 | OpenGL | 4.6 |
 | OpenGLES | 3.2 |
 
+#### Compilar llama.cpp
+
+Para ejecutar [llama-server](https://github.com/ggml-org/llama.cpp) con aceleración CUDA en la Jetson (arch 87):
+
+```bash
+sudo apt install ccache
+```
+
+```bash
+cmake -B build \
+    -DGGML_CUDA=ON \
+    -DCMAKE_CUDA_COMPILER=/usr/local/cuda-12.6/bin/nvcc \
+    -DCMAKE_CUDA_ARCHITECTURES="87" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DLLAMA_BUILD_TESTS=OFF \
+    -DLLAMA_BUILD_EXAMPLES=OFF \
+    -DGGML_CUDA_FA_ALL_QUANTS=ON \
+    -DGGML_NATIVE=ON
+
+cmake --build build --config Release -j$(nproc)
+```
+
 #### Compilar whisper.cpp (transcripción de audio)
 
 Las historias subidas en audio desde `/admin` se transcriben a texto con
