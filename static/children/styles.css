@@ -213,7 +213,7 @@ html, body {
 /* Playback screen */
 .screen-playing {
     --story-color: #ff6b6b;
-    background: linear-gradient(135deg, var(--color-background-dark) 0%, #16213e 100%);
+    background: linear-gradient(135deg, var(--color-background-dark) 0%, #5a87a8 100%);
     overflow: hidden;
 }
 
@@ -373,7 +373,7 @@ html, body {
   bottom: 40px;
   left: 0;
   width: 100%;
-  height: 130px; /* fits the 120px walking robot */
+  height: 160px; /* fits the 150px walking robot */
   pointer-events: none;
 }
 
@@ -416,7 +416,7 @@ html, body {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, var(--color-background-dark) 0%, #16213e 100%);
+    background: linear-gradient(135deg, var(--color-background-dark) 0%, #5a87a8 100%);
 }
 
 .screen-thankyou.hidden {

@@ -626,8 +626,8 @@ function startProgressTracking() {
     function updateProgress() {
         if (audioElement.duration > 0) {
             const progress = audioElement.currentTime / audioElement.duration;
-            // Move from 20px to (window.innerWidth - 140px): 120px robot + 20px margin
-            const maxX = window.innerWidth - 140;
+            // Move from 20px to (window.innerWidth - 170px): 150px robot + 20px margin
+            const maxX = window.innerWidth - 170;
             const x = 20 + (progress * (maxX - 20));
             character.style.left = x + 'px';
         }
