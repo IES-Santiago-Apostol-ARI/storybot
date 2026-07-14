@@ -218,3 +218,6 @@ content/bt_devices.json
 content/generated/
 .claude/
 .opencode/
+.codegraph/
+# local network credentials — never commit
+wifi.md
