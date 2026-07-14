@@ -982,6 +982,73 @@ def _hex_to_rgb(hex_color):
     return tuple(int(h[i : i + 2], 16) for i in (0, 2, 4))
 
 
+class TestGeneratedCap:
+    """PLAN.md Task 3: at most 5 stories ever exist in content/generated/."""
+
+    def _post(self, client, mock_story_generator, mock_tts_pipeline, tmp_path):
+        """Helper: POST /api/generate/story, return saved story.json path."""
+        from app.routers import generate as gen_module
+        from app.services.story_manager import StoryManager
+
+        generated_dir = tmp_path / "content" / "generated"
+        generated_dir.mkdir(parents=True, exist_ok=True)
+
+        # Reset the mock generator so each POST gets a fresh async gen.
+        async def _make_gen():
+            yield {"text": "Un cuento.", "done": False}
+            yield {"text": None, "done": True}
+
+        mock_story_generator.generate_story.return_value = _make_gen()
+
+        # Point generate.py's GENERATED_DIR at tmp_path so _save_generated_story
+        # and the TTS pipeline write into the test directory.
+        original_dir = getattr(gen_module, "GENERATED_DIR", None)
+        gen_module.GENERATED_DIR = generated_dir
+
+        # Wire a real StoryManager onto app.state so the prune call in
+        # generate.py actually runs (TestClient without 'with' skips lifespan).
+        sm = StoryManager()
+        sm.GENERATED_DIR = generated_dir
+        app.state.story_manager = sm
+        try:
+            client.post(
+                "/api/generate/story",
+                json={"parameters": [{"category": "personaje", "value": "gato"}]},
+            )
+            saved = list(generated_dir.glob("*/story.json"))
+            return saved
+        finally:
+            delattr(app.state, "story_manager")
+            if original_dir is not None:
+                gen_module.GENERATED_DIR = original_dir
+            else:
+                delattr(gen_module, "GENERATED_DIR")
+
+    def test_sixth_generation_deletes_oldest(
+        self, client, mock_story_generator, mock_tts_pipeline, tmp_path
+    ):
+        """After 6 generations, only the 5 newest story.json files remain."""
+        for i in range(6):
+            saved = self._post(
+                client, mock_story_generator, mock_tts_pipeline, tmp_path
+            )
+            assert len(saved) == min(i + 1, 5)  # grows to the cap, never past it
+
+        all_stories = list((tmp_path / "content" / "generated").glob("*/story.json"))
+        assert len(all_stories) == 5, (
+            f"Expected at most 5 generated stories, got {len(all_stories)}: "
+            f"{sorted(s.parent.name for s in all_stories)}"
+        )
+
+    def test_single_generation_keeps_one(
+        self, client, mock_story_generator, mock_tts_pipeline, tmp_path
+    ):
+        """First generation: exactly 1 story in generated dir."""
+        self._post(client, mock_story_generator, mock_tts_pipeline, tmp_path)
+        all_stories = list((tmp_path / "content" / "generated").glob("*/story.json"))
+        assert len(all_stories) == 1
+
+
 class TestStorySpeakerConsistency:
     """One randomly picked voice per story, held across every segment."""
 

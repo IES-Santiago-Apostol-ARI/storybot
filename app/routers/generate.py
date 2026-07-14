@@ -22,6 +22,7 @@ from app.services.swap_orchestrator import LlamaRelaunchError
 router = APIRouter()
 
 GENERATED_DIR = Path("content/generated")
+MAX_GENERATED_STORIES = 5
 
 
 # LED-20 / D-21 (PLAN DECISION): the in-flight generation progress bar fills in
@@ -85,6 +86,12 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
     # call below is None-guarded so a missing engine degrades to no LED
     # feedback rather than breaking the generation stream.
     animator = getattr(fastapi_request.app.state, "led_animator", None)
+    # Task 3 (PLAN.md): cap generated stories at MAX_GENERATED_STORIES.
+    # Prune BEFORE generating so the new story (saved inside _stream_body)
+    # never pushes the total above the limit.
+    if story_manager is not None:
+        story_manager.prune_generated(MAX_GENERATED_STORIES - 1)
+
     story_id = str(uuid.uuid4())
     collected_text: list[str] = []
     segments: list[dict] = []

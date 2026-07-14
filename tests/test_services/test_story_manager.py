@@ -426,6 +426,117 @@ class TestStoryTranscript:
         assert story.transcript is None
 
 
+class TestPruneGenerated:
+    """PLAN.md Task 3: prune_generated caps the number of generated stories."""
+
+    def _make_generated_dir(
+        self, tmp_path: Path, names_with_dates: list[tuple[str, str]]
+    ):
+        """Create content/generated/<name>/story.json for each (id, ISO created_at)."""
+        gen_dir = tmp_path / "content" / "generated"
+        gen_dir.mkdir(parents=True)
+        for name, created_at in names_with_dates:
+            story_dir = gen_dir / name
+            story_dir.mkdir(parents=True, exist_ok=True)
+            (story_dir / "story.json").write_text(
+                json.dumps({"id": name, "created_at": created_at, "text": ""})
+            )
+        return gen_dir
+
+    def test_prune_generated_removes_oldest_until_count_le_max(self, tmp_path):
+        """5 stories exist, prune to 3: 2 oldest (by created_at) are deleted."""
+        gen_dir = self._make_generated_dir(
+            tmp_path,
+            [
+                ("aaa-oldest", "2026-01-01T00:00:00+00:00"),
+                ("bbb-old", "2026-02-01T00:00:00+00:00"),
+                ("ccc-mid", "2026-03-01T00:00:00+00:00"),
+                ("ddd-new", "2026-04-01T00:00:00+00:00"),
+                ("eee-newest", "2026-05-01T00:00:00+00:00"),
+            ],
+        )
+
+        manager = StoryManager()
+        manager.CONTENT_DIR = tmp_path / "content" / "stories"
+        manager.INDEX_FILE = tmp_path / "content" / "stories" / "stories.json"
+        manager.INDEX_FILE.parent.mkdir(parents=True, exist_ok=True)
+        manager.INDEX_FILE.write_text(
+            json.dumps({"version": 1, "stories": {}, "nfc_to_story": {}})
+        )
+        manager.GENERATED_DIR = gen_dir
+
+        manager.prune_generated(3)
+
+        remaining = list(gen_dir.iterdir())
+        assert len(remaining) == 3
+        remaining_ids = {d.name for d in remaining}
+        assert remaining_ids == {"ccc-mid", "ddd-new", "eee-newest"}
+
+    def test_prune_generated_noop_when_count_below_max(self, tmp_path):
+        """2 stories exist, prune to 5: nothing is deleted."""
+        gen_dir = self._make_generated_dir(
+            tmp_path,
+            [
+                ("aaa", "2026-01-01T00:00:00+00:00"),
+                ("bbb", "2026-02-01T00:00:00+00:00"),
+            ],
+        )
+
+        manager = StoryManager()
+        manager.CONTENT_DIR = tmp_path / "content" / "stories"
+        manager.INDEX_FILE = tmp_path / "content" / "stories" / "stories.json"
+        manager.INDEX_FILE.parent.mkdir(parents=True, exist_ok=True)
+        manager.INDEX_FILE.write_text(
+            json.dumps({"version": 1, "stories": {}, "nfc_to_story": {}})
+        )
+        manager.GENERATED_DIR = gen_dir
+
+        manager.prune_generated(5)
+
+        remaining = list(gen_dir.iterdir())
+        assert len(remaining) == 2
+
+    def test_prune_generated_noop_when_empty(self, tmp_path):
+        """No generated stories exist: prune is a no-op."""
+        gen_dir = tmp_path / "content" / "generated"
+        gen_dir.mkdir(parents=True)
+
+        manager = StoryManager()
+        manager.CONTENT_DIR = tmp_path / "content" / "stories"
+        manager.INDEX_FILE = tmp_path / "content" / "stories" / "stories.json"
+        manager.INDEX_FILE.parent.mkdir(parents=True, exist_ok=True)
+        manager.INDEX_FILE.write_text(
+            json.dumps({"version": 1, "stories": {}, "nfc_to_story": {}})
+        )
+        manager.GENERATED_DIR = gen_dir
+
+        manager.prune_generated(5)
+
+        remaining = list(gen_dir.iterdir())
+        assert remaining == []
+
+    def test_prune_generated_with_only_invalid_story_dirs_skipped(self, tmp_path):
+        """Dirs without story.json are left alone by prune."""
+        gen_dir = tmp_path / "content" / "generated"
+        gen_dir.mkdir(parents=True)
+        # A dir without story.json
+        (gen_dir / "no-json").mkdir(parents=True, exist_ok=True)
+        (gen_dir / "no-json" / "random.txt").write_text("junk")
+
+        manager = StoryManager()
+        manager.CONTENT_DIR = tmp_path / "content" / "stories"
+        manager.INDEX_FILE = tmp_path / "content" / "stories" / "stories.json"
+        manager.INDEX_FILE.parent.mkdir(parents=True, exist_ok=True)
+        manager.INDEX_FILE.write_text(
+            json.dumps({"version": 1, "stories": {}, "nfc_to_story": {}})
+        )
+        manager.GENERATED_DIR = gen_dir
+
+        manager.prune_generated(5)
+
+        assert (gen_dir / "no-json").exists()
+
+
 class TestCreatedAtTimestamp:
     """IMPROVEMENTS.md 2.5: standardize on datetime.now(timezone.utc)."""
 
