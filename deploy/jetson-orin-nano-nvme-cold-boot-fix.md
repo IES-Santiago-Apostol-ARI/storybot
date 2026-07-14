@@ -16,6 +16,36 @@ The Jetson Orin Nano Developer Kit fails to boot from NVMe SSD on cold boot (ful
 1. **L4TConfiguration.dtbo** — Set boot priority to NVMe only (removes PXE/HTTP network boot entries) and increase UEFI timeout to 15 seconds.
 2. **Custom UEFI firmware** — Increase PCIe post-PERST# delay from 200ms to 5000ms and add a retry loop (20 × 500ms) for PCIe link detection.
 
+> **Pre-built artifacts:** for L4T R36.5.0 all build outputs (patched UEFI
+> binary, modified L4TConfiguration.dtbo, source patch) are archived in
+> `deploy/firmware/r36.5.0/` — see its README. Parts 1.1–1.4 and 2.1–2.5
+> (BSP download, dtbo editing, Docker EDK2 build) only need to be redone for
+> a different L4T release.
+
+## Choosing a Route — READ THIS FIRST
+
+There are two ways to get the fixes into QSPI. **Do ONE of them, not both**
+(on 2026-07-13 we did the recovery flash of 1.5 first and then still had to do
+the whole flash again for the patched UEFI — pure duplicated work):
+
+- **Route A — Capsule (RECOMMENDED, also for a brand-new Jetson):** build
+  everything on the host (steps 1.1–1.4 and 2.1–2.5), generate a self-built
+  capsule (3.2), and apply it from the running Jetson with
+  `deploy/enable-super-firmware.sh <capsule>` (3.3). ONE reboot installs the
+  modified L4TConfiguration, the patched UEFI **and** the Super clock tables
+  in a single update. No recovery mode, no USB cable. **Skip steps 1.5 and
+  2.6 entirely.** This works even on a device suffering the cold-boot bug —
+  it boots fine on warm reboots. On a new device, run `deploy/install.sh`
+  and reboot first (it selects the super kernel DTB, a prerequisite of the
+  script).
+
+- **Route B — Recovery-mode flash (rescue only):** steps 1.5 and 2.6, with
+  the Jetson in recovery mode over USB. Only needed when the device has no
+  bootable OS at all. This route does NOT install the Super clock tables —
+  you would still need a capsule afterwards, and applying NVIDIA's *stock*
+  super capsule reverts this fix (see Part 3) — another reason to prefer
+  Route A.
+
 ---
 
 ## Part 1: Modify L4TConfiguration.dtbo
@@ -100,7 +130,12 @@ variables {
 ./kernel/dtc -I dts -O dtb -o kernel/dtb/L4TConfiguration.dtbo kernel/dtb/L4TConfiguration.dts
 ```
 
-### 1.5 Flash the QSPI bootloader (both A and B slots)
+### 1.5 Flash the QSPI bootloader (both A and B slots) — Route B ONLY
+
+> **Route A (capsule) users: SKIP this step.** The capsule generated in 3.2
+> folds the modified L4TConfiguration.dtbo into the bootloader payload —
+> recovery-flashing here is redundant, and at this point you would flash the
+> *stock* UEFI anyway (the patched one isn't built until Part 2).
 
 Put the Jetson in recovery mode:
 
@@ -284,12 +319,17 @@ edk2-nvidia/Silicon/NVIDIA/scripts/build_stuart.sh \
 
 The output binary will be at `images/uefi_t23x_general_RELEASE.bin`.
 
-**Verify the patch is in the binary:**
+**Verify the patch was compiled in:**
 
 ```bash
-strings images/uefi_t23x_general_RELEASE.bin | grep "retry"
+strings Build/t23x_general/RELEASE_GCC/AARCH64/PcieControllerDxe.efi | grep "retry"
 # Should show: PCIe Link not up, retry %d/20...
 ```
+
+> **Note:** Do NOT run `strings` on `images/uefi_t23x_general_RELEASE.bin` for this
+> check — the DXE drivers are packed into an LZMA-compressed firmware volume inside
+> the composed image, so the string is invisible there even on a correctly patched
+> build. Check the built driver `.efi` above instead.
 
 Exit Docker:
 
@@ -297,7 +337,10 @@ Exit Docker:
 exit
 ```
 
-### 2.6 Flash the custom UEFI
+### 2.6 Flash the custom UEFI — Route B ONLY
+
+> **Route A (capsule) users: SKIP this step** and continue with 3.2 — the
+> capsule delivers this same binary without recovery mode.
 
 ```bash
 cd ~/jetson/Linux_for_Tegra
@@ -326,7 +369,13 @@ sudo ./flash.sh -k B_cpu-bootloader \
 
 ---
 
-## Part 3: Reapplying After a Firmware Capsule Update (2026-07 regression)
+## Part 3: The Capsule Route (Route A — new device, or reapplying after a capsule regression)
+
+This is the recommended way to install the fix, whether on a brand-new Jetson
+or after a firmware capsule update wiped it. The self-built capsule carries
+the modified L4TConfiguration (Part 1), the patched UEFI (Part 2) **and** the
+Super clock tables in one update — build it once and archive the `.Cap`; it
+can be reused on any Orin Nano devkit running the same L4T release.
 
 **Any QSPI firmware capsule update reverts this entire fix** — it replaces the
 patched UEFI (Part 2) *and* the L4TConfiguration defaults (Part 1) with
@@ -349,13 +398,17 @@ fallback if it fails.
 
 ### 3.1 Rebuild the patched UEFI (host PC)
 
-Follow **Part 1** (steps 1.1–1.4: BSP download + L4TConfiguration edits) and
-**Part 2** (steps 2.1–2.5: Docker EDK2 build with the PCIe patches) exactly
-as written above. Stop before 2.6 — do NOT recovery-flash. You end with:
+**On L4T R36.5.0, skip the builds** — copy the archived artifacts from
+`deploy/firmware/r36.5.0/` into the BSP (see that README) and go straight
+to 3.2. Otherwise: follow **Part 1** (steps 1.1–1.4: BSP download +
+L4TConfiguration edits) and **Part 2** (steps 2.1–2.5: Docker EDK2 build
+with the PCIe patches) exactly as written above. Stop before 2.6 — do NOT
+recovery-flash. You end with:
 
 - `~/jetson/Linux_for_Tegra/kernel/dtb/L4TConfiguration.dtbo` (modified)
 - `~/nvidia-uefi-build/nvidia-uefi/images/uefi_t23x_general_RELEASE.bin`
-  (patched; verify with `strings ... | grep retry`)
+  (patched; verify via the built driver as described in 2.5 —
+  `strings Build/t23x_general/RELEASE_GCC/AARCH64/PcieControllerDxe.efi | grep retry`)
 
 The L4TConfiguration.dtbo gets folded into the cpu-bootloader image at
 payload-generation time, so the capsule carries both Part 1 and Part 2.
@@ -383,29 +436,26 @@ sudo ./generate_capsule/l4t_generate_soc_capsule.sh \
 
 Copy it over: `scp TEGRA_BL_patched.Cap ari@<jetson>:/home/ari/`
 
+Archive `TEGRA_BL_patched.Cap` somewhere safe — with it, provisioning the
+next Jetson needs none of the host-side build steps.
+
 ### 3.3 Stage and apply (on the Jetson)
 
-Same capsule-on-disk mechanism as `deploy/enable-super-firmware.sh` (fwupd
-can't be used — the 63 MB ESP is too small for its 2x-size check):
+`deploy/enable-super-firmware.sh` does the staging (UEFI capsule-on-disk;
+fwupd can't be used — the 63 MB ESP is too small for its 2x-size check).
+Pass it the patched capsule — run WITHOUT the argument it stages NVIDIA's
+stock capsule, which reverts this fix:
 
 ```bash
-sudo bash -s <<'EOS'
-set -e
-OSIND=/sys/firmware/efi/efivars/OsIndications-8be4df61-93ca-11d2-aa0d-00e098032b8c
-mkdir -p /boot/efi/EFI/UpdateCapsule
-cp /home/ari/TEGRA_BL_patched.Cap /boot/efi/EFI/UpdateCapsule/TEGRA_BL.Cap
-sync
-existing=0
-if [[ -f "$OSIND" ]]; then
-    chattr -i "$OSIND" 2>/dev/null || true
-    existing=$(od -An -tu1 -j4 -N1 "$OSIND" | tr -d ' ')
-fi
-lowbyte=$(printf '\\x%02x' $((existing | 4)))
-printf "\x07\x00\x00\x00${lowbyte}\x00\x00\x00\x00\x00\x00\x00" > "$OSIND"
-EOS
+sudo bash deploy/enable-super-firmware.sh /home/ari/TEGRA_BL_patched.Cap
 sudo reboot
 # UEFI shows a progress bar for 1-5 minutes. DO NOT POWER OFF.
 ```
+
+On a brand-new device the script also rewrites the board identity in
+`/etc/nv_boot_control.conf` to the `-super-` variant (so this and future
+capsule selections pick the super payload). It requires the super kernel DTB
+to be booted already — `install.sh` step 1f + reboot.
 
 ### 3.4 Verify
 

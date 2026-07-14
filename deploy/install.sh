@@ -280,8 +280,11 @@ if [ -f /etc/nv_tegra_release ] && [[ "$AI_MODE" == true ]]; then
         echo -e "${YELLOW}=========================================================================${NC}"
         echo -e "${YELLOW}WARNING: SUPER CLOCKS NOT ACTIVE (power mode: ${POWER_MODE:-unknown}, EMC max: ${EMC_MAX_RATE} Hz).${NC}"
         echo -e "${YELLOW}REBOOT FIRST; IF THIS WARNING PERSISTS ON THE NEXT INSTALL RUN, EXECUTE:${NC}"
-        echo -e "${YELLOW}    sudo bash deploy/enable-super-firmware.sh${NC}"
+        echo -e "${YELLOW}    sudo bash deploy/enable-super-firmware.sh [patched-capsule.Cap]${NC}"
         echo -e "${YELLOW}AND REBOOT AGAIN TO APPLY THE SUPER QSPI FIRMWARE.${NC}"
+        echo -e "${YELLOW}IF THE SSD NEEDS THE NVMe COLD-BOOT FIX, PASS THE SELF-BUILT PATCHED${NC}"
+        echo -e "${YELLOW}CAPSULE — THE STOCK ONE REVERTS/OMITS THAT FIX. BUILD/ARCHIVE INFO:${NC}"
+        echo -e "${YELLOW}    deploy/jetson-orin-nano-nvme-cold-boot-fix.md (Part 3)${NC}"
         echo -e "${YELLOW}=========================================================================${NC}"
         echo ""
     fi

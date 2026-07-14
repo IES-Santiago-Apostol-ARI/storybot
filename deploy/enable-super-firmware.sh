@@ -24,10 +24,17 @@
 # Step 1f + reboot) — the device-tree compatible string must contain "super".
 #
 # Usage:
-#   sudo bash deploy/enable-super-firmware.sh
+#   sudo bash deploy/enable-super-firmware.sh [capsule.Cap]
 #   sudo reboot   # UEFI applies the firmware: progress bar, 1-5 minutes.
 #                 # DO NOT POWER OFF during that boot.
 #                 # (Bootloader A/B slots provide automatic fallback.)
+#
+# The optional argument is a self-built bootloader capsule (e.g.
+# TEGRA_BL_patched.Cap carrying the NVMe cold-boot UEFI patch — see
+# deploy/jetson-orin-nano-nvme-cold-boot-fix.md, Part 3). Without it the
+# STOCK super capsule shipped in /opt/ota_package is staged; the stock
+# capsule does NOT contain the cold-boot patch and REVERTS it if it was
+# previously applied.
 #
 set -e
 
@@ -37,7 +44,9 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 EMC_SUPER_RATE=3199000000
-CAPSULE_SRC=/opt/ota_package/t23x/TEGRA_BL_3767_super.Cap
+CAPSULE_STOCK=/opt/ota_package/t23x/TEGRA_BL_3767_super.Cap
+CAPSULE_ARG="${1:-}"
+CAPSULE_SRC="${CAPSULE_ARG:-$CAPSULE_STOCK}"
 BOOT_CTRL_CONF=/etc/nv_boot_control.conf
 ESP_MOUNT=/boot/efi
 CAPSULE_DST_DIR="$ESP_MOUNT/EFI/UpdateCapsule"
@@ -51,11 +60,22 @@ die() {
 [[ $EUID -eq 0 ]] || die "must run as root (sudo bash deploy/enable-super-firmware.sh)"
 [[ -f /etc/nv_tegra_release ]] || die "not a Jetson device"
 
-# Already on super firmware? Nothing to do.
+# Already on super firmware? Nothing to do — unless a capsule was passed
+# explicitly (e.g. the cold-boot-patched UEFI), which must be applied even
+# when the super clocks are already active.
 EMC_MAX_RATE="$(cat /sys/kernel/debug/bpmp/debug/clk/emc/max_rate 2>/dev/null || echo 0)"
-if [[ "$EMC_MAX_RATE" -ge "$EMC_SUPER_RATE" ]]; then
+if [[ -z "$CAPSULE_ARG" && "$EMC_MAX_RATE" -ge "$EMC_SUPER_RATE" ]]; then
     echo -e "${GREEN}Super firmware already active (EMC max ${EMC_MAX_RATE} Hz) — nothing to do.${NC}"
+    echo "(To apply a self-built capsule anyway — e.g. the NVMe cold-boot"
+    echo " patched UEFI — pass its path: sudo bash $0 <capsule.Cap>)"
     exit 0
+fi
+
+if [[ -z "$CAPSULE_ARG" ]]; then
+    echo -e "${YELLOW}Staging NVIDIA's STOCK super capsule. It does NOT contain the NVMe"
+    echo -e "cold-boot UEFI patch and REVERTS it if it was previously applied. If this"
+    echo -e "device needs that fix, build the patched capsule and re-run with its path"
+    echo -e "(see deploy/jetson-orin-nano-nvme-cold-boot-fix.md, Part 3).${NC}"
 fi
 
 # The kernel must be running the super DTB: nvpower.sh keys the nvpmodel conf
@@ -66,8 +86,12 @@ if ! tr '\0' '\n' < /proc/device-tree/compatible | grep -q -- "-super"; then
 then re-run this script."
 fi
 
-[[ -f "$CAPSULE_SRC" ]] || die "super capsule not found at $CAPSULE_SRC \
+if [[ -n "$CAPSULE_ARG" ]]; then
+    [[ -f "$CAPSULE_SRC" ]] || die "capsule not found at $CAPSULE_SRC"
+else
+    [[ -f "$CAPSULE_SRC" ]] || die "super capsule not found at $CAPSULE_SRC \
 (is nvidia-l4t-bootloader installed and up to date?)"
+fi
 mountpoint -q "$ESP_MOUNT" || die "ESP is not mounted at $ESP_MOUNT"
 
 # Capsule already staged from a previous run? Just remind about the reboot.
@@ -125,3 +149,9 @@ echo ""
 echo "Verify afterwards:"
 echo "  sudo nvpmodel -q                                            # 25W"
 echo "  sudo cat /sys/kernel/debug/bpmp/debug/clk/emc/max_rate      # 3199000000"
+if [[ -n "$CAPSULE_ARG" ]]; then
+    echo "  sudo efibootmgr -v                # Timeout: 15 seconds, NO PXE/HTTP entries"
+    echo ""
+    echo "Then pin the bootloader package so an apt upgrade cannot revert the patch:"
+    echo "  sudo apt-mark hold nvidia-l4t-bootloader"
+fi
