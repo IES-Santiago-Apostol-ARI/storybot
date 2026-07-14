@@ -20,6 +20,7 @@ fake_clock drives it deterministically.
 
 import asyncio
 import json
+import random
 import sys
 import time
 from pathlib import Path
@@ -190,31 +191,29 @@ class GpioDispatcher:
     ) -> None:
         """Background task: run the orchestrator, then ack or error-blink.
 
+        Always regenerates (Task 5): the SD worker overwrites
+        ``cover-preview.png`` / ``cover-print.png`` in
+        ``content/generated/<story_id>/``, replacing the old image. The old
+        image survives if generation fails (safer than pre-deleting). Seed is
+        random so re-presses produce different images.
+
         On success enqueues ``{"type": "image", "url": ...}`` (URL derived from
         the orchestrator's actual preview filename) and fires ``rainbow()`` as
         the press ack (D-09). On busy/failure/exception drives ``Mode.ERROR``.
         The in-flight guard is reset in ``finally`` regardless of outcome.
         """
         try:
-            # IMPROVEMENTS.md 3.3: the seed derives from story_id, so a
-            # re-press after success would regenerate the SAME image through a
-            # full llama-stop → SD → llama-start cycle. Reuse an existing
-            # cover instead of swapping.
-            preview_path = GENERATED_DIR / story_id / "cover-preview.png"
-            if preview_path.exists():
-                _log("cover_reused_existing", story_id=story_id)
-            else:
-                seed = cover_prompt_builder.story_seed(story_id)
-                preview_path, _print_path, _gen_seconds = (
-                    await self._swap_orchestrator.generate_cover_for_story(
-                        story_id, positive, negative, seed
-                    )
+            seed = random.randint(0, 2**32 - 1)
+            preview_path, _print_path, _gen_seconds = (
+                await self._swap_orchestrator.generate_cover_for_story(
+                    story_id, positive, negative, seed
                 )
+            )
 
-                # Busy-lock or failure → (None, None, None).
-                if preview_path is None:
-                    self._error_blink()
-                    return
+            # Busy-lock or failure → (None, None, None).
+            if preview_path is None:
+                self._error_blink()
+                return
 
             # Derive the URL from the actual output filename (avoids a silent
             # 404 if the worker's basename ever changes).

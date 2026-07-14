@@ -14,7 +14,6 @@ seams (no hardware):
 """
 
 import asyncio
-import zlib
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -189,9 +188,7 @@ class TestImageHandler:
 
         orch.generate_cover_for_story.assert_awaited_once()
         assert orch.generate_cover_for_story.call_args[0][0] == "story-1"
-        # IMPROVEMENTS.md 2.6: seed must be crc32 (deterministic), not hash()
-        # (randomized per process by PYTHONHASHSEED).
-        assert orch.generate_cover_for_story.call_args[0][3] == zlib.crc32(b"story-1")
+        assert isinstance(orch.generate_cover_for_story.call_args[0][3], int)
         assert kiosk.get_nowait() == {
             "type": "image",
             "url": "/static/generated/story-1/cover-preview.png",
@@ -199,22 +196,22 @@ class TestImageHandler:
         led.rainbow.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_image_reuses_existing_cover_without_swap(
+    async def test_image_always_regenerates_even_with_existing_cover(
         self, fake_clock, tmp_path, monkeypatch
     ):
-        """IMPROVEMENTS.md 3.3: the seed derives from story_id, so a re-press
-        after success would regenerate the SAME image through a full
-        llama-stop → SD → llama-start cycle. An existing cover-preview.png is
-        reused: enqueue its URL + rainbow ack, never touch the orchestrator."""
+        """Task 5: an existing cover-preview.png no longer short-circuits — the
+        orchestrator is always called so the old image is replaced."""
         from app.services import gpio_dispatcher
 
         monkeypatch.setattr(gpio_dispatcher, "GENERATED_DIR", tmp_path)
         cover = tmp_path / "story-1" / "cover-preview.png"
         cover.parent.mkdir(parents=True)
-        cover.write_bytes(b"png")
+        cover.write_bytes(b"old-png-bytes")
 
         orch = MagicMock()
-        orch.generate_cover_for_story = AsyncMock()
+        orch.generate_cover_for_story = AsyncMock(
+            return_value=(Path("/x/cover-preview.png"), Path("/x/cover-print.png"), 1.0)
+        )
         led = MagicMock()
         kiosk: asyncio.Queue = asyncio.Queue()
         holder = _holder(
@@ -235,18 +232,34 @@ class TestImageHandler:
         await d._handle_event("image")
         await _drain_tasks()
 
-        orch.generate_cover_for_story.assert_not_awaited()
+        orch.generate_cover_for_story.assert_awaited_once()
         assert kiosk.get_nowait() == {
             "type": "image",
             "url": "/static/generated/story-1/cover-preview.png",
         }
         led.rainbow.assert_called_once()
 
-        # The busy guard must reset so a later press still works.
-        fake_clock.now += 1.0
+    @pytest.mark.asyncio
+    async def test_image_seed_varies_between_presses(self, fake_clock):
+        """Seed is random (random.randint), not derived from story_id — two
+        presses with the same story yield different seeds."""
+        orch = MagicMock()
+        orch.generate_cover_for_story = AsyncMock(
+            return_value=(Path("/x/cover-preview.png"), Path("/x/cover-print.png"), 1.0)
+        )
+        holder = _holder({"story_id": "story-1", "params": [], "title": "T"})
+        d = _dispatcher(swap_orchestrator=orch, playback_holder=holder, now=fake_clock)
+
         await d._handle_event("image")
         await _drain_tasks()
-        assert kiosk.get_nowait()["type"] == "image"
+        seed1 = orch.generate_cover_for_story.call_args[0][3]
+
+        fake_clock.now += 1.0  # bypass debounce
+        await d._handle_event("image")
+        await _drain_tasks()
+        seed2 = orch.generate_cover_for_story.call_args[0][3]
+
+        assert seed1 != seed2
 
     @pytest.mark.asyncio
     async def test_image_drop_on_busy(self, fake_clock):
