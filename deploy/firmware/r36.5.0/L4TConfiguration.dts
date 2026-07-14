@@ -1,0 +1,83 @@
+/dts-v1/;
+
+/ {
+	overlay-name = "L4T Configuration Settings";
+
+	fragment@0 {
+		target-path = [2f 00];
+
+		board_config {
+			sw-modules = "uefi";
+		};
+
+		__overlay__ {
+
+			firmware {
+
+				uefi {
+
+					variables {
+
+						gNVIDIAPublicVariableGuid {
+
+							QuickBootEnabled {
+								data = [00];
+								non-volatile;
+							};
+
+							NewDeviceHierarchy {
+								data = [01];
+								runtime;
+								non-volatile;
+							};
+
+							RootfsRetryCountMax {
+								data = <0x3000000>;
+								runtime;
+								locked;
+							};
+
+							RootfsRedundancyLevel {
+								data = <0x0>;
+								runtime;
+								locked;
+							};
+
+							AutoUpdateBrBct {
+								data = <0x1000000>;
+								non-volatile;
+							};
+
+							L4TDefaultBootMode {
+								data = <0x1000000>;
+								runtime;
+								non-volatile;
+							};
+
+							ExposeRtRtcService {
+								data = [00];
+								runtime;
+								non-volatile;
+							};
+						};
+
+						gNVIDIATokenSpaceGuid {
+
+							DefaultBootPriority {
+								data = "nvme";
+								locked;
+							};
+						};
+                        gEfiGlobalVariableGuid {
+                            Timeout {
+                                data = [ 0f 00 ];
+                                runtime;
+                                locked;
+                            };
+                        };
+					};
+				};
+			};
+		};
+	};
+};

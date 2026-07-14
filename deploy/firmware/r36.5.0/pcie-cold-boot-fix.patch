@@ -1,0 +1,31 @@
+diff --git a/Silicon/NVIDIA/Drivers/PcieDWControllerDxe/PcieControllerDxe.c b/Silicon/NVIDIA/Drivers/PcieDWControllerDxe/PcieControllerDxe.c
+index 222275dc..23068a02 100644
+--- a/Silicon/NVIDIA/Drivers/PcieDWControllerDxe/PcieControllerDxe.c
++++ b/Silicon/NVIDIA/Drivers/PcieDWControllerDxe/PcieControllerDxe.c
+@@ -788,7 +788,7 @@ PrepareHost (
+   val |= (0x1);
+   MmioWrite32 (Private->ApplSpace + 0x0, val);
+ 
+-  DeviceDiscoveryThreadMicroSecondDelay (200000);
++  DeviceDiscoveryThreadMicroSecondDelay (5000000);
+ 
+   return EFI_SUCCESS;
+ }
+@@ -1029,6 +1029,17 @@ InitializeController (
+     return Status;
+   }
+ 
++  {
++    UINT32 RetryCount;
++    for (RetryCount = 0; RetryCount < 20; RetryCount++) {
++      if (CheckLinkUp (Private)) {
++        break;
++      }
++      DEBUG ((DEBUG_INFO, "PCIe Link not up, retry %d/20...\n", RetryCount + 1));
++      DeviceDiscoveryThreadMicroSecondDelay (500000);
++    }
++  }
++
+   if (!CheckLinkUp (Private)) {
+     UINT32  tmp;
+     UINT32  offset;
