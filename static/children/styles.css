@@ -104,6 +104,7 @@ html, body {
     gap: calc(var(--space-lg) * var(--card-scale, 1));
     padding: var(--space-xl);
     min-height: 100%;
+    box-sizing: border-box; /* min-height 100% must include the padding */
 }
 
 .story-card {

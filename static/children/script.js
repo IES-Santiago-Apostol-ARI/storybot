@@ -297,14 +297,26 @@ async function loadStories() {
 }
 
 // Scale story cards to fill the free grid space: few stories = big
-// emojis, many = the original size (scale 1 is the floor).
+// emojis, many = the original size (scale 1 is the floor). Flex-wrap
+// packs whole rows, so pick the largest scale whose wrapped rows fit
+// the grid both horizontally and vertically (1024x600 kiosk display).
 function updateCardScale(grid) {
-    const BASE_CELL = 160; // avg card ~136px + 24px gap at scale 1
     const MAX_SCALE = 2.5;
-    const width = grid.clientWidth || window.innerWidth;
-    const height = grid.clientHeight || window.innerHeight;
-    const cell = Math.sqrt((width * height) / Math.max(stories.length, 1));
-    const scale = Math.min(Math.max(cell / BASE_CELL, 1), MAX_SCALE);
+    const CARD = 140;      // largest card variant at scale 1
+    const GAP = 24;        // --space-lg at scale 1 (scales with the cards)
+    const PADDING = 64;    // grid padding (--space-xl) on both sides
+    const ROW_OFFSET = 16; // worst-case organic margin-top per row
+    const count = Math.max(stories.length, 1);
+    const availW = (grid.clientWidth || window.innerWidth) - PADDING;
+    const availH = (grid.clientHeight || window.innerHeight) - PADDING;
+    let best = 0;
+    for (let cols = 1; cols <= count; cols++) {
+        const rows = Math.ceil(count / cols);
+        const scaleW = availW / (cols * CARD + (cols - 1) * GAP);
+        const scaleH = (availH - rows * ROW_OFFSET) / (rows * CARD + (rows - 1) * GAP);
+        best = Math.max(best, Math.min(scaleW, scaleH));
+    }
+    const scale = Math.min(Math.max(best, 1), MAX_SCALE);
     grid.style.setProperty('--card-scale', scale.toFixed(3));
 }
 
