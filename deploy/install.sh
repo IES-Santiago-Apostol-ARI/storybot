@@ -664,7 +664,7 @@ AUTOPLAYEOF
 Type=Application
 Name=StoryBot Kiosk
 Comment=Launch Firefox kiosk for StoryBot
-Exec=bash -c "unclutter -idle 0.5 & sleep 5 && firefox --kiosk --purgecaches --no-remote -profile $HOME/.storybot-kiosk-profile http://localhost/"
+Exec=bash -c "unclutter -idle 0.5 & until curl -sf -o /dev/null http://localhost/api/system/status; do sleep 1; done; firefox --kiosk --purgecaches --no-remote -profile $HOME/.storybot-kiosk-profile http://localhost/"
 Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true

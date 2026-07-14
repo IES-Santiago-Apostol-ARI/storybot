@@ -268,6 +268,34 @@ class TestKioskConditionals:
         )
 
 
+class TestKioskReadinessWait:
+    """Kiosk Firefox must wait for the backend, not race it with a sleep."""
+
+    def _kiosk_exec_line(self, script_text):
+        match = re.search(
+            r'^Exec=.*firefox.*$', script_text, flags=re.MULTILINE
+        )
+        assert match, "No Exec= line launching firefox found in install.sh"
+        return match.group(0)
+
+    def test_kiosk_waits_for_backend_readiness(self, script_text):
+        """Exec line polls the backend with curl until it responds."""
+        exec_line = self._kiosk_exec_line(script_text)
+        assert "until curl" in exec_line and "/api/system/status" in exec_line, (
+            "Kiosk Exec must poll http://localhost/api/system/status with "
+            "'until curl' before launching firefox, otherwise Firefox can "
+            "load nginx's 502 page before uvicorn binds port 8000"
+        )
+
+    def test_kiosk_has_no_fixed_sleep_race(self, script_text):
+        """Exec line no longer relies on a fixed sleep before firefox."""
+        exec_line = self._kiosk_exec_line(script_text)
+        assert not re.search(r"sleep \d+ && firefox", exec_line), (
+            "Fixed 'sleep N && firefox' races backend startup; "
+            "use the curl readiness loop instead"
+        )
+
+
 class TestCommonSteps:
     """DEP-03, D-09 (with D-08 precedence): common steps NOT in AI blocks."""
 
