@@ -23,21 +23,12 @@ container per the doc.
 
 You still need the R36.5.0 BSP (`Linux_for_Tegra/`, kept at
 `/datos/Linux_for_Tegra` on the dev machine) to *package* the capsule — but
-nothing needs to be rebuilt:
+nothing needs to be rebuilt. On the host PC:
 
 ```bash
-cd /datos/Linux_for_Tegra
-
-# Drop in the pre-built artifacts
-cp <storybot>/deploy/firmware/r36.5.0/uefi_t23x_general_RELEASE.bin bootloader/uefi_jetson.bin
-cp <storybot>/deploy/firmware/r36.5.0/L4TConfiguration.dtbo kernel/dtb/L4TConfiguration.dtbo
-
-# Generate the capsule (doc section 3.2)
-sudo ./tools/l4t_flash_prerequisites.sh          # once per host
-sudo ./l4t_generate_soc_bup.sh t23x
-sudo ./generate_capsule/l4t_generate_soc_capsule.sh \
-  -i bootloader/payloads_t23x/bl_only_payload \
-  -o ./TEGRA_BL_patched.Cap t234
+sudo bash deploy/generate-patched-capsule.sh [path-to-Linux_for_Tegra]
+# verifies SHA256SUMS, copies these artifacts into the BSP, runs NVIDIA's
+# BUP + capsule generation; output: deploy/firmware/r36.5.0/TEGRA_BL_patched.Cap
 ```
 
 Then on the Jetson (after `install.sh` + reboot so the super DTB is booted):
@@ -48,8 +39,8 @@ sudo reboot    # progress bar 1-5 min — DO NOT POWER OFF
 sudo apt-mark hold nvidia-l4t-bootloader
 ```
 
-Once generated, drop `TEGRA_BL_patched.Cap` into this directory too — with
-the capsule archived, the BSP is not needed at all for the next device.
+The script leaves `TEGRA_BL_patched.Cap` in this directory — commit it too
+(30–70 MB binary) and the BSP is not needed at all for the next device.
 
 ## Recovery flash (Route B — rescue only)
 

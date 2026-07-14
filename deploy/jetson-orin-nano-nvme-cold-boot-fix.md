@@ -415,6 +415,16 @@ payload-generation time, so the capsule carries both Part 1 and Part 2.
 
 ### 3.2 Generate the capsule (host PC)
 
+**On L4T R36.5.0 this whole section is one command** — it copies the archived
+artifacts into the BSP and runs everything below:
+
+```bash
+sudo bash deploy/generate-patched-capsule.sh [path-to-Linux_for_Tegra]
+# output: deploy/firmware/r36.5.0/TEGRA_BL_patched.Cap
+```
+
+Manual steps (any release, after building Parts 1–2 yourself):
+
 ```bash
 cd ~/jetson/Linux_for_Tegra
 
