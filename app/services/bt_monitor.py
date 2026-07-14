@@ -77,9 +77,17 @@ class BtMonitor:
             # silent forever after any blip (the regression exposed by fab5632).
             if self.sink != "bt" and self.route_to_bt is not None:
                 try:
-                    await self.route_to_bt(mac)
+                    rerouted = await self.route_to_bt(mac)
                 except Exception as e:
                     logger.debug(f"Re-route to BT failed for {mac}: {e}")
+                    rerouted = False
+                if rerouted is False:
+                    # Reroute didn't take (e.g. sink_not_ready right after a
+                    # reconnect, before PipeWire enumerates the a2dp sink).
+                    # Do NOT claim sink="bt" — leave state as-is so the next
+                    # poll retries; marking it here silences the speaker
+                    # forever (2026-07-14 incident).
+                    return
             self.health_state = "connected"
             self.sink = "bt"
         else:

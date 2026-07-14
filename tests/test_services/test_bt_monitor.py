@@ -367,3 +367,51 @@ async def test_recovery_reroutes_to_bt_once_and_resets(mock_bt_manager, stub_rou
     # A steady healthy poll must NOT re-pin (avoids the old every-5s flood).
     await monitor.poll_once()
     assert len(stub_route.bt_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_failed_recovery_reroute_retries_next_poll(mock_bt_manager, stub_route):
+    """
+    sink_not_ready incident (2026-07-14): the speaker reconnects (probe healthy)
+    but PipeWire hasn't enumerated the a2dp sink yet, so route_to_bt returns
+    False. The monitor must NOT mark sink="bt" on that failed reroute — it must
+    keep retrying on subsequent healthy polls until the reroute succeeds,
+    otherwise audio stays pinned to analog forever.
+    """
+    if BtMonitor is None:
+        pytest.fail("BtMonitor not implemented yet (RED)")
+
+    probe_state = {"healthy": False}
+
+    async def fake_probe(mac):
+        return probe_state["healthy"]
+
+    monitor = BtMonitor(
+        manager=mock_bt_manager,
+        route_to_wired=stub_route.route_to_wired,
+        route_to_bt=stub_route.route_to_bt,
+        probe=fake_probe,
+        failure_threshold=1,
+    )
+
+    # Fall back to wired.
+    await monitor.poll_once()
+    assert monitor.sink == "wired"
+
+    # Speaker back per BlueZ, but the sink isn't ready -> reroute fails.
+    probe_state["healthy"] = True
+    stub_route.bt_ok = False
+    await monitor.poll_once()
+    assert len(stub_route.bt_calls) == 1
+    assert monitor.sink == "wired"
+
+    # Next poll: sink now enumerated -> reroute succeeds and state flips to bt.
+    stub_route.bt_ok = True
+    await monitor.poll_once()
+    assert len(stub_route.bt_calls) == 2
+    assert monitor.sink == "bt"
+    assert monitor.health_state == "connected"
+
+    # Steady healthy poll must NOT re-pin (no every-5s flood).
+    await monitor.poll_once()
+    assert len(stub_route.bt_calls) == 2
