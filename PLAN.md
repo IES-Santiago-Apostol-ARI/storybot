@@ -3,6 +3,23 @@
 Grounded in codebase exploration (2026-07-12). Execute in the order given in
 [Execution notes](#execution-notes). Backend tasks follow TDD red/green.
 
+## Estado (2026-07-14) — TODAS COMPLETADAS ✅
+
+| Task | Estado | Commit |
+|------|--------|--------|
+| 1 — README llama.cpp | ✅ hecha | 93851c2 |
+| 2 — tts_speed en config | ✅ hecha | 8c3eb49 |
+| 3 — Cap de 5 historias generadas | ✅ hecha | 33eca14 |
+| 4 — Transcripción whisper.cpp | ✅ hecha | ebdd9d9 |
+| 5 — GPIO regenera siempre (seed aleatoria) | ✅ hecha | 307629e |
+| 6 — Emoji adaptativo kiosk | ✅ hecha | 0df52a1 + fix d9cba08 |
+| 7 — Robot 2× | ✅ hecha | 0df52a1 |
+
+Suite tras la última tarea: 1099 passed, 2 skipped. ruff/black limpios en
+los archivos tocados (quedan ~25 avisos ruff preexistentes en esos archivos,
+no introducidos por estas tareas). Pendiente de verificación manual/on-device:
+kiosk (Tasks 6–7) y smoke test en Jetson (Tasks 4–5).
+
 ---
 
 ## Task 1 — README: llama.cpp build instructions
@@ -181,3 +198,55 @@ size without clipping.
   `uv run black .`, manual kiosk check for Tasks 6–7, on-Jetson smoke test
   for Tasks 4–5.
 - do not commit this file, but update it after tasks are done
+
+
+
+
+
+● PLAN.md Task 4 is complete: audio transcription for /admin uploads is implemented, TDD red→green, and the full suite passes
+  at 1091/1091 (plus ruff/black clean on the new code).
+
+  What was built:
+
+  - app/services/transcriber.py (new) — transcribe(audio_path) converts the upload to 16 kHz mono WAV with ffmpeg, runs
+  whisper-cli -l es --no-gpu (CPU-only so it never competes with llama-server/SD for the 8 GB unified memory), and returns the
+  text. An asyncio.Lock serializes concurrent uploads, subprocesses have a 10-minute timeout, and every failure path (missing
+  binary/model/ffmpeg, non-zero exit, empty output) logs a JSON event and returns None.
+  - app/config.py — new settings: transcription_enabled (default true), whisper_bin (default whisper-cli, resolved via PATH),
+  whisper_model (default models/whisper/ggml-small.bin).
+  - app/models/story.py + app/services/story_manager.py — Story gains an optional transcript field, persisted through
+  update_story(); old stories.json entries without the key load fine.
+  - app/routers/stories.py — POST /api/stories and PUT (only when audio is replaced) schedule a FastAPI background task that
+  transcribes and stores the transcript. The upload response never waits on or fails because of transcription.
+  - README.md — new "Compilar whisper.cpp" subsection under the JetPack system dependencies: ccache+ffmpeg install, the cmake
+  build for CUDA arch 87, model download, and where to put the model (~/storybot/models/whisper/).
+  - Tests — 13 new: tests/test_services/test_transcriber.py (all subprocess work mocked), transcript persistence in
+  test_story_manager.py, config defaults in test_config.py, and API-level background wiring in test_stories.py (including
+  "transcribe raises → upload still 201").
+
+  Two things you should know:
+
+  1. One misstep on my side, already fixed: while checking whether ruff errors were pre-existing, a leftover git stash push in
+  one of my commands briefly stashed the uncommitted working tree. I popped the stash immediately, confirmed all files and
+  your two older WIP stashes intact, and the full suite ran green after the restore — so the final state is verified.
+  2. On this Jetson, transcription is dormant until you install the runtime: neither ffmpeg nor whisper-cli nor the model
+  exists here yet, so uploads will log transcribe_unavailable and skip gracefully. Following the new README section (apt
+  install ffmpeg, build whisper.cpp, download ggml-small) turns it on with no code change.
+
+  Also note ruff reports ~186 pre-existing errors repo-wide (3 in the files I touched, all on lines I didn't write) — left
+  alone per the surgical-changes rule.
+
+  Next up when you're ready: Task 1 (llama.cpp README section), or tasks 2/3/5 from PLAN.md.
+
+
+
+  PLAN.md Task 2 is done and committed (b6efb86), on top of Task 4 (7a041d9). Summary of Task 2:
+
+  - app/config.py: tts_speed: float = 1.0 — 1.0 is exactly today's speed, higher is faster, lower is slower, clamped to [0.5,
+  2.0] so a bad config.json value can't crash startup.
+  - app/services/hardware_manager.py: effective Piper length_scale = tts_length_scale / tts_speed, applied at TTS init
+  (startup), same lifecycle as tts_voice/tts_speaker.
+  - TDD: 3 new tests (default, clamping, division wiring), plus the 68 config/TTS/hardware-manager tests and the 242 API tests
+  all green.
+
+  To change the speed on the device: set "tts_speed": 1.15 (for example) in content/config.json and restart the service.
