@@ -83,6 +83,36 @@ SINK_READY_RETRIES = 10
 SINK_READY_DELAY = 0.2  # seconds
 
 
+def _sink_input_ids(pactl_short_sink_inputs_output: str) -> list[str]:
+    """Return the sink-input ids (1st column) from ``pactl list short sink-inputs``.
+
+    Pure parser over bounded output, same shape as ``_first_alsa_sink`` — never
+    raises; malformed lines are skipped.
+    """
+    ids = []
+    for line in pactl_short_sink_inputs_output.splitlines():
+        parts = line.split("\t")
+        if parts and parts[0].strip().isdigit():
+            ids.append(parts[0].strip())
+    return ids
+
+
+async def _move_all_inputs(sink: str) -> None:
+    """Move every live playback stream (sink-input) onto ``sink``.
+
+    ``set-default-sink`` only routes streams created AFTERWARDS — a story
+    already playing keeps its old sink, so a speaker (dis)connect mid-story
+    leaves the running audio on the wrong output (2026-07-15 incident).
+    Best-effort per input: a stream that vanished between list and move must
+    not abort the others or the route.
+    """
+    out, _, _ = await _run_pactl("list", "short", "sink-inputs")
+    for input_id in _sink_input_ids(out):
+        _, _, rc = await _run_pactl("move-sink-input", input_id, sink)
+        if rc != 0:
+            _log_event("bt_move_input_failed", input=input_id, target=sink)
+
+
 async def _sink_present(sink: str) -> bool:
     """True when ``sink`` appears in ``pactl list short sinks`` (never raises)."""
     out, _, _ = await _run_pactl("list", "short", "sinks")
@@ -127,6 +157,9 @@ async def route_to_bt(mac: str, sleep=asyncio.sleep) -> bool:
     if rc == 0:
         # D-01: drive output sink to 100% volume on connect.
         await _run_pactl("set-sink-volume", sink, "100%")
+        # A story already playing must continue on the speaker: move live
+        # streams too — set-default-sink alone only affects future ones.
+        await _move_all_inputs(sink)
     else:
         _log_event("bt_route_failed", mac=mac, rc=rc, target=sink)
     return rc == 0
@@ -147,4 +180,7 @@ async def route_to_wired() -> bool:
     _, _, rc = await _run_pactl("set-default-sink", wired)
     if rc != 0:
         _log_event("bt_route_failed", rc=rc, target=wired)
-    return rc == 0
+        return False
+    # Mid-story fallback: keep the running story audible on the wired sink.
+    await _move_all_inputs(wired)
+    return True

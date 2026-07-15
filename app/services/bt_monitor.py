@@ -37,8 +37,12 @@ class BtMonitor:
         self.sleep = sleep or asyncio.sleep
         self.failure_threshold = max(1, failure_threshold)
 
-        # Initial state
-        self.sink = "bt"
+        # Initial state. sink starts "unknown", NOT "bt": the process may
+        # (re)start while the speaker is already Connected per BlueZ but
+        # PulseAudio's default sink is still wired — an optimistic "bt" makes
+        # the first healthy poll a no-op and the speaker stays silent forever
+        # (2026-07-15 incident). "unknown" forces the first verdict to route.
+        self.sink = "unknown"
         self.health_state = "connected"
         self._fail_count = 0
 
@@ -99,8 +103,9 @@ class BtMonitor:
             if self._fail_count < self.failure_threshold:
                 return
 
-            if self.sink == "bt":
-                # AUDIO-05: Fallback to wired if we were on BT
+            if self.sink != "wired":
+                # AUDIO-05: Fallback to wired if we were on BT (or the route
+                # is still unknown after startup).
                 await self.route_to_wired()
                 self.sink = "wired"
                 self.health_state = "wired-fallback"

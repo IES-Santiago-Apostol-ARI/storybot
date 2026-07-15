@@ -74,16 +74,19 @@ async def test_run_pactl_returncode_neg1_when_none(monkeypatch):
 # --- Task 2: route_to_bt ordering + route_to_wired fallback -------------------
 
 
-def _ready_run(calls, mac):
+def _ready_run(calls, mac, sink_inputs=""):
     """fake _run_pactl where the BT sink for ``mac`` is already enumerated.
 
     ``list short sinks`` returns a line containing the sink, so the readiness
-    wait in route_to_bt succeeds on the first poll (no sleep).
+    wait in route_to_bt succeeds on the first poll (no sleep). ``sink_inputs``
+    is what ``list short sink-inputs`` returns (default: no live streams).
     """
     sink = bt_audio._bt_sink(mac)
 
     async def fake_run(*args):
         calls.append(args)
+        if args[:3] == ("list", "short", "sink-inputs"):
+            return (sink_inputs, "", 0)
         if args[0] == "list":
             return (f"0\t{sink}\tmodule\ts16le\tRUNNING", "", 0)
         return ("", "", 0)
@@ -131,7 +134,8 @@ async def test_route_to_bt_isolated_by_patching_run_pactl(monkeypatch):
     monkeypatch.setattr(bt_audio, "_run_pactl", _ready_run(invoked, mac))
     await bt_audio.route_to_bt(mac)
     # set-card-profile + list(readiness) + set-default-sink + set-sink-volume
-    assert len(invoked) == 4
+    # + list(sink-inputs)
+    assert len(invoked) == 5
 
 
 async def test_route_to_bt_sets_sink_volume_to_max_on_connect(monkeypatch):
@@ -143,6 +147,52 @@ async def test_route_to_bt_sets_sink_volume_to_max_on_connect(monkeypatch):
 
     assert result is True
     assert ("set-sink-volume", bt_audio._bt_sink(mac), "100%") in calls
+
+
+async def test_route_to_bt_moves_live_sink_inputs_to_bt(monkeypatch):
+    """AUDIO-01 mid-story: set-default-sink only affects NEW streams. A story
+    already playing (e.g. the kiosk's Firefox stream) keeps its old sink and
+    stays silent on the speaker, so route_to_bt must also move every live
+    sink-input to the BT sink (2026-07-15 incident)."""
+    calls = []
+    mac = "AA:BB:CC:00:11:22"
+    inputs = (
+        "155\t59\t149\tPipeWire\tfloat32le 1ch 48000Hz\n"
+        "201\t59\t150\tPipeWire\ts16le 2ch 48000Hz"
+    )
+    monkeypatch.setattr(bt_audio, "_run_pactl", _ready_run(calls, mac, inputs))
+    result = await bt_audio.route_to_bt(mac)
+    assert result is True
+    sink = bt_audio._bt_sink(mac)
+    assert ("move-sink-input", "155", sink) in calls
+    assert ("move-sink-input", "201", sink) in calls
+    # Moves happen after the sink became the default.
+    assert calls.index(("set-default-sink", sink)) < calls.index(
+        ("move-sink-input", "155", sink)
+    )
+
+
+async def test_route_to_bt_still_true_when_move_input_fails(monkeypatch):
+    """Moving a live stream is best-effort: a vanished sink-input (rc != 0)
+    must not fail the route as a whole."""
+    calls = []
+    mac = "AA:BB:CC:00:11:22"
+    sink = bt_audio._bt_sink(mac)
+
+    async def fake_run(*args):
+        calls.append(args)
+        if args[:3] == ("list", "short", "sink-inputs"):
+            return ("155\t59\t149\tPipeWire\tfloat32le 1ch 48000Hz", "", 0)
+        if args[0] == "list":
+            return (f"0\t{sink}\tmodule\ts16le\tRUNNING", "", 0)
+        if args[0] == "move-sink-input":
+            return ("", "failure", 1)
+        return ("", "", 0)
+
+    monkeypatch.setattr(bt_audio, "_run_pactl", fake_run)
+    result = await bt_audio.route_to_bt(mac)
+    assert result is True
+    assert ("move-sink-input", "155", sink) in calls
 
 
 async def test_route_to_bt_false_when_sink_never_appears(monkeypatch):
@@ -220,17 +270,43 @@ async def test_route_to_wired_selects_first_alsa_sink(monkeypatch):
 
     async def fake_run(*args):
         calls.append(args)
+        if args[:3] == ("list", "short", "sink-inputs"):
+            return ("", "", 0)
         if args[0] == "list":
             return (sinks_out, "", 0)
         return ("", "", 0)  # set-default-sink success
 
     monkeypatch.setattr(bt_audio, "_run_pactl", fake_run)
     result = await bt_audio.route_to_wired()
-    assert calls[-1] == (
+    assert (
         "set-default-sink",
         "alsa_output.pci-0000_00_1b.0.analog-stereo",
-    )
+    ) in calls
     assert result is True
+
+
+async def test_route_to_wired_moves_live_sink_inputs_to_wired(monkeypatch):
+    """AUDIO-02 mid-story: when the speaker dies, the already-playing story
+    stream must be moved onto the wired sink, not just future streams."""
+    calls = []
+    sinks_out = "1\talsa_output.pci-0000_00_1b.0.analog-stereo\tmod\tspec\tRUNNING\n"
+
+    async def fake_run(*args):
+        calls.append(args)
+        if args[:3] == ("list", "short", "sink-inputs"):
+            return ("155\t133\t149\tPipeWire\tfloat32le 1ch 48000Hz", "", 0)
+        if args[0] == "list":
+            return (sinks_out, "", 0)
+        return ("", "", 0)
+
+    monkeypatch.setattr(bt_audio, "_run_pactl", fake_run)
+    result = await bt_audio.route_to_wired()
+    assert result is True
+    assert (
+        "move-sink-input",
+        "155",
+        "alsa_output.pci-0000_00_1b.0.analog-stereo",
+    ) in calls
 
 
 async def test_route_to_wired_returns_false_when_no_alsa_sink(monkeypatch):

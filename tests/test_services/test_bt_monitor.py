@@ -294,7 +294,8 @@ async def test_single_transient_failure_does_not_fall_back(mock_bt_manager, stub
     await monitor.poll_once()
 
     assert len(stub_route.wired_calls) == 0
-    assert monitor.sink == "bt"
+    # Not yet fallen back (initial sink is "unknown" until the first verdict).
+    assert monitor.sink != "wired"
     assert monitor.health_state == "connected"
 
 
@@ -320,12 +321,44 @@ async def test_falls_back_after_threshold_consecutive_failures(
     await monitor.poll_once()  # 1 - below threshold
     await monitor.poll_once()  # 2 - below threshold
     assert len(stub_route.wired_calls) == 0
-    assert monitor.sink == "bt"
+    assert monitor.sink != "wired"
 
     await monitor.poll_once()  # 3 - threshold reached -> fall back
     assert len(stub_route.wired_calls) == 1
     assert monitor.sink == "wired"
     assert monitor.health_state == "wired-fallback"
+
+
+@pytest.mark.asyncio
+async def test_startup_healthy_poll_routes_to_bt(mock_bt_manager, stub_route):
+    """
+    2026-07-15 incident: the service (re)starts while the speaker is already
+    Connected per BlueZ, but PulseAudio's default sink is still wired. The old
+    optimistic initial state (sink="bt") made the first healthy poll a no-op,
+    so audio stayed on the wired sink forever. The monitor must NOT assume the
+    audio route at startup: the first healthy poll must route_to_bt.
+    """
+    if BtMonitor is None:
+        pytest.fail("BtMonitor not implemented yet (RED)")
+
+    async def fake_probe(mac):
+        return True
+
+    monitor = BtMonitor(
+        manager=mock_bt_manager,
+        route_to_wired=stub_route.route_to_wired,
+        route_to_bt=stub_route.route_to_bt,
+        probe=fake_probe,
+    )
+
+    await monitor.poll_once()
+    assert len(stub_route.bt_calls) == 1
+    assert monitor.sink == "bt"
+    assert monitor.health_state == "connected"
+
+    # Steady healthy poll must NOT re-pin (no every-5s flood).
+    await monitor.poll_once()
+    assert len(stub_route.bt_calls) == 1
 
 
 @pytest.mark.asyncio
