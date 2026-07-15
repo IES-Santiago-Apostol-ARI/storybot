@@ -425,7 +425,14 @@ if admin_static_dir.exists():
         "/admin", StaticFiles(directory=str(admin_static_dir), html=True), name="admin"
     )
 
-# Mount shared theme directory
+# Mount shared theme directory.
+# NoCacheStaticFiles: theme.css is loaded by the unattended kiosk too, so it
+# needs the same always-revalidate treatment as /children (see above) or a
+# deployed color/theme change never reaches the screen.
 shared_static_dir = Path("static/shared")
 if shared_static_dir.exists():
-    app.mount("/shared", StaticFiles(directory=str(shared_static_dir)), name="shared")
+    app.mount(
+        "/shared",
+        NoCacheStaticFiles(directory=str(shared_static_dir)),
+        name="shared",
+    )

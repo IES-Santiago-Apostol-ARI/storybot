@@ -213,7 +213,7 @@ html, body {
 /* Playback screen */
 .screen-playing {
     --story-color: #ff6b6b;
-    background: linear-gradient(135deg, var(--color-background-dark) 0%, #5a87a8 100%);
+    background: linear-gradient(135deg, var(--color-background-dark) 0%, #dee3e8 100%);
     overflow: hidden;
 }
 
@@ -346,13 +346,14 @@ html, body {
 
 .particle {
     position: absolute;
-    width: 20px;
-    height: 20px;
+    width: 28px;
+    height: 28px;
     background: radial-gradient(circle, var(--story-color) 0%, transparent 70%);
     border-radius: 50%;
     animation: float-up var(--duration, 8s) linear infinite;
     animation-delay: var(--delay, 0s);
     left: var(--x, 50%);
+    filter: blur(1px);
 }
 
 /* Generate 10 particles with varied timing */
@@ -382,21 +383,25 @@ html, body {
   left: 20px; /* Starting position */
   bottom: 0;
   transition: left 0.1s linear; /* Smooth movement */
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
 }
 
 /* Walking bounce animation */
 .progress-character .robot-body {
   animation: walk-bounce 0.4s ease-in-out infinite;
+  filter: drop-shadow(1px 1px 2px rgba(0, 0, 0, 0.2));
 }
 
 .progress-character .leg-left {
   animation: leg-walk 0.4s ease-in-out infinite;
   transform-origin: center top;
+  filter: drop-shadow(1px 1px 2px rgba(0, 0, 0, 0.2));
 }
 
 .progress-character .leg-right {
   animation: leg-walk 0.4s ease-in-out infinite 0.2s;
   transform-origin: center top;
+  filter: drop-shadow(1px 1px 2px rgba(0, 0, 0, 0.2));
 }
 
 @keyframes walk-bounce {
@@ -416,7 +421,7 @@ html, body {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, var(--color-background-dark) 0%, #5a87a8 100%);
+    background: linear-gradient(135deg, var(--color-background-dark) 0%, #dee3e8 100%);
 }
 
 .screen-thankyou.hidden {
@@ -483,7 +488,7 @@ html, body {
         opacity: 0;
     }
     10%, 90% {
-        opacity: 0.3;
+        opacity: 0.6;
     }
     100% {
         transform: translateY(-100vh) rotate(360deg);
