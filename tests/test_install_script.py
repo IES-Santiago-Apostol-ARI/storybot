@@ -364,6 +364,52 @@ class TestSuperFirmware:
         )
 
 
+class TestBootloaderHold:
+    """An apt upgrade of nvidia-l4t-bootloader reverts the NVMe cold-boot fix.
+
+    See deploy/jetson-orin-nano-nvme-cold-boot-fix.md Part 3.5. The hold was
+    documented but never actually applied, so `apt dist-upgrade` on 2026-08-06
+    silently reflashed stock UEFI and the board stopped cold-booting.
+    """
+
+    def test_install_holds_nvidia_l4t_bootloader(self, script_text):
+        """install.sh pins nvidia-l4t-bootloader so apt cannot reflash QSPI."""
+        assert re.search(
+            r"apt-mark\s+hold\s+nvidia-l4t-bootloader", script_text
+        ), (
+            "install.sh must run 'apt-mark hold nvidia-l4t-bootloader' -- "
+            "otherwise a later apt dist-upgrade reverts the patched UEFI and "
+            "the device stops booting from NVMe on cold power-on"
+        )
+
+    def test_hold_guarded_by_package_presence(self, script_text):
+        """The hold only runs where the package exists (Jetson, not x86 dev)."""
+        match = re.search(r"apt-mark\s+hold\s+nvidia-l4t-bootloader", script_text)
+        assert match, "hold not found"
+        preceding = script_text[max(0, match.start() - 500):match.start()]
+        assert "dpkg" in preceding, (
+            "The apt-mark hold must be guarded by a dpkg presence check for "
+            "nvidia-l4t-bootloader -- install.sh also runs on the x86 dev "
+            "machine, where the package does not exist"
+        )
+
+    def test_hold_not_gated_by_ai_mode(self, script_text):
+        """A stories-only Jetson needs the hold just as much as a kiosk one."""
+        assert not _is_inside_ai_block(
+            script_text, "apt-mark hold nvidia-l4t-bootloader"
+        ), (
+            "The bootloader hold must NOT be inside an AI_MODE block -- it "
+            "protects the boot chain on every Jetson regardless of AI mode"
+        )
+
+    def test_hold_references_cold_boot_doc(self, script_text):
+        """Operator can find out why the package is pinned."""
+        assert "jetson-orin-nano-nvme-cold-boot-fix.md" in script_text, (
+            "install.sh should point at deploy/jetson-orin-nano-nvme-cold-boot-fix.md "
+            "so whoever hits the hold later knows why it exists"
+        )
+
+
 class TestCompletionBanner:
     """D-11: completion banner shows AI vs stories-only mode."""
 

@@ -7,7 +7,9 @@ The Jetson Orin Nano Developer Kit fails to boot from NVMe SSD on cold boot (ful
 ## Environment
 
 - **Board:** NVIDIA Jetson Orin Nano Developer Kit
-- **L4T:** R36.5.0 (JetPack 6.2)
+- **L4T:** fix originally built on R36.5.0 (JetPack 6.2). The device now runs
+  **R36.5.2** (kernel 5.15.199) since the 2026-08-06 `apt dist-upgrade` — see
+  Part 3.5. The archived artifacts are still R36.5.0 only.
 - **SSD:** Kingston SNV3S500G (firmware P3AR2B12)
 - **Host PC:** Ubuntu (20.04/22.04/24.04) with Docker installed
 
@@ -21,6 +23,13 @@ The Jetson Orin Nano Developer Kit fails to boot from NVMe SSD on cold boot (ful
 > `deploy/firmware/r36.5.0/` — see its README. Parts 1.1–1.4 and 2.1–2.5
 > (BSP download, dtbo editing, Docker EDK2 build) only need to be redone for
 > a different L4T release.
+>
+> **These artifacts do NOT match the running release.** The device is on
+> R36.5.2; only R36.5.0 is archived, and no `.Cap` was ever archived (only the
+> inputs to it). Restoring the fix therefore means either rebuilding for
+> R36.5.2 or rolling L4T back — see Part 3.5. When you do rebuild, archive the
+> resulting `TEGRA_BL_patched.Cap` under `deploy/firmware/r36.5.2/` so the next
+> regression is a single `enable-super-firmware.sh` call.
 
 ## Choosing a Route — READ THIS FIRST
 
@@ -60,6 +69,13 @@ wget https://developer.nvidia.com/downloads/embedded/l4t/r36_release_v5.0/releas
 tar xf jetson_linux_r36.5.0_aarch64.tbz2
 cd Linux_for_Tegra
 ```
+
+> **Match the BSP to the release the device runs.** The URL above is R36.5.0.
+> For R36.5.2 use the `r36_release_v5.2` path and the matching
+> `jetson_linux_r36.5.2_aarch64.tbz2` tarball. A BSP that disagrees with the
+> installed `nvidia-l4t-*` packages produces a capsule that does not match the
+> kernel/userspace on disk. Confirm what the device runs with
+> `cat /etc/nv_tegra_release`.
 
 ### 1.2 Decompile the existing L4TConfiguration.dtbo
 
@@ -222,6 +238,11 @@ cd ..
 ```
 
 > **Note:** If `-b r36.5` fails for `edk2-infineon` or `edk2-redfish-client`, clone without the branch flag.
+
+> **Check the branch still matches your release.** `r36.5` is a moving branch.
+> The release notes give a per-release tag (`jetson_36.5.2` for R36.5.2); if
+> `r36.5` has advanced past the release you are building for, check out that
+> tag instead, or the patched UEFI will not match the rest of the payload.
 
 ### 2.4 Apply the PCIe delay patch
 
@@ -490,8 +511,59 @@ silently undoes the patch. Pin it:
 sudo apt-mark hold nvidia-l4t-bootloader
 ```
 
+`deploy/install.sh` applies this automatically (Step 11b) on any host where
+`nvidia-l4t-bootloader` is installed, so a freshly provisioned Jetson is
+protected without remembering to do it by hand. Covered by
+`tests/test_install_script.py::TestBootloaderHold`.
+
+Verify the hold is actually in place — this is the step that failed in
+2026-08 (see below):
+
+```bash
+apt-mark showhold        # must list nvidia-l4t-bootloader
+```
+
 Unhold only when deliberately taking a bootloader update — and re-run this
 Part 3 afterwards.
+
+#### Regression log: 2026-08-06 (L4T 36.5.0 → 36.5.2)
+
+`apt dist-upgrade` upgraded `nvidia-l4t-bootloader` and reverted the patched
+UEFI. **The hold above had never actually been applied** — `apt-mark showhold`
+was empty — so the documented protection was not in force. Re-applied
+2026-08-07.
+
+Diagnosis took two wrong turns worth not repeating. The symptom looks like a
+PXE / boot-order problem and is not: after a failed cold boot, `efibootmgr`
+still showed `BootCurrent: 0007` with the NVMe entry *first*. Boot order is
+never the fault. The reliable tells are the two in Part 3 — regenerated
+PXE/HTTP entries and `Timeout: 5 seconds` instead of 15 — plus the decisive
+one: **a warm `reset` from the UEFI shell fixes it.** That rules out
+configuration and points at PCIe link timing every time. Plugging a keyboard
+is not what fixes the boot; the second boot is.
+
+#### Restoring after this regression: rebuild vs roll back
+
+R36.5.2 is worth keeping rather than rolling back to R36.5.0. Nothing in it
+addresses PCIe/NVMe link timing, so the patch is still required either way,
+but it does fix (release notes RN_10698-r36.5.2, §3):
+
+- **5412830** — UEFI assertion error during boot that stops the device at the
+  bootloader, occurs randomly, and requires a full firmware reflash to
+  recover. Fixes StandaloneMM variable-storage record handling and block erase
+  logic. Directly relevant to this board's history.
+- **5602402** — NvMap allocation policy fix for "unable to allocate CUDA0
+  buffer" after an APT upgrade. Matters on 8 GB with SD + LLM resident.
+- **4840276** — display not resuming after suspend on headless systems.
+- Kernel 5.15.185 → 5.15.199, plus the JetPack 6.2.2/6.2.3 CVE fixes
+  (CVE-2026-24148 CVSS 8.3, CVE-2026-24154 7.6, CVE-2026-24153).
+
+Unrelated but caught by the same upgrade: `gstreamer1.0-plugins-bad`
+(`h264parse`) is no longer pre-installed on 22.04 desktop images (issue
+5842995) — install it explicitly if a pipeline breaks.
+
+So: redo parts 1.1–1.4 and 2.1–2.5 against the R36.5.2 BSP and tag, generate
+the capsule (3.2), apply it (3.3), and archive the `.Cap` this time.
 
 ---
 

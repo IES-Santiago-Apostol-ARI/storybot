@@ -776,6 +776,23 @@ if [[ -d "$USER_HOME/.config/autostart" ]]; then
 fi
 echo -e "${GREEN}File ownership fixed${NC}"
 
+# Step 11b: Pin nvidia-l4t-bootloader.
+# Upgrading this package stages a stock QSPI capsule that reverts the patched
+# UEFI carrying the NVMe cold-boot fix, after which the board only boots from a
+# warm reset. Applies to every Jetson regardless of AI mode; the package is
+# absent on the x86 dev machine, so the hold is skipped there.
+echo ""
+echo "Step 11b: Pinning Jetson bootloader package..."
+if dpkg -s nvidia-l4t-bootloader >/dev/null 2>&1; then
+    apt-mark hold nvidia-l4t-bootloader >/dev/null
+    echo -e "${GREEN}nvidia-l4t-bootloader held (protects the NVMe cold-boot fix)${NC}"
+    echo "  Unhold only when deliberately taking a bootloader update, then"
+    echo "  re-apply the patched capsule — see Part 3.5 of"
+    echo "  deploy/jetson-orin-nano-nvme-cold-boot-fix.md"
+else
+    echo "  nvidia-l4t-bootloader not installed — skipping (not a Jetson)"
+fi
+
 # Step 12: Print TP-Link WiFi setup instructions
 echo ""
 echo "================================================"
