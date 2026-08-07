@@ -8,13 +8,19 @@ import sys
 from pathlib import Path
 
 
-async def _run_git(*args: str) -> tuple[str, str, int]:
-    """Run git command and return (stdout, stderr, returncode)."""
+async def _run_git(*args: str, cwd: Path | None = None) -> tuple[str, str, int]:
+    """Run git command and return (stdout, stderr, returncode).
+
+    ``cwd`` defaults to None (current directory). When set, git runs in that
+    directory — critical for safety since ``git reset --hard`` in the wrong
+    directory would be destructive.
+    """
     proc = await asyncio.create_subprocess_exec(
         "git",
         *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        cwd=cwd,
     )
     stdout, stderr = await proc.communicate()
     return (
@@ -46,12 +52,13 @@ def _find_uv() -> str:
     return str(candidates[0])
 
 
-async def _run_uv(*args: str) -> int:
+async def _run_uv(*args: str, cwd: Path | None = None) -> int:
     """Run uv command and return returncode only.
 
     Returns a non-zero code (rather than raising) when the uv binary cannot be
     spawned, so apply_update can emit a clean error event instead of crashing
-    the SSE stream mid-transfer.
+    the SSE stream mid-transfer. ``cwd`` pins where uv resolves pyproject.toml,
+    so sync never targets the wrong project.
     """
     uv_bin = _find_uv()
     try:
@@ -60,6 +67,7 @@ async def _run_uv(*args: str) -> int:
             *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
         )
     except FileNotFoundError:
         _log_event("uv_not_found", uv_bin=uv_bin)
@@ -68,15 +76,48 @@ async def _run_uv(*args: str) -> int:
     return proc.returncode if proc.returncode is not None else -1
 
 
-async def _run_ruff() -> int:
-    """Run ruff check app/ and return returncode only."""
-    proc = await asyncio.create_subprocess_exec(
-        "ruff",
-        "check",
-        "app/",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+def _find_ruff() -> str:
+    """Locate the ruff binary, accounting for systemd's restricted PATH.
+
+    Under systemd (storybot.service) PATH does not include ~/.local/bin, where
+    ruff is installed, so shutil.which("ruff") returns None there.
+    Fall back to the known install locations before giving up.
+    """
+    ruff_bin = shutil.which("ruff")
+    if ruff_bin:
+        return ruff_bin
+    candidates = [
+        Path.home() / ".local" / "bin" / "ruff",  # install.sh location
+        Path(sys.prefix) / "bin" / "ruff",  # .venv/bin/ruff, if installed there
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    # Nothing found: return the most likely path so the caller's spawn raises a
+    # clear FileNotFoundError, which _run_ruff turns into a non-zero return code.
+    return str(candidates[0])
+
+
+async def _run_ruff(cwd: Path | None = None) -> int:
+    """Run ruff check app/ and return returncode only.
+
+    Returns a non-zero code (rather than raising) when the ruff binary cannot be
+    spawned, so apply_update can emit a clean error event instead of crashing
+    the SSE stream mid-transfer.
+    """
+    ruff_bin = _find_ruff()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            ruff_bin,
+            "check",
+            "app/",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
+        )
+    except FileNotFoundError:
+        _log_event("ruff_not_found", ruff_bin=ruff_bin)
+        return -1
     await proc.communicate()
     return proc.returncode if proc.returncode is not None else -1
 
@@ -116,7 +157,9 @@ class RealUpdateManager(UpdateManager):
 
     async def check_update(self) -> dict:
         """Check if an update is available by comparing local and remote HEAD."""
-        _, fetch_stderr, fetch_rc = await _run_git("fetch", "origin", "--quiet")
+        _, fetch_stderr, fetch_rc = await _run_git(
+            "fetch", "origin", "--quiet", cwd=self._repo_dir
+        )
         if fetch_rc != 0:
             return {
                 "update_available": False,
@@ -124,8 +167,10 @@ class RealUpdateManager(UpdateManager):
                 "remote_commit": "",
                 "error": f"fetch failed: {fetch_stderr}",
             }
-        local_stdout, _, _ = await _run_git("rev-parse", "HEAD")
-        remote_stdout, _, _ = await _run_git("rev-parse", "origin/main")
+        local_stdout, _, _ = await _run_git("rev-parse", "HEAD", cwd=self._repo_dir)
+        remote_stdout, _, _ = await _run_git(
+            "rev-parse", "origin/main", cwd=self._repo_dir
+        )
         return {
             "update_available": local_stdout != remote_stdout,
             "local_commit": local_stdout,
@@ -144,13 +189,13 @@ class RealUpdateManager(UpdateManager):
 
         async with self._lock:
             # Save current HEAD for rollback (D-01)
-            local_stdout, _, _ = await _run_git("rev-parse", "HEAD")
+            local_stdout, _, _ = await _run_git("rev-parse", "HEAD", cwd=self._repo_dir)
             prev_hash = local_stdout
 
             # Stage 1: Fetching
             yield {"stage": "fetching", "done": False}
             _, fetch_stderr, fetch_rc = await _run_git(
-                "fetch", "origin", "--quiet"
+                "fetch", "origin", "--quiet", cwd=self._repo_dir
             )
             if fetch_rc != 0:
                 yield {
@@ -162,7 +207,7 @@ class RealUpdateManager(UpdateManager):
             # Stage 2: Updating (git reset)
             yield {"stage": "updating", "done": False}
             _, reset_stderr, reset_rc = await _run_git(
-                "reset", "--hard", "origin/main"
+                "reset", "--hard", "origin/main", cwd=self._repo_dir
             )
             if reset_rc != 0:
                 await self._rollback(prev_hash)
@@ -174,7 +219,7 @@ class RealUpdateManager(UpdateManager):
 
             # Stage 3: Syncing (uv sync)
             yield {"stage": "syncing", "done": False}
-            sync_rc = await _run_uv("sync")
+            sync_rc = await _run_uv("sync", cwd=self._repo_dir)
             if sync_rc != 0:
                 await self._rollback(prev_hash)
                 yield {
@@ -185,7 +230,7 @@ class RealUpdateManager(UpdateManager):
 
             # Stage 4: Checking (ruff check)
             yield {"stage": "checking", "done": False}
-            ruff_rc = await _run_ruff()
+            ruff_rc = await _run_ruff(cwd=self._repo_dir)
             if ruff_rc != 0:
                 await self._rollback(prev_hash)
                 yield {
@@ -205,16 +250,14 @@ class RealUpdateManager(UpdateManager):
 
     async def _rollback(self, prev_hash: str) -> None:
         """Roll back to previous commit and sync dependencies (D-01, D-02)."""
-        await _run_git("reset", "--hard", prev_hash)
-        await _run_uv("sync")
+        await _run_git("reset", "--hard", prev_hash, cwd=self._repo_dir)
+        await _run_uv("sync", cwd=self._repo_dir)
         _log_event("update_rolled_back", prev_hash=prev_hash)
 
     def _write_update_flag(self, prev_hash: str) -> None:
         """Write .update-state flag file before restart (D-13)."""
         flag_path = self._repo_dir / ".update-state"
-        flag_path.write_text(
-            json.dumps({"state": "pending", "prev_hash": prev_hash})
-        )
+        flag_path.write_text(json.dumps({"state": "pending", "prev_hash": prev_hash}))
 
     async def _trigger_restart(self) -> None:
         """Fire-and-forget restart with start_new_session=True."""
@@ -229,8 +272,12 @@ class RealUpdateManager(UpdateManager):
 
     async def get_version(self) -> dict:
         """Return current version info from git."""
-        describe_stdout, _, _ = await _run_git("describe", "--always", "--dirty")
-        short_stdout, _, _ = await _run_git("rev-parse", "--short", "HEAD")
+        describe_stdout, _, _ = await _run_git(
+            "describe", "--always", "--dirty", cwd=self._repo_dir
+        )
+        short_stdout, _, _ = await _run_git(
+            "rev-parse", "--short", "HEAD", cwd=self._repo_dir
+        )
         return {"version": describe_stdout, "commit": short_stdout}
 
 
@@ -258,6 +305,21 @@ class MockUpdateManager(UpdateManager):
         return {"version": "mock-v0.0.0", "commit": "mock123"}
 
 
+# Module-level singleton for RealUpdateManager.
+# The asyncio.Lock must be shared across all requests to actually guard
+# concurrent POST /api/updates/apply. Each request getting its own lock
+# (the old create_update_manager behavior) makes the guard a no-op.
+_real_update_manager_instance: RealUpdateManager | None = None
+
+
+def _get_real_update_manager() -> RealUpdateManager:
+    """Return the shared RealUpdateManager singleton."""
+    global _real_update_manager_instance
+    if _real_update_manager_instance is None:
+        _real_update_manager_instance = RealUpdateManager()
+    return _real_update_manager_instance
+
+
 def create_update_manager() -> UpdateManager:
     """Create appropriate update manager based on git availability.
 
@@ -266,11 +328,12 @@ def create_update_manager() -> UpdateManager:
           create_bt_manager) — prevents tests that exercise the real
           ``/api/updates/apply`` endpoint from running destructive
           ``git reset --hard`` against the working repo.
-        - RealUpdateManager if git is available.
+        - RealUpdateManager singleton if git is available (shared instance
+          ensures the asyncio.Lock guards concurrent applies).
         - MockUpdateManager otherwise.
     """
     if os.environ.get("TESTING"):
         return MockUpdateManager()
     if shutil.which("git"):
-        return RealUpdateManager()
+        return _get_real_update_manager()
     return MockUpdateManager()

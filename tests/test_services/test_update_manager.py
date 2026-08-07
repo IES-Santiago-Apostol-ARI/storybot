@@ -171,9 +171,7 @@ class TestApplyUpdate:
     async def test_rollback_on_fetch_failure(self, mock_exec):
         """Fetch failure during apply yields error (no rollback needed)."""
         head_proc = _make_subprocess_mock(stdout=b"abc1234\n")
-        fetch_fail_proc = _make_subprocess_mock(
-            returncode=1, stderr=b"fetch failed"
-        )
+        fetch_fail_proc = _make_subprocess_mock(returncode=1, stderr=b"fetch failed")
         mock_exec.side_effect = [
             head_proc,  # save HEAD (rev-parse HEAD)
             fetch_fail_proc,  # git fetch fails
@@ -190,9 +188,7 @@ class TestApplyUpdate:
     async def test_rollback_on_reset_failure(self, mock_exec):
         """git reset failure rolls back to saved HEAD."""
         head_proc = _make_subprocess_mock(stdout=b"abc1234\n")
-        reset_fail_proc = _make_subprocess_mock(
-            returncode=1, stderr=b"reset failed"
-        )
+        reset_fail_proc = _make_subprocess_mock(returncode=1, stderr=b"reset failed")
         rollback_reset_proc = _make_subprocess_mock(returncode=0)
         rollback_uv_proc = _make_subprocess_mock(returncode=0)
         mock_exec.side_effect = [
@@ -257,6 +253,7 @@ class TestApplyUpdate:
     @patch("app.services.update_manager.asyncio.create_subprocess_exec")
     async def test_concurrent_apply_blocked_by_lock(self, mock_exec):
         """Second concurrent apply_update call yields error event immediately."""
+
         async def slow_communicate(*args, **kwargs):
             await asyncio.sleep(0.5)
             return (b"abc1234\n", b"")
@@ -345,9 +342,7 @@ class TestGetVersion:
 
     @patch("app.services.update_manager.asyncio.create_subprocess_exec")
     async def test_get_version_returns_version_and_commit(self, mock_exec):
-        describe_proc = _make_subprocess_mock(
-            stdout=b"v1.4.0-12-gabc1234\n"
-        )
+        describe_proc = _make_subprocess_mock(stdout=b"v1.4.0-12-gabc1234\n")
         short_proc = _make_subprocess_mock(stdout=b"abc1234\n")
         mock_exec.side_effect = [describe_proc, short_proc]
         mgr = RealUpdateManager()
@@ -412,11 +407,16 @@ class TestFactory:
         assert isinstance(mgr, MockUpdateManager)
         assert mgr.is_mock is True
 
-    @patch("app.services.update_manager.shutil.which", return_value=None)
-    def test_factory_creates_new_instance_each_call(self, mock_which):
+    @patch("app.services.update_manager.shutil.which", return_value="/usr/bin/git")
+    def test_factory_returns_singleton_real_manager(self, mock_which, monkeypatch):
+        """create_update_manager must return the SAME RealUpdateManager instance
+        across calls so the asyncio.Lock guards concurrent applies. Each request
+        getting its own lock (the old behavior) makes the guard a no-op."""
+        monkeypatch.delenv("TESTING", raising=False)
         mgr1 = create_update_manager()
         mgr2 = create_update_manager()
-        assert mgr1 is not mgr2
+        assert mgr1 is mgr2
+        assert isinstance(mgr1, RealUpdateManager)
 
     def test_factory_returns_mock_under_testing_env(self, monkeypatch):
         """TESTING forces the mock even when git is available, so the suite never
@@ -509,3 +509,88 @@ class TestRunUvMissingBinary:
         error_events = [e for e in events if e.get("stage") == "error"]
         assert len(error_events) == 1
         assert "syncing" in [e["stage"] for e in events]
+
+
+# ---------------------------------------------------------------------------
+# ruff binary resolution & error handling (Bug 2)
+# ---------------------------------------------------------------------------
+
+
+class TestRunRuffMissingBinary:
+    """apply_update must handle ruff binary not found gracefully.
+
+    Under systemd the PATH lacks ~/.local/bin, so the ruff binary may not be
+    findable. Without a fallback, create_subprocess_exec raises FileNotFoundError
+    inside the apply_update generator, which KILLS the SSE stream mid-transfer
+    AND skips the rollback to prev_hash.
+    """
+
+    @patch("app.services.update_manager.asyncio.create_subprocess_exec")
+    async def test_apply_emits_error_and_rolls_back_when_ruff_missing(self, mock_exec):
+        """Missing ruff at the checking stage yields a clean error event + rollback,
+        not a crash that kills the SSE stream."""
+        head_proc = _make_subprocess_mock(stdout=b"abc1234\n")
+        fetch_proc = _make_subprocess_mock(returncode=0)
+        reset_proc = _make_subprocess_mock(returncode=0)
+        uv_proc = _make_subprocess_mock(returncode=0)
+        ruff_missing = FileNotFoundError("no such file: ruff")
+        rollback_reset = _make_subprocess_mock(returncode=0)
+        rollback_uv = _make_subprocess_mock(returncode=0)
+        mock_exec.side_effect = [
+            head_proc,  # rev-parse HEAD
+            fetch_proc,  # git fetch
+            reset_proc,  # git reset --hard origin/main
+            uv_proc,  # uv sync
+            ruff_missing,  # ruff check -> FileNotFoundError
+            rollback_reset,  # rollback: git reset --hard abc1234
+            rollback_uv,  # rollback: uv sync
+        ]
+        mgr = RealUpdateManager()
+        events = []
+        async for event in mgr.apply_update():
+            events.append(event)
+        error_events = [e for e in events if e.get("stage") == "error"]
+        assert len(error_events) == 1, f"Expected 1 error event, got: {events}"
+        assert "checking" in [e["stage"] for e in events]
+
+
+# ---------------------------------------------------------------------------
+# cwd handling (Bug 3)
+# ---------------------------------------------------------------------------
+
+
+class TestRunGitCwd:
+    """_run_git must run with cwd=self._repo_dir, not the process cwd.
+
+    git reset --hard in the wrong directory would be destructive. We verify
+    that RealUpdateManager passes cwd when calling _run_git.
+    """
+
+    @patch("app.services.update_manager.asyncio.create_subprocess_exec")
+    async def test_get_version_passes_repo_cwd(self, mock_exec):
+        """get_version must call _run_git with cwd=self._repo_dir."""
+        describe_proc = _make_subprocess_mock(stdout=b"v1.0\n")
+        short_proc = _make_subprocess_mock(stdout=b"abc123\n")
+        mock_exec.side_effect = [describe_proc, short_proc]
+        mgr = RealUpdateManager()
+        await mgr.get_version()
+        # Both calls should have cwd set to repo_dir
+        for call in mock_exec.call_args_list:
+            call_kwargs = call[1]
+            assert "cwd" in call_kwargs, "git must be called with cwd set"
+            assert call_kwargs["cwd"] == mgr._repo_dir
+
+    @patch("app.services.update_manager.asyncio.create_subprocess_exec")
+    async def test_check_update_passes_repo_cwd(self, mock_exec):
+        """check_update must call _run_git with cwd=self._repo_dir."""
+        fetch_proc = _make_subprocess_mock(returncode=0)
+        local_proc = _make_subprocess_mock(stdout=b"abc123\n")
+        remote_proc = _make_subprocess_mock(stdout=b"def456\n")
+        mock_exec.side_effect = [fetch_proc, local_proc, remote_proc]
+        mgr = RealUpdateManager()
+        await mgr.check_update()
+        # All calls should have cwd set to repo_dir
+        for call in mock_exec.call_args_list:
+            call_kwargs = call[1]
+            assert "cwd" in call_kwargs, "git must be called with cwd set"
+            assert call_kwargs["cwd"] == mgr._repo_dir
