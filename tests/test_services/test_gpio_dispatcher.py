@@ -383,6 +383,168 @@ class TestImageEdgeCases:
         orch.generate_cover_for_story.assert_awaited_once()
 
 
+class TestImageOwnCover:
+    """Curated stories with their own cover: image button must NOT replace the
+    cover on the kiosk (no ``image`` event enqueued).
+
+    Selector: -k own_cover
+    """
+
+    @pytest.mark.asyncio
+    async def test_own_cover_generates_image_and_rainbow_but_no_kiosk_event(
+        self, fake_clock
+    ):
+        """has_own_cover=True: orchestrator is called, rainbow ack fires, but no
+        ``image`` event reaches kiosk_events — the original cover stays visible."""
+        orch = MagicMock()
+        orch.generate_cover_for_story = AsyncMock(
+            return_value=(
+                Path("/x/cover-preview.png"),
+                Path("/x/cover-print.png"),
+                4.2,
+            )
+        )
+        led = MagicMock()
+        kiosk: asyncio.Queue = asyncio.Queue()
+        holder = _holder(
+            {
+                "story_id": "curated-1",
+                "params": [],
+                "title": "Cuento curado",
+                "has_own_cover": True,
+            }
+        )
+        d = _dispatcher(
+            kiosk_events=kiosk,
+            swap_orchestrator=orch,
+            led_animator=led,
+            playback_holder=holder,
+            now=fake_clock,
+        )
+
+        await d._handle_event("image")
+        await _drain_tasks()
+
+        # Image was generated (for printing)
+        orch.generate_cover_for_story.assert_awaited_once()
+        assert orch.generate_cover_for_story.call_args[0][0] == "curated-1"
+
+        # Rainbow ack fires
+        led.rainbow.assert_called_once()
+
+        # But the kiosk event queue is empty — no cover swap on screen
+        assert kiosk.empty()
+
+    @pytest.mark.asyncio
+    async def test_own_cover_false_still_enqueues_image_event(self, fake_clock):
+        """has_own_cover=False (or absent): the existing behavior is preserved —
+        the image event IS enqueued and the kiosk swaps the cover."""
+        orch = MagicMock()
+        orch.generate_cover_for_story = AsyncMock(
+            return_value=(
+                Path("/x/cover-preview.png"),
+                Path("/x/cover-print.png"),
+                1.0,
+            )
+        )
+        led = MagicMock()
+        kiosk: asyncio.Queue = asyncio.Queue()
+        holder = _holder(
+            {
+                "story_id": "generated-1",
+                "params": [{"category": "personaje", "value": "oso"}],
+                "title": "El oso",
+                "has_own_cover": False,
+            }
+        )
+        d = _dispatcher(
+            kiosk_events=kiosk,
+            swap_orchestrator=orch,
+            led_animator=led,
+            playback_holder=holder,
+            now=fake_clock,
+        )
+
+        await d._handle_event("image")
+        await _drain_tasks()
+
+        orch.generate_cover_for_story.assert_awaited_once()
+        assert kiosk.get_nowait() == {
+            "type": "image",
+            "url": "/static/generated/generated-1/cover-preview.png",
+        }
+        led.rainbow.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_own_cover_missing_key_same_as_false(self, fake_clock):
+        """A snapshot that simply lacks has_own_cover behaves as False — image
+        event is enqueued (backwards compat)."""
+        orch = MagicMock()
+        orch.generate_cover_for_story = AsyncMock(
+            return_value=(
+                Path("/x/cover-preview.png"),
+                Path("/x/cover-print.png"),
+                1.0,
+            )
+        )
+        led = MagicMock()
+        kiosk: asyncio.Queue = asyncio.Queue()
+        holder = _holder(
+            {
+                "story_id": "old-story",
+                "params": [],
+                "title": "Old",
+                # has_own_cover key absent
+            }
+        )
+        d = _dispatcher(
+            kiosk_events=kiosk,
+            swap_orchestrator=orch,
+            led_animator=led,
+            playback_holder=holder,
+            now=fake_clock,
+        )
+
+        await d._handle_event("image")
+        await _drain_tasks()
+
+        orch.generate_cover_for_story.assert_awaited_once()
+        assert kiosk.get_nowait() == {
+            "type": "image",
+            "url": "/static/generated/old-story/cover-preview.png",
+        }
+        led.rainbow.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_own_cover_failure_still_error_blinks(self, fake_clock):
+        """has_own_cover=True but generation fails → error blink, no kiosk event."""
+        orch = MagicMock()
+        orch.generate_cover_for_story = AsyncMock(return_value=(None, None, None))
+        led = MagicMock()
+        kiosk: asyncio.Queue = asyncio.Queue()
+        holder = _holder(
+            {
+                "story_id": "curated-1",
+                "params": [],
+                "title": "Cuento",
+                "has_own_cover": True,
+            }
+        )
+        d = _dispatcher(
+            kiosk_events=kiosk,
+            swap_orchestrator=orch,
+            led_animator=led,
+            playback_holder=holder,
+            now=fake_clock,
+        )
+
+        await d._handle_event("image")
+        await _drain_tasks()
+
+        led.set_mode.assert_called_with(Mode.ERROR)
+        assert kiosk.empty()
+
+
 class TestPoweroffEndpoint:
     """BTN-06/D-04: POST /api/system/poweroff shares the poweroff helper."""
 

@@ -245,6 +245,7 @@ async def set_led_state(
                 "story_id": resolved_story_id,
                 "params": _load_story_params(resolved_story_id),
                 "title": getattr(story, "title", "") or "",
+                "has_own_cover": bool(getattr(story, "cover_image", None)),
             }
     elif state in (LEDState.IDLE, LEDState.ENDED):
         http_request.app.state.playback = None

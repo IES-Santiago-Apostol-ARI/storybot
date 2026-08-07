@@ -235,11 +235,12 @@ class TestLEDStatePlaybackTracking:
     class _StubStory:
         """Minimal Story stand-in resolvable by story_manager.get_story."""
 
-        def __init__(self, id, title, led_color="#FF0000"):
+        def __init__(self, id, title, led_color="#FF0000", cover_image=None):
             self.id = id
             self.title = title
             self.led_color = led_color
             self.nfc_uid = None
+            self.cover_image = cover_image
 
     def test_playback_state_sets_snapshot(self, client, monkeypatch):
         """state=playback resolves the story and sets the snapshot (params=[])."""
@@ -294,3 +295,43 @@ class TestLEDStatePlaybackTracking:
             == 200
         )
         assert app.state.playback == snap
+
+    def test_playback_state_has_own_cover_true(self, client, monkeypatch):
+        """A curated story with cover_image sets has_own_cover=True in the snapshot."""
+        story = self._StubStory("story-123", "Cuento de Ana", cover_image="cover.jpg")
+        monkeypatch.setattr(
+            app.state.story_manager,
+            "get_story",
+            lambda sid: story if sid == "story-123" else None,
+        )
+        app.state.playback = None
+
+        response = client.post(
+            "/api/system/led/state",
+            json={"state": "playback", "story_id": "story-123"},
+        )
+        assert response.status_code == 200
+
+        snap = app.state.playback
+        assert snap is not None
+        assert snap["has_own_cover"] is True
+
+    def test_playback_state_has_own_cover_false(self, client, monkeypatch):
+        """A story without cover_image sets has_own_cover=False in the snapshot."""
+        story = self._StubStory("story-123", "Cuento de Ana", cover_image=None)
+        monkeypatch.setattr(
+            app.state.story_manager,
+            "get_story",
+            lambda sid: story if sid == "story-123" else None,
+        )
+        app.state.playback = None
+
+        response = client.post(
+            "/api/system/led/state",
+            json={"state": "playback", "story_id": "story-123"},
+        )
+        assert response.status_code == 200
+
+        snap = app.state.playback
+        assert snap is not None
+        assert snap["has_own_cover"] is False

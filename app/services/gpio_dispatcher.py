@@ -182,12 +182,15 @@ class GpioDispatcher:
 
         positive, negative = cover_prompt_builder.build(params)
         story_id = snapshot.get("story_id")
+        has_own_cover = snapshot.get("has_own_cover", False)
 
         self._image_busy = True
-        asyncio.create_task(self._generate_cover(story_id, positive, negative))
+        asyncio.create_task(
+            self._generate_cover(story_id, positive, negative, has_own_cover)
+        )
 
     async def _generate_cover(
-        self, story_id: str, positive: str, negative: str
+        self, story_id: str, positive: str, negative: str, has_own_cover: bool = False
     ) -> None:
         """Background task: run the orchestrator, then ack or error-blink.
 
@@ -201,6 +204,10 @@ class GpioDispatcher:
         the orchestrator's actual preview filename) and fires ``rainbow()`` as
         the press ack (D-09). On busy/failure/exception drives ``Mode.ERROR``.
         The in-flight guard is reset in ``finally`` regardless of outcome.
+
+        When ``has_own_cover`` is True (curated story with its own cover image),
+        the generated image is kept for printing but the ``image`` event is NOT
+        enqueued — the kiosk keeps the original cover visible.
         """
         try:
             seed = random.randint(0, 2**32 - 1)
@@ -215,10 +222,12 @@ class GpioDispatcher:
                 self._error_blink()
                 return
 
-            # Derive the URL from the actual output filename (avoids a silent
-            # 404 if the worker's basename ever changes).
-            url = f"/static/generated/{story_id}/{preview_path.name}"
-            self._kiosk_events.put_nowait({"type": "image", "url": url})
+            if not has_own_cover:
+                # Derive the URL from the actual output filename (avoids a silent
+                # 404 if the worker's basename ever changes).
+                url = f"/static/generated/{story_id}/{preview_path.name}"
+                self._kiosk_events.put_nowait({"type": "image", "url": url})
+
             if self._led_animator is not None:
                 self._led_animator.rainbow()
 
