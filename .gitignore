@@ -221,3 +221,8 @@ content/generated/
 .codegraph/
 # local network credentials — never commit
 wifi.md
+
+# UEFI bootloader capsules — 128 MB, over GitHub's 100 MB hard limit.
+# Regenerate with deploy/generate-patched-capsule.sh from the archived
+# artifacts in deploy/firmware/r<release>/ (see that dir's README).
+deploy/firmware/**/*.Cap

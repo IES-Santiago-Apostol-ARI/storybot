@@ -24,12 +24,32 @@ The Jetson Orin Nano Developer Kit fails to boot from NVMe SSD on cold boot (ful
 > (BSP download, dtbo editing, Docker EDK2 build) only need to be redone for
 > a different L4T release.
 >
-> **These artifacts do NOT match the running release.** The device is on
-> R36.5.2; only R36.5.0 is archived, and no `.Cap` was ever archived (only the
-> inputs to it). Restoring the fix therefore means either rebuilding for
-> R36.5.2 or rolling L4T back — see Part 3.5. When you do rebuild, archive the
-> resulting `TEGRA_BL_patched.Cap` under `deploy/firmware/r36.5.2/` so the next
-> regression is a single `enable-super-firmware.sh` call.
+> **The two artifacts are coupled to the release very differently — this is
+> the single most confusing thing in this document:**
+>
+> - `L4TConfiguration.dtbo` **is** release-coupled. It is derived from the
+>   BSP's own `kernel/dtb/L4TConfiguration.dtbo`, so it must be re-derived
+>   (Part 1) for every L4T release.
+> - `uefi_t23x_general_RELEASE.bin` is **not** BSP-coupled at all. Part 2
+>   builds it purely from the seven edk2 git repos; `Linux_for_Tegra` is never
+>   read. It is coupled to the **UEFI source tag** (2.3), which versions
+>   independently of L4T — and stops at `r36.5.1`.
+>
+> So "rebuild for R36.5.2" means: re-derive the dtbo from the R36.5.2 BSP, and
+> build the UEFI from the newest available tag. There is no R36.5.2 UEFI
+> source to build from and there never will be.
+>
+> Only R36.5.0 is archived, and no `.Cap` was ever archived (only the inputs
+> to it). When you rebuild, archive the resulting artifacts *and*
+> `TEGRA_BL_patched.Cap` under `deploy/firmware/r36.5.2/`, and record the UEFI
+> source tag in that directory's README — the directory name tracks the BSP
+> release, which does *not* imply the UEFI came from a same-named tag.
+>
+> `deploy/generate-patched-capsule.sh` reads the release from the BSP
+> (`nv_tegra/bsp_version`) and looks for `deploy/firmware/r<release>/`. It
+> aborts if that directory has no artifacts — it will never fall back to
+> another release's UEFI. So archiving under the right directory name is all
+> that is needed; there is nothing to edit in the script.
 
 ## Choosing a Route — READ THIS FIRST
 
@@ -62,20 +82,22 @@ the whole flash again for the patched UEFI — pure duplicated work):
 This removes network boot entries that the UEFI regenerates on every cold boot, and increases the boot timeout.
 
 ### 1.1 Download and extract the BSP on the host PC
+From https://developer.nvidia.com/embedded/jetson-linux-r3652
 
 ```bash
 mkdir -p ~/jetson && cd ~/jetson
-wget https://developer.nvidia.com/downloads/embedded/l4t/r36_release_v5.0/release/jetson_linux_r36.5.0_aarch64.tbz2
-tar xf jetson_linux_r36.5.0_aarch64.tbz2
+wget https://developer.nvidia.com/downloads/embedded/l4t/r36_release_v5.2/releases/Jetson_Linux_r36.5.2_aarch64.tbz2
+tar xf Jetson_Linux_r36.5.2_aarch64.tbz2
 cd Linux_for_Tegra
 ```
 
-> **Match the BSP to the release the device runs.** The URL above is R36.5.0.
-> For R36.5.2 use the `r36_release_v5.2` path and the matching
-> `jetson_linux_r36.5.2_aarch64.tbz2` tarball. A BSP that disagrees with the
-> installed `nvidia-l4t-*` packages produces a capsule that does not match the
+> **Match the BSP to the release the device runs.** The URL above is R36.5.2
+> (`r36_release_v5.2`); other releases live under their own
+> `r36_release_vX.Y` path. A BSP that disagrees with the installed
+> `nvidia-l4t-*` packages produces a capsule that does not match the
 > kernel/userspace on disk. Confirm what the device runs with
-> `cat /etc/nv_tegra_release`.
+> `cat /etc/nv_tegra_release`, and confirm the extracted tree with
+> `grep BSP_ Linux_for_Tegra/nv_tegra/bsp_version`.
 
 ### 1.2 Decompile the existing L4TConfiguration.dtbo
 
@@ -223,13 +245,12 @@ We clone the repos manually with git (avoids edkrepo configuration issues):
 ```bash
 mkdir -p ~/nvidia-uefi-build/nvidia-uefi && cd ~/nvidia-uefi-build/nvidia-uefi
 
-git clone https://github.com/NVIDIA/edk2-nvidia.git -b r36.5
-git clone https://github.com/NVIDIA/edk2.git -b r36.5
-git clone https://github.com/NVIDIA/edk2-platforms.git -b r36.5
-git clone https://github.com/NVIDIA/edk2-non-osi.git -b r36.5
-git clone https://github.com/NVIDIA/edk2-nvidia-non-osi.git -b r36.5
-git clone https://github.com/NVIDIA/edk2-infineon.git -b r36.5
-git clone https://github.com/NVIDIA/edk2-redfish-client.git -b r36.5
+REF=r36.5.1   # newest published UEFI ref — see the note below
+
+for repo in edk2-nvidia edk2 edk2-platforms edk2-non-osi \
+            edk2-nvidia-non-osi edk2-infineon edk2-redfish-client; do
+  git clone https://github.com/NVIDIA/$repo.git -b "$REF"
+done
 
 # Initialize edk2 submodules
 cd edk2
@@ -237,16 +258,52 @@ git submodule update --init --recursive
 cd ..
 ```
 
-> **Note:** If `-b r36.5` fails for `edk2-infineon` or `edk2-redfish-client`, clone without the branch flag.
-
-> **Check the branch still matches your release.** `r36.5` is a moving branch.
-> The release notes give a per-release tag (`jetson_36.5.2` for R36.5.2); if
-> `r36.5` has advanced past the release you are building for, check out that
-> tag instead, or the patched UEFI will not match the rest of the payload.
+> **Which ref to use (verified 2026-08-07).** `r36.5` and `r36.5.1` are
+> **tags**, not branches — `git clone -b` on either lands you on a detached
+> HEAD at a fixed commit, and all seven repos carry both, so the loop needs no
+> per-repo exception. There is no tag beyond `r36.5.1`: NVIDIA has never
+> published UEFI source for R36.5.2, so `r36.5.1` (= `r36.5` plus one
+> DisplayDeviceTreeHelperLib fix) is the newest ref available and the one to
+> prefer. The original R36.5.0 build used `r36.5`. The branches
+> `r36.5-updates` / `r36.5.1-updates` add only CI chores.
+>
+> This does not weaken the fix: `PcieControllerDxe.c` is the *same blob*
+> (`222275dc`, unchanged upstream since 2024-10-31) at `r36.5`, `r36.5.1` and
+> `r36.5-updates`, and is the blob the archived R36.5.0 patch was made
+> against — so the PCIe timing behaviour you build is identical to the
+> R36.5.0 binary that worked.
+>
+> **Accept this consequence:** building from `r36.5.1` onto an R36.5.2 BSP
+> means running an R36.5.1-level UEFI under an R36.5.2 kernel/userspace. The
+> R36.5.2 UEFI fix 5412830 (StandaloneMM variable storage, cited in Part 3.5)
+> is not in public source and you will not get it. The kernel and userspace
+> CVE fixes are unaffected. The alternative — stock R36.5.2 firmware — has no
+> cold-boot fix at all.
 
 ### 2.4 Apply the PCIe delay patch
 
 The file to patch is `edk2-nvidia/Silicon/NVIDIA/Drivers/PcieDWControllerDxe/PcieControllerDxe.c`.
+
+**Preferred: apply the archived patch.** It is the exact change that produced
+the working R36.5.0 binary, and it applies to every ref listed in 2.3:
+
+```bash
+cd ~/nvidia-uefi-build/nvidia-uefi/edk2-nvidia
+git apply -p1 --ignore-whitespace \
+  /datos/storybot/deploy/firmware/r36.5.0/pcie-cold-boot-fix.patch
+```
+
+> **`--ignore-whitespace` is required, not optional.** `PcieControllerDxe.c`
+> ships with **CRLF** line endings while the archived patch is LF. Without the
+> flag both `git apply` and `patch` fail with `different line endings` /
+> `patch does not apply`. Same trap in the manual route below: the `sed` in
+> Patch 1 is line-ending agnostic and works, but the Patch 2 python heredoc
+> matches on `\n` and will **silently print `ERROR: Could not find the target
+> code to patch`** against the CRLF file. Read its output — it does not exit
+> non-zero.
+
+The manual equivalents follow, for a release where the archived patch no
+longer applies.
 
 **Patch 1 — Increase post-PERST# delay from 200ms to 5000ms:**
 
@@ -423,7 +480,9 @@ fallback if it fails.
 
 **On L4T R36.5.0, skip the builds** — copy the archived artifacts from
 `deploy/firmware/r36.5.0/` into the BSP (see that README) and go straight
-to 3.2. Otherwise: follow **Part 1** (steps 1.1–1.4: BSP download +
+to 3.2. **On R36.5.2 there is no such shortcut** — no R36.5.2 artifacts are
+archived, and the R36.5.0 UEFI must not be paired with an R36.5.2 BSP.
+Otherwise: follow **Part 1** (steps 1.1–1.4: BSP download +
 L4TConfiguration edits) and **Part 2** (steps 2.1–2.5: Docker EDK2 build
 with the PCIe patches) exactly as written above. Stop before 2.6 — do NOT
 recovery-flash. You end with:
@@ -438,13 +497,21 @@ payload-generation time, so the capsule carries both Part 1 and Part 2.
 
 ### 3.2 Generate the capsule (host PC)
 
-**On L4T R36.5.0 this whole section is one command** — it copies the archived
-artifacts into the BSP and runs everything below:
+**Once artifacts for the BSP's release are archived, this whole section is one
+command** — it copies them into the BSP and runs everything below:
 
 ```bash
 sudo bash deploy/generate-patched-capsule.sh [path-to-Linux_for_Tegra]
-# output: deploy/firmware/r36.5.0/TEGRA_BL_patched.Cap
+# output: deploy/firmware/r<release>/TEGRA_BL_patched.Cap
 ```
+
+The release comes from the BSP's `nv_tegra/bsp_version`, so the script picks
+`deploy/firmware/r36.5.2/` for an R36.5.2 BSP and **aborts** if that directory
+is empty — it never falls back to another release's UEFI. So before running
+it on R36.5.2, archive your freshly built `uefi_t23x_general_RELEASE.bin` and
+`L4TConfiguration.dtbo` (plus `SHA256SUMS`) under `deploy/firmware/r36.5.2/`.
+`L4T_RELEASE=<x.y.z>` overrides the autodetection if you ever need a
+deliberate mismatch.
 
 Manual steps (any release, after building Parts 1–2 yourself):
 
@@ -458,14 +525,27 @@ cp ~/nvidia-uefi-build/nvidia-uefi/images/uefi_t23x_general_RELEASE.bin \
 # Host prerequisites for payload generation (once)
 sudo ./tools/l4t_flash_prerequisites.sh
 
-# Multi-spec bootloader update payload (covers the -super TNSPEC too)
-sudo ./l4t_generate_soc_bup.sh t23x
+# Bootloader update payload for ONE board — the -b is not optional, see below
+sudo ./l4t_generate_soc_bup.sh -b jetson-orin-nano-devkit-super t23x
 
 # Wrap it as a UEFI capsule
 sudo ./generate_capsule/l4t_generate_soc_capsule.sh \
   -i bootloader/payloads_t23x/bl_only_payload \
   -o ./TEGRA_BL_patched.Cap t234
 ```
+
+> **The `-b <board>` is mandatory — this bit us on 2026-08-07.** Without it,
+> `l4t_generate_soc_bup.sh t23x` builds a multi-spec payload covering *every*
+> t23x board (all AGX Orin variants, every Orin Nano SKU/chipsku). The result
+> is a **128 MB capsule, and the Jetson's ESP is only 63 MB** — so
+> `enable-super-firmware.sh` aborts with `not enough space on /boot/efi` and
+> the fix cannot be applied at all. Restricted to the super board the payload
+> is ~36 MB and the capsule ~37 MB, staging with 28 MB free.
+>
+> This is safe because capsule payload selection keys off `COMPATIBLE_SPEC`
+> in `/etc/nv_boot_control.conf` (`...jetson-orin-nano-devkit-super-`), which
+> the narrowed payload still matches. Confirmed on-device: the update applied,
+> the slot flipped A→B, and the Super clocks survived.
 
 Copy it over: `scp TEGRA_BL_patched.Cap ari@<jetson>:/home/ari/`
 
@@ -493,11 +573,31 @@ to be booted already — `install.sh` step 1f + reboot.
 ### 3.4 Verify
 
 ```bash
+cat /sys/devices/virtual/dmi/id/bios_version   # the decisive one — see below
 sudo nvbootctrl dump-slots-info   # bootloader slot flipped, update status 1
-sudo efibootmgr -v                # Timeout: 15 seconds, NO PXE/HTTP entries
+sudo efibootmgr -v                # Timeout: 15 seconds
 sudo nvpmodel -q                  # 25W (Super profile survived)
 sudo cat /sys/kernel/debug/bpmp/debug/clk/emc/max_rate   # 3199000000
+ls /boot/efi/EFI/UpdateCapsule/   # empty — the capsule was consumed
 ```
+
+**`bios_version` is the check to trust.** It reports the running UEFI build
+id — e.g. `r36.5.1-3dfabbec-dirty`, matching
+`images/buildid_t23x_general_RELEASE.txt` from your build (`-dirty` is the
+PCIe patch). Stock firmware reports NVIDIA's own id. This is direct proof the
+patched binary is executing, rather than an inference from side effects, and
+it is much faster than the cold-boot test.
+
+> **Do NOT expect the PXE/HTTP entries to disappear after a capsule update.**
+> Part 3 above lists "regenerated PXE/HTTP entries" as a tell of stock
+> firmware, and that holds after a *recovery flash*, which wipes UEFI NVRAM.
+> A capsule update does not: on 2026-08-07 the patched firmware verified good
+> by `bios_version` and `Timeout: 15 seconds` still listed all four
+> `Boot0001`–`Boot0004` PXE/HTTP entries, left over from the stock firmware.
+> `DefaultBootPriority = "nvme"` stops UEFI *creating* such entries; it does
+> not delete existing ones. They are harmless — `BootOrder` had the NVMe
+> entry first and `BootCurrent` was the NVMe entry. **Use `Timeout` and
+> `bios_version` as the tells, not the presence of PXE entries.**
 
 Then the real test: full shutdown, unplug power, wait a few seconds, plug
 back in — it must boot straight from NVMe.
@@ -526,12 +626,27 @@ apt-mark showhold        # must list nvidia-l4t-bootloader
 Unhold only when deliberately taking a bootloader update — and re-run this
 Part 3 afterwards.
 
-#### Regression log: 2026-08-06 (L4T 36.5.0 → 36.5.2)
+#### Regression log: 2026-08-06 (L4T 36.5.0 → 36.5.2) — RESOLVED 2026-08-07
 
 `apt dist-upgrade` upgraded `nvidia-l4t-bootloader` and reverted the patched
 UEFI. **The hold above had never actually been applied** — `apt-mark showhold`
 was empty — so the documented protection was not in force. Re-applied
 2026-08-07.
+
+**Resolution:** rebuilt the UEFI from `r36.5.1` against the R36.5.2 BSP,
+generated a capsule and applied it via Route A (no recovery mode, no USB
+cable). Verified: `bios_version` = `r36.5.1-3dfabbec-dirty`, `Timeout: 15
+seconds`, slot A→B, Super profile intact, and a **full cold boot straight
+from NVMe**. Artifacts and provenance in `deploy/firmware/r36.5.2/`.
+
+Two traps found during the restore, both now fixed in the procedure above:
+
+1. **The capsule was 128 MB and could not be staged** — the ESP is 63 MB.
+   Cause: `l4t_generate_soc_bup.sh` without `-b` covers every t23x board.
+   See the warning in 3.2. This was latent in the documented procedure, not
+   something R36.5.2 introduced.
+2. **PXE/HTTP entries persist after a capsule update** and are *not* evidence
+   the fix failed. See the note in 3.4.
 
 Diagnosis took two wrong turns worth not repeating. The symptom looks like a
 PXE / boot-order problem and is not: after a failed cold boot, `efibootmgr`
@@ -551,7 +666,10 @@ but it does fix (release notes RN_10698-r36.5.2, §3):
 - **5412830** — UEFI assertion error during boot that stops the device at the
   bootloader, occurs randomly, and requires a full firmware reflash to
   recover. Fixes StandaloneMM variable-storage record handling and block erase
-  logic. Directly relevant to this board's history.
+  logic. Directly relevant to this board's history — but note you do **not**
+  get this one: it lives in the UEFI, and the self-built patched UEFI is
+  R36.5.1-level source (see 2.3). It is a reason to keep the R36.5.2 kernel
+  and userspace, not a firmware benefit of this route.
 - **5602402** — NvMap allocation policy fix for "unable to allocate CUDA0
   buffer" after an APT upgrade. Matters on 8 GB with SD + LLM resident.
 - **4840276** — display not resuming after suspend on headless systems.
@@ -562,8 +680,21 @@ Unrelated but caught by the same upgrade: `gstreamer1.0-plugins-bad`
 (`h264parse`) is no longer pre-installed on 22.04 desktop images (issue
 5842995) — install it explicitly if a pipeline breaks.
 
-So: redo parts 1.1–1.4 and 2.1–2.5 against the R36.5.2 BSP and tag, generate
-the capsule (3.2), apply it (3.3), and archive the `.Cap` this time.
+So: redo parts 1.1–1.4 against the **R36.5.2 BSP** and 2.1–2.5 against the
+**`r36.5.1` UEFI tag** (there is no R36.5.2 UEFI source — see the note in
+2.3), generate the capsule (3.2), apply it (3.3), and archive the artifacts
+*and* the `.Cap` under `deploy/firmware/r36.5.2/` this time.
+
+The `L4TConfiguration.dtbo` in particular must be re-derived from the R36.5.2
+BSP — that is the genuinely release-coupled artifact.
+`generate-patched-capsule.sh` enforces the pairing: it reads the release from
+the BSP and aborts rather than reaching for another release's directory.
+
+The UEFI binary is the looser half. The archived R36.5.0 `.bin` was itself
+built from the `r36.5` tag, so reusing it would *not* have been the mismatch
+it looks like — the only delta against a fresh `r36.5.1` build is one
+DisplayDeviceTreeHelperLib commit, nothing touching PCIe or boot. It was
+rebuilt from `r36.5.1` on 2026-08-07 to stay on the newest published source.
 
 ---
 

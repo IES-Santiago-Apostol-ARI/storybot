@@ -39,8 +39,11 @@ sudo reboot    # progress bar 1-5 min — DO NOT POWER OFF
 sudo apt-mark hold nvidia-l4t-bootloader
 ```
 
-The script leaves `TEGRA_BL_patched.Cap` in this directory — commit it too
-(30–70 MB binary) and the BSP is not needed at all for the next device.
+The script leaves `TEGRA_BL_patched.Cap` in this directory. **It is not
+committed and cannot be**: the multi-spec capsule is ~128 MB, over GitHub's
+100 MB hard limit, so `deploy/firmware/**/*.Cap` is gitignored. The artifacts
+in this directory are the committed source of truth — regenerate the capsule
+from them when needed.
 
 ## Recovery flash (Route B — rescue only)
 
