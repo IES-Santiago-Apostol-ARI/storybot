@@ -1110,13 +1110,19 @@ async function loadCards() {
 function renderCardList(cards) {
     const cardListEl = document.getElementById('card-list');
 
-    if (!cards || cards.length === 0) {
+    // /api/cards also returns story cards, which this section does not render;
+    // appending them would leave empty boxes in the list.
+    const renderable = (cards || []).filter(
+        card => card.type === 'parameter' || card.type === 'go'
+    );
+
+    if (renderable.length === 0) {
         cardListEl.innerHTML = '<p class="empty-state">Aún no hay tarjetas registradas.</p>';
         return;
     }
 
     cardListEl.innerHTML = '';
-    cards.forEach(card => {
+    renderable.forEach(card => {
         const item = document.createElement('div');
         item.className = 'card-item' + (card.type === 'go' ? ' card-item--go' : '');
 
