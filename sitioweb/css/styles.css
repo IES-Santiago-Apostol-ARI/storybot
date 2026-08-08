@@ -205,6 +205,62 @@ section { padding: 84px 0; }
 .tech-card li::before { content: "•"; position: absolute; left: 4px; color: var(--blue); font-weight: 900; }
 .tech-card li b { color: var(--ink); font-weight: 800; }
 
+/* ---------- Cómo funciona (uso) ---------- */
+.uso-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 22px; }
+.uso-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 28px; box-shadow: var(--shadow);
+}
+.uso-card > .ico { width: 54px; height: 54px; border-radius: 15px; display: grid; place-items: center; font-size: 1.6rem; margin-bottom: 16px; background: var(--blue-soft); }
+.uso-card h3 { font-size: 1.18rem; margin-bottom: 10px; }
+.uso-card p { color: var(--ink-soft); font-size: .97rem; margin-bottom: 14px; }
+.uso-card p:last-child { margin-bottom: 0; }
+.uso-card.wide { grid-column: 1 / -1; }
+
+/* Tabla sencilla reutilizable (botones, luces, especificaciones) */
+.data-table { width: 100%; border-collapse: collapse; font-size: .94rem; }
+.data-table th, .data-table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.data-table th { font-family: var(--font-head); font-weight: 600; color: var(--blue-deep); background: var(--blue-soft); }
+.data-table tr:last-child td { border-bottom: 0; }
+.data-table td:first-child { font-weight: 800; color: var(--ink); }
+.data-table td { color: var(--ink-soft); }
+.table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fff; }
+
+/* Puntos de color de la leyenda LED */
+.led-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; vertical-align: -1px; border: 1px solid rgba(0,0,0,.08); }
+.led-white  { background: #fff; }
+.led-green  { background: #22c55e; }
+.led-teal   { background: #00ff80; }
+.led-cyan   { background: #00c8ff; }
+.led-amber  { background: #b48c00; }
+.led-warm   { background: #ffcf70; }
+.led-story  { background: linear-gradient(135deg, #ff5733, #7c3aed); }
+.led-rainbow{ background: linear-gradient(90deg, #ff0040, #ffcc00, #22c55e, #00c8ff, #7c3aed); }
+
+/* ---------- Página de manual ---------- */
+.doc-hero { background: radial-gradient(900px 380px at 20% -20%, #dcebff 0%, transparent 60%), var(--bg); padding: 54px 0 40px; }
+.doc-hero h1 { font-size: clamp(2rem, 4.6vw, 2.9rem); margin-bottom: 12px; }
+.doc-hero p { color: var(--ink-soft); font-size: 1.08rem; max-width: 680px; }
+.doc-layout { display: grid; grid-template-columns: 250px 1fr; gap: 44px; align-items: start; }
+.doc-toc { position: sticky; top: 96px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 20px 22px; box-shadow: var(--shadow); }
+.doc-toc h2 { font-size: 1rem; margin-bottom: 12px; }
+.doc-toc ul { list-style: none; }
+.doc-toc li { margin-bottom: 7px; }
+.doc-toc a { font-size: .93rem; font-weight: 700; color: var(--ink-soft); }
+.doc-toc a:hover { color: var(--blue-deep); }
+.doc-body > section { padding: 0 0 44px; }
+.doc-body h2 { font-size: 1.6rem; margin-bottom: 8px; padding-top: 8px; }
+.doc-body h3 { font-size: 1.14rem; margin: 26px 0 8px; }
+.doc-body p { color: var(--ink-soft); margin-bottom: 12px; }
+.doc-body ul, .doc-body ol { color: var(--ink-soft); margin: 0 0 14px 20px; }
+.doc-body li { margin-bottom: 7px; }
+.doc-body .table-scroll { margin-bottom: 18px; }
+.doc-body code { background: var(--blue-soft); color: var(--blue-deep); padding: 2px 7px; border-radius: 6px; font-size: .9em; font-weight: 700; }
+.callout { border-left: 4px solid var(--blue); background: var(--blue-soft); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; padding: 16px 20px; margin: 0 0 18px; }
+.callout p { color: var(--blue-deep); margin: 0; font-weight: 600; }
+.callout.warn { border-left-color: #e0a01e; background: #fff5e0; }
+.callout.warn p { color: #8a5b00; }
+
 /* ---------- Fases (timeline) ---------- */
 .timeline { position: relative; max-width: 860px; margin: 0 auto; }
 .timeline::before { content: ""; position: absolute; left: 27px; top: 8px; bottom: 8px; width: 3px; background: linear-gradient(var(--blue), var(--green)); border-radius: 3px; }
@@ -267,6 +323,7 @@ section { padding: 84px 0; }
 .manual-card p { color: var(--ink-soft); font-size: .95rem; flex: 1; margin-bottom: 18px; }
 .manual-card .dl { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-head); font-weight: 600; color: var(--blue); }
 .manual-card .dl::after { content: "↓"; }
+.manual-card .dl-go::after { content: "→"; }
 
 /* ---------- CTA band ---------- */
 .cta-band { background: linear-gradient(135deg, var(--blue) 0%, var(--blue-deep) 100%); color: #fff; text-align: center; border-radius: 28px; padding: 56px 32px; box-shadow: var(--shadow-lg); }
@@ -303,7 +360,8 @@ section { padding: 84px 0; }
 
 /* ---------- Responsive ---------- */
 @media (max-width: 900px) {
-  .hero-grid, .intro-cols { grid-template-columns: 1fr; }
+  .hero-grid, .intro-cols, .doc-layout { grid-template-columns: 1fr; }
+  .doc-toc { position: static; }
   .hero-visual { order: -1; }
   .footer-top { grid-template-columns: 1fr; gap: 28px; }
   .nav-links {

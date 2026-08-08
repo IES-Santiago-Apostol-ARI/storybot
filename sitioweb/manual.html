@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manual de usuario · StoryBot</title>
+  <meta name="description" content="Manual de usuario de StoryBot: encendido y apagado, tarjetas NFC, pulsadores físicos, significado de las luces LED, panel del profesorado y solución de problemas.">
+  <meta name="theme-color" content="#1f5fa8">
+  <link rel="canonical" href="https://storybot.santiagoapostol.net/manual.html">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Manual de usuario · StoryBot">
+  <meta property="og:description" content="Cómo se usa el robot cuentacuentos StoryBot: tarjetas, botones, luces y panel del profesorado.">
+  <meta property="og:url" content="https://storybot.santiagoapostol.net/manual.html">
+  <meta property="og:image" content="https://storybot.santiagoapostol.net/img/og-image.jpg">
+  <meta property="og:locale" content="es_ES">
+
+  <link rel="icon" type="image/png" href="img/favicon.png">
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+  <noscript><style>.reveal { opacity: 1; transform: none; }</style></noscript>
+</head>
+<body>
+
+  <!-- ============ NAV ============ -->
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a href="index.html#inicio" class="brand">
+        <img src="img/favicon.png" alt="StoryBot">
+        <span>Story<b>Bot</b></span>
+      </a>
+      <nav class="nav-links">
+        <a href="index.html#introduccion">Introducción</a>
+        <a href="index.html#tecnologias">Tecnologías</a>
+        <a href="index.html#uso">Cómo funciona</a>
+        <a href="index.html#cuentos">Cuentos</a>
+        <a href="index.html#galeria">Galería</a>
+        <a href="manual.html">Manual</a>
+      </nav>
+      <button class="nav-toggle" aria-label="Menú"><span></span><span></span><span></span></button>
+    </div>
+  </header>
+
+  <!-- ============ CABECERA ============ -->
+  <section class="doc-hero">
+    <div class="wrap">
+      <span class="hero-badge">Documentación · Uso diario del robot</span>
+      <h1>Manual de usuario de StoryBot</h1>
+      <p>Todo lo que hay que saber para usar el robot cuentacuentos en el aula: cómo se enciende, cómo juegan los niños, qué hace cada botón, qué significan las luces y cómo se gestiona el contenido desde el panel del profesorado.</p>
+    </div>
+  </section>
+
+  <section style="padding-top:44px;">
+    <div class="wrap doc-layout">
+
+      <!-- ---------- ÍNDICE ---------- -->
+      <aside class="doc-toc">
+        <h2>Contenido</h2>
+        <ul>
+          <li><a href="#que-es">¿Qué es StoryBot?</a></li>
+          <li><a href="#encender">Encender y apagar</a></li>
+          <li><a href="#ninos">Para niños — modo juego</a></li>
+          <li><a href="#tarjetas">Tarjetas mágicas NFC</a></li>
+          <li><a href="#botones">Botones físicos</a></li>
+          <li><a href="#luces">Qué significan las luces</a></li>
+          <li><a href="#panel">Panel del profesorado</a></li>
+          <li><a href="#generadas">Historias creadas por la IA</a></li>
+          <li><a href="#red">WiFi, Bluetooth y actualizaciones</a></li>
+          <li><a href="#problemas">Solución de problemas</a></li>
+          <li><a href="#especificaciones">Especificaciones técnicas</a></li>
+        </ul>
+      </aside>
+
+      <!-- ---------- CUERPO ---------- -->
+      <div class="doc-body">
+
+        <section id="que-es" class="reveal">
+          <h2>¿Qué es StoryBot?</h2>
+          <p>StoryBot es un robot de cuentos para niños de 3 a 6 años. Cuenta historias grabadas por el alumnado de Educación Infantil y, además, puede <b>crear cuentos nuevos</b> con inteligencia artificial a partir de las ideas que eligen los niños.</p>
+          <p>Todo ocurre dentro del propio robot: no hace falta conexión a internet y ninguna voz, imagen o dato del aula sale del dispositivo.</p>
+        </section>
+
+        <section id="encender" class="reveal">
+          <h2>Encender y apagar</h2>
+
+          <h3>Encender</h3>
+          <p>Conecta la alimentación del robot. Al arrancar:</p>
+          <ul>
+            <li>La tira LED hace un barrido de luz de izquierda a derecha (señal de arranque).</li>
+            <li>La pantalla táctil abre sola la pantalla principal de los niños.</li>
+          </ul>
+          <p>El arranque completo tarda alrededor de un minuto. Mientras tanto, la pantalla puede quedarse en negro o mostrar un aviso del navegador: es normal, se recarga sola.</p>
+
+          <h3>Apagar</h3>
+          <p>Pulsa el <b>botón de apagado</b>. Espera a que la pantalla se apague y las luces se queden fijas antes de desconectar la alimentación.</p>
+          <div class="callout warn">
+            <p>⚠️ No desconectes el robot de la corriente sin apagarlo antes: podrías dañar los datos guardados.</p>
+          </div>
+        </section>
+
+        <section id="ninos" class="reveal">
+          <h2>Para niños — modo juego</h2>
+
+          <h3>Pantalla principal</h3>
+          <p>Al encender StoryBot aparece la pantalla principal con grandes iconos flotando; cada icono es un cuento.</p>
+          <ul>
+            <li><b>Para escuchar un cuento</b>: tocar su icono.</li>
+            <li><b>Si no hay cuentos</b>: aparece un robot durmiendo, señal de que todavía no se ha añadido ninguno.</li>
+          </ul>
+
+          <h3>Escuchando un cuento</h3>
+          <ul>
+            <li>En el centro se ve una imagen grande o el emoji del cuento.</li>
+            <li>Un pequeño robot camina de izquierda a derecha mientras avanza la historia.</li>
+            <li>Las luces LED cambian al color de ese cuento.</li>
+          </ul>
+
+          <h3>Pausar y reanudar</h3>
+          <ul>
+            <li><b>Pausar</b>: tocar cualquier parte del centro de la pantalla. Aparece un icono de pausa grande.</li>
+            <li><b>Reanudar</b>: volver a tocar la pantalla; el cuento sigue donde se quedó.</li>
+          </ul>
+
+          <h3>Cuando termina el cuento</h3>
+          <p>Aparece una pantalla de celebración con confeti y estrellas y, tras unos segundos, el robot vuelve solo a la pantalla principal.</p>
+        </section>
+
+        <section id="tarjetas" class="reveal">
+          <h2>Tarjetas mágicas NFC</h2>
+          <p>StoryBot reconoce tarjetas que se le acercan. Hay tres tipos.</p>
+
+          <h3>Tarjetas de cuentos</h3>
+          <p>Acerca la tarjeta y empieza a escucharse el cuento asociado. Si se acerca la misma tarjeta mientras el cuento suena, se pausa o se reanuda.</p>
+
+          <h3>Tarjetas de parámetros</h3>
+          <p>Añaden ideas para crear un cuento nuevo. Con cada tarjeta aparece un pictograma en la parte superior de la pantalla (por ejemplo «🐉 Dragón» o «🏰 Castillo») y se enciende una luz más en la tira LED.</p>
+
+          <h3>Tarjeta Go</h3>
+          <p>Cuando ya se han elegido varias ideas, la tarjeta Go pone al robot a escribir el cuento. Se ve un robot pensando junto a las ideas elegidas; <b>la narración empieza en cuanto está lista la primera parte</b>, sin esperar al final. El dibujo de portada llega después, al terminar el cuento.</p>
+
+          <div class="callout">
+            <p>Las ideas acumuladas se olvidan pasados unos <b>30 segundos</b> sin tocar ninguna tarjeta. Si eso ocurre, hay que volver a tocar las tarjetas de parámetros antes de la tarjeta Go.</p>
+          </div>
+
+          <h3>Casos especiales</h3>
+          <ul>
+            <li><b>Tarjeta Go sin ideas</b>: solo se ve un momento la pantalla del robot pensando y se vuelve al inicio.</li>
+            <li><b>Tarjeta desconocida</b>: el robot borra las ideas acumuladas y vuelve a la pantalla principal. Para usarla, hay que registrarla desde el panel del profesorado.</li>
+            <li><b>Robot sin IA</b>: si el panel muestra «Modo: Básico (sin IA)», las tarjetas de parámetros y la tarjeta Go no crean nada; solo suena un pequeño toque.</li>
+          </ul>
+        </section>
+
+        <section id="botones" class="reveal">
+          <h2>Botones físicos</h2>
+          <p>El robot tiene <b>cuatro pulsadores</b> en la carcasa. Funcionan siempre, aunque la pantalla esté bloqueada o el navegador se haya quedado colgado, porque los gestiona directamente el robot y no la pantalla.</p>
+
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th>Botón</th><th>Qué hace</th></tr></thead>
+              <tbody>
+                <tr><td>Apagado</td><td>Apaga el robot de forma segura.</td></tr>
+                <tr><td>Parar</td><td>Detiene el cuento al instante y vuelve a la pantalla principal.</td></tr>
+                <tr><td>Dibujo</td><td>Crea un dibujo para colorear a partir del cuento que está sonando.</td></tr>
+                <tr><td>Luces</td><td>Lanza una animación arcoíris en la tira LED.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Botón de apagado</h3>
+          <p>Apaga el robot de forma ordenada. Hay que esperar a que la pantalla se apague antes de desconectar la alimentación; para volver a encenderlo, se quita y se vuelve a dar corriente.</p>
+
+          <h3>Botón de parar</h3>
+          <p>Corta el audio inmediatamente y devuelve la pantalla a la página principal, tanto si sonaba un cuento grabado como uno creado por la IA. Es el botón que conviene tener a mano en clase.</p>
+
+          <h3>Botón de dibujo</h3>
+          <p>Mientras suena un cuento de la biblioteca, este botón pide a la IA un <b>dibujo en blanco y negro, con líneas gruesas, pensado para colorear</b>. El dibujo se basa en las ideas con las que se creó el cuento o, si es un cuento subido por el profesorado, en su título.</p>
+          <ul>
+            <li>Tarda alrededor de <b>uno o dos minutos</b>; mientras tanto el cuento sigue sonando con normalidad.</li>
+            <li>Cuando está listo, la tira LED hace un <b>arcoíris</b> y el dibujo aparece en pantalla. Si el cuento ya tenía su propia portada, esa portada se mantiene y el dibujo se guarda igualmente para imprimirlo.</li>
+            <li>Si se vuelve a pulsar mientras se está creando, la pulsación se ignora: hay que esperar al arcoíris.</li>
+            <li>Al pulsarlo otra vez cuando ya ha terminado, se genera un <b>dibujo nuevo distinto</b> que sustituye al anterior de ese cuento.</li>
+            <li>Si <b>no hay ningún cuento sonando</b>, o el robot no tiene IA disponible, la tira LED parpadea en <b>ámbar</b> y no ocurre nada más.</li>
+            <li>Los dibujos se imprimen luego desde el panel del profesorado, en «Historias generadas».</li>
+          </ul>
+
+          <h3>Botón de luces</h3>
+          <p>Lanza una animación arcoíris de un segundo y medio. No afecta al cuento que esté sonando: es decorativo y sirve también para comprobar que la tira funciona.</p>
+
+          <h3>Si un botón no responde</h3>
+          <ul>
+            <li>Vuelve a pulsarlo con un toque firme y corto: las pulsaciones muy seguidas (menos de medio segundo) se ignoran a propósito para evitar repeticiones.</li>
+            <li>El botón de dibujo es el único que puede parecer «no hacer nada»: comprueba si la tira LED ha parpadeado en ámbar (no hay cuento sonando o no hay IA).</li>
+          </ul>
+        </section>
+
+        <section id="luces" class="reveal">
+          <h2>Qué significan las luces</h2>
+          <p>La tira LED acompaña en todo momento lo que está pasando, y se entiende desde el otro lado del aula.</p>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th>Luz</th><th>Significado</th></tr></thead>
+              <tbody>
+                <tr><td><span class="led-dot led-cyan"></span>Barrido de izquierda a derecha</td><td>El robot está arrancando.</td></tr>
+                <tr><td><span class="led-dot led-warm"></span>Brillo cálido tenue y estable</td><td>En reposo, esperando una tarjeta o un toque.</td></tr>
+                <tr><td><span class="led-dot led-story"></span>Color del cuento, subiendo y bajando</td><td>Cuento sonando (cada cuento tiene su color configurado).</td></tr>
+                <tr><td><span class="led-dot led-story"></span>Mismo color, congelado</td><td>Cuento en pausa.</td></tr>
+                <tr><td><span class="led-dot led-white"></span>Destello blanco corto</td><td>Se ha leído una tarjeta de cuento.</td></tr>
+                <tr><td><span class="led-dot led-teal"></span>Una luz más por cada toque</td><td>Se ha añadido una tarjeta de parámetro.</td></tr>
+                <tr><td><span class="led-dot led-green"></span>Destello verde largo</td><td>Tarjeta Go: empieza a crear el cuento.</td></tr>
+                <tr><td><span class="led-dot led-cyan"></span>Luz que recorre la tira</td><td>El robot está pensando o generando.</td></tr>
+                <tr><td><span class="led-dot led-amber"></span>Ámbar unos segundos y se apaga</td><td>Aviso o error (por ejemplo, botón de dibujo sin cuento sonando).</td></tr>
+                <tr><td><span class="led-dot led-rainbow"></span>Arcoíris</td><td>Dibujo listo, o botón de luces pulsado.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="panel" class="reveal">
+          <h2>Panel del profesorado</h2>
+          <p>El panel se abre desde cualquier navegador, sin instalar nada:</p>
+          <ul>
+            <li><b>Desde un móvil o tablet</b>: conectarse a la red WiFi del robot (<b>StoryBot</b>) y abrir <code>http://192.168.12.1/admin</code>.</li>
+            <li><b>Desde la pantalla táctil del robot</b>: <code>http://localhost/admin</code>.</li>
+          </ul>
+          <div class="callout warn">
+            <p>⚠️ El panel no pide usuario ni contraseña: la protección es la propia red del robot. No conviene conectar StoryBot a una red WiFi abierta o compartida.</p>
+          </div>
+
+          <h3>Vista general</h3>
+          <p>En la parte superior aparecen:</p>
+          <ul>
+            <li><b>Modo</b>: indica si la inteligencia artificial está disponible («Modo: Completo») o no («Modo: Básico (sin IA)»).</li>
+            <li><b>Iconos de estado</b>: lector NFC (verde = conectado, rojo = error), tira LED, red WiFi conectada, altavoz Bluetooth y aviso de actualización disponible.</li>
+          </ul>
+
+          <h3>Subir un cuento</h3>
+          <ol>
+            <li>En «Subir Nueva Historia», rellenar: <b>título</b> (obligatorio), <b>emoji</b>, <b>color LED</b>, <b>archivo de audio</b> (MP3 o WAV) y, opcionalmente, una <b>imagen de portada</b>.</li>
+            <li>Pulsar <b>Subir Historia</b>.</li>
+          </ol>
+          <p>El robot transcribe el audio en segundo plano para poder trabajar después con el contenido del cuento; la subida no espera a que termine.</p>
+
+          <h3>Editar o eliminar un cuento</h3>
+          <ol>
+            <li>En «Biblioteca de Historias», localizar el cuento y pulsar <b>Editar</b>: el formulario se rellena con sus datos. Si no se sube un audio nuevo, se conserva el actual.</li>
+            <li>Guardar con <b>Guardar Cambios</b>, o salir con <b>Cancelar</b> (pide confirmación si hay cambios sin guardar).</li>
+            <li>Para borrarlo, pulsar <b>Eliminar</b> y confirmar.</li>
+          </ol>
+
+          <h3>Asignar una tarjeta NFC a un cuento</h3>
+          <ol>
+            <li>Pulsar <b>Asignar NFC</b> (o <b>Reasignar NFC</b>) en el cuento.</li>
+            <li>Acercar la tarjeta al robot: queda asociada a ese cuento.</li>
+          </ol>
+
+          <h3>Tarjetas de parámetros (solo con IA)</h3>
+          <ol>
+            <li>En «Tarjetas de Parámetros», pulsar <b>Registrar Parámetro</b> y acercar la tarjeta.</li>
+            <li>Rellenar <b>categoría</b> (personaje, lugar, emoción…), <b>valor</b> (dragón, bosque, feliz…), <b>emoji</b> y <b>etiqueta</b> visible.</li>
+            <li>Pulsar <b>Registrar</b>.</li>
+          </ol>
+          <p>La <b>tarjeta Go</b> se registra igual, con el botón <b>Registrar Go</b>. Cualquier tarjeta se quita con <b>Eliminar</b> en la lista de tarjetas registradas.</p>
+        </section>
+
+        <section id="generadas" class="reveal">
+          <h2>Historias creadas por la IA</h2>
+          <p>Cuando los niños usan las tarjetas de parámetros y la tarjeta Go, el cuento resultante aparece en la sección «Historias generadas» del panel.</p>
+
+          <h3>Vista previa</h3>
+          <p>El botón <b>Vista previa</b> abre en otra pestaña el comienzo del texto y la imagen de portada.</p>
+
+          <h3>Imprimir una pegatina para colorear</h3>
+          <p>Las portadas generadas son <b>dibujos de línea en blanco y negro</b>, pensados para que los niños los coloreen después de escuchar el cuento.</p>
+          <ol>
+            <li>Pulsar <b>Imprimir pegatina</b>.</li>
+            <li>Se abre una ventana lista para imprimir con el dibujo.</li>
+            <li>Elegir la impresora de pegatinas (Brother QL) y confirmar.</li>
+          </ol>
+          <p>La opción solo está activa si la historia tiene imagen generada. Si no se abre la ventana de impresión, el navegador está bloqueando las ventanas emergentes.</p>
+
+          <h3>Promover una historia a la biblioteca</h3>
+          <p>Para que un cuento creado por la IA aparezca en la pantalla de los niños como uno más:</p>
+          <ol>
+            <li>Pulsar <b>Promover → Asignar</b>.</li>
+            <li>Indicar <b>título</b>, <b>emoji</b> y <b>color del LED</b>.</li>
+            <li>Pulsar <b>Promover y asignar tarjeta</b> y acercar la tarjeta NFC que se quiera asociar.</li>
+          </ol>
+
+          <h3>Descartar</h3>
+          <p>El botón <b>Descartar</b>, tras confirmar, elimina la historia generada.</p>
+        </section>
+
+        <section id="red" class="reveal">
+          <h2>WiFi, Bluetooth y actualizaciones</h2>
+
+          <h3>Configurar WiFi</h3>
+          <ol>
+            <li>Abrir la sección «WiFi» y pulsar <b>Actualizar</b> para buscar redes.</li>
+            <li>Seleccionar una red: si está protegida, introducir la contraseña.</li>
+            <li>Pulsar <b>Conectar</b>. Para salir de una red, <b>Desconectar</b>.</li>
+          </ol>
+
+          <h3>Configurar Bluetooth</h3>
+          <ol>
+            <li>Abrir la sección «Bluetooth» y pulsar <b>Actualizar</b> para buscar altavoces.</li>
+            <li>Usar <b>Emparejar</b> (dispositivo nuevo), <b>Conectar</b> (ya emparejado), <b>Desconectar</b> u <b>Olvidar</b>.</li>
+          </ol>
+          <p>El audio de los cuentos sale por el altavoz Bluetooth conectado; si no hay ninguno, por la salida por cable.</p>
+
+          <h3>Instalar una actualización</h3>
+          <ol>
+            <li>Cuando hay una versión nueva aparece la sección «Actualizaciones» con su número.</li>
+            <li>Pulsar <b>Instalar</b> y esperar: descarga, aplicación de cambios, sincronización, verificación y reinicio.</li>
+            <li>El robot se reinicia solo. Si tarda mucho, basta con recargar la página del navegador.</li>
+          </ol>
+        </section>
+
+        <section id="problemas" class="reveal">
+          <h2>Solución de problemas</h2>
+
+          <h3>El lector NFC no funciona</h3>
+          <ul>
+            <li>Comprobar que el icono NFC del panel esté en verde.</li>
+            <li>Si está en rojo, reiniciar el robot y volver a comprobarlo.</li>
+          </ul>
+
+          <h3>No se escucha el audio</h3>
+          <ul>
+            <li>Comprobar que el altavoz esté bien conectado o emparejado por Bluetooth.</li>
+            <li>Revisar el icono de Bluetooth en el panel.</li>
+          </ul>
+
+          <h3>La IA no genera historias</h3>
+          <ul>
+            <li>Verificar que el panel muestre «Modo: Completo».</li>
+            <li>Si muestra «Modo: Básico (sin IA)», ese robot no tiene la IA disponible.</li>
+          </ul>
+
+          <h3>Un botón físico no hace nada</h3>
+          <ul>
+            <li><b>Parar</b>: esperar un segundo y volver a pulsar; si sigue igual, comprobar que el robot responde recargando <code>/admin</code>.</li>
+            <li><b>Dibujo</b>: si la tira parpadea en ámbar, no hay cuento sonando o el robot está en modo básico.</li>
+            <li><b>Luces</b>: si no se ve el arcoíris, revisar el icono de la tira LED en el panel.</li>
+            <li><b>Apagado</b>: si el robot no se apaga, falta el permiso de apagado en el sistema; hay que avisar a quien instaló el robot.</li>
+          </ul>
+
+          <h3>El dibujo tarda mucho o no aparece</h3>
+          <ul>
+            <li>Es normal que tarde entre uno y dos minutos; el cuento sigue sonando mientras tanto.</li>
+            <li>Si en lugar del arcoíris la tira se pone ámbar, la generación ha fallado: volver a pulsar.</li>
+            <li>Si el cuento tiene portada propia, el dibujo no la sustituye en pantalla, pero sí queda guardado para imprimir.</li>
+          </ul>
+
+          <h3>Las luces no se encienden</h3>
+          <ul>
+            <li>Revisar el icono de la tira LED en el panel.</li>
+            <li>Si está en rojo, apagar el robot, comprobar la conexión de la tira y volver a encenderlo.</li>
+          </ul>
+
+          <h3>No se conecta al WiFi</h3>
+          <ul>
+            <li>Comprobar la contraseña y que la red tenga señal suficiente.</li>
+          </ul>
+        </section>
+
+        <section id="especificaciones" class="reveal">
+          <h2>Especificaciones técnicas</h2>
+          <div class="table-scroll">
+            <table class="data-table">
+              <tbody>
+                <tr><td>Hardware</td><td>NVIDIA Jetson Orin Nano Super 8GB con SSD NVMe M.2</td></tr>
+                <tr><td>Sistema</td><td>Ubuntu 22.04 LTS (JetPack 6.2.1)</td></tr>
+                <tr><td>Texto</td><td>Qwen 3.5 4B (Q4_K_M) servido con llama.cpp</td></tr>
+                <tr><td>Voz</td><td>Piper TTS, voz española <i>es_ES-sharvard</i></td></tr>
+                <tr><td>Dibujos</td><td>Stable Diffusion 1.5 + LCM LoRA + LoRA de dibujo de línea</td></tr>
+                <tr><td>Transcripción</td><td>whisper.cpp (en segundo plano, al subir un cuento)</td></tr>
+                <tr><td>Conexión</td><td>100% offline, sin necesidad de internet</td></tr>
+                <tr><td>Red propia</td><td>Punto de acceso WiFi «StoryBot» (<code>192.168.12.1</code>)</td></tr>
+                <tr><td>Lector NFC</td><td>ACS ACR122U (USB) con tarjetas NTAG213</td></tr>
+                <tr><td>Impresora</td><td>Brother QL-820NWBc (pegatinas para colorear)</td></tr>
+                <tr><td>Tira LED</td><td>21 LEDs WS2812B</td></tr>
+                <tr><td>Botones</td><td>4 pulsadores: apagado, parar, dibujo y luces</td></tr>
+                <tr><td>Pantalla</td><td>Táctil HDMI de 7 pulgadas en modo kiosco</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <div class="hero-cta" style="margin-top:10px;">
+          <a href="index.html#uso" class="btn btn-ghost">← Volver al proyecto</a>
+          <a href="manuales/guia-profesoras.pdf" class="btn btn-primary" target="_blank" rel="noopener">📘 Guía pedagógica en PDF</a>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ FOOTER ============ -->
+  <footer class="footer">
+    <div class="wrap">
+      <div class="footer-top">
+        <div>
+          <div class="fbrand"><img src="img/favicon.png" alt="StoryBot"><b>StoryBot</b></div>
+          <p>Innovación tecnológica y creatividad educativa para la primera infancia. Un proyecto de innovación aplicada y transferencia del conocimiento de la Formación Profesional de Extremadura.</p>
+        </div>
+        <div>
+          <h4>Manual</h4>
+          <ul>
+            <li><a href="#encender">Encender y apagar</a></li>
+            <li><a href="#tarjetas">Tarjetas NFC</a></li>
+            <li><a href="#botones">Botones físicos</a></li>
+            <li><a href="#luces">Luces LED</a></li>
+            <li><a href="#panel">Panel del profesorado</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Recursos</h4>
+          <ul>
+            <li><a href="index.html#cuentos">Cuentos</a></li>
+            <li><a href="index.html#galeria">Galería</a></li>
+            <li><a href="manuales/guia-profesoras.pdf" target="_blank" rel="noopener">Guía del profesorado</a></li>
+            <li><a href="manuales/presentacion-storybot.pdf" target="_blank" rel="noopener">Presentación</a></li>
+            <li><a href="mailto:jredrejo@santiagoapostol.net">Contacto</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <p class="funding-note">Proyecto de Innovación Aplicada y Transferencia del Conocimiento en Extremadura (PIATC), financiado por la Dirección General de Formación Profesional de la Junta de Extremadura, cofinanciado por la Unión Europea a través de los Fondos Europeos.</p>
+
+      <div class="logos-container logos-footer">
+        <img src="logos/gobierno.png" alt="Gobierno de España">
+        <img src="logos/cofinanciado_ue.png" alt="Cofinanciado por la Unión Europea">
+        <img src="logos/fondos_europeos.png" alt="Fondos Europeos">
+        <img src="logos/junta_de_extremadura.png" alt="Junta de Extremadura">
+        <img src="logos/fp.png" alt="Formación Profesional">
+        <img src="logos/piatc.png" alt="PIATC">
+      </div>
+
+      <div class="footer-bottom">
+        © 2026 Proyecto StoryBot · IES Jálama · IES Santiago Apóstol · <a href="https://storybot.santiagoapostol.net/">storybot.santiagoapostol.net</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+</body>
+</html>

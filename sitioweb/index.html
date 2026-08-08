@@ -39,6 +39,7 @@
         <a href="#objetivos">Objetivos</a>
         <a href="#centros">Centros</a>
         <a href="#tecnologias">Tecnologías</a>
+        <a href="#uso">Cómo funciona</a>
         <a href="#fases">Fases</a>
         <a href="#cuentos">Cuentos</a>
         <a href="#galeria">Galería</a>
@@ -92,10 +93,11 @@
           <h3>¿Qué hace StoryBot?</h3>
           <ul>
             <li>Narra cuentos en audio al acercar una tarjeta NFC</li>
-            <li>Cuentos interactivos donde los niños eligen el camino de la historia</li>
-            <li>Genera cuentos con inteligencia artificial ejecutada localmente</li>
+            <li>Crea cuentos nuevos con las ideas que eligen los niños mediante tarjetas con pictogramas</li>
+            <li>Toda la inteligencia artificial se ejecuta dentro del propio robot</li>
             <li>Iluminación LED que acompaña las emociones del relato</li>
-            <li>Pulsadores físicos y pictogramas para un uso inclusivo</li>
+            <li>Cuatro pulsadores físicos para usarlo sin pantalla</li>
+            <li>Imprime dibujos para colorear del cuento escuchado</li>
             <li>Funciona 100% sin conexión a internet, de forma segura</li>
           </ul>
         </div>
@@ -217,9 +219,10 @@
         <div class="tech-card reveal">
           <h3><span class="ico">🧠</span> Inteligencia artificial local</h3>
           <ul>
-            <li><b>LLM:</b> Qwen 2.5 3B Instruct vía Ollama</li>
-            <li><b>Voz (TTS):</b> Piper TTS con voces en español</li>
-            <li><b>Imágenes:</b> Stable Diffusion 1.5 + LCM LoRA</li>
+            <li><b>Texto:</b> Qwen 3.5 4B (Q4_K_M) servido con llama.cpp</li>
+            <li><b>Voz (TTS):</b> Piper TTS, voz española <i>es_ES-sharvard</i></li>
+            <li><b>Dibujos:</b> Stable Diffusion 1.5 + LCM LoRA + LoRA de línea</li>
+            <li><b>Transcripción:</b> whisper.cpp para los audios subidos</li>
             <li>Todo se ejecuta offline, sin conexión</li>
           </ul>
         </div>
@@ -228,17 +231,18 @@
           <ul>
             <li><b>Cerebro:</b> NVIDIA Jetson Orin Nano Super 8GB</li>
             <li><b>Almacenamiento:</b> SSD NVMe M.2</li>
-            <li><b>Pantalla táctil</b> de 7" HDMI</li>
+            <li><b>Pantalla táctil</b> de 7" HDMI en modo kiosco</li>
             <li><b>Lector NFC</b> ACR122U + tarjetas NTAG213</li>
+            <li><b>Audio:</b> altavoz por cable o Bluetooth</li>
           </ul>
         </div>
         <div class="tech-card reveal">
           <h3><span class="ico">💡</span> Interacción física</h3>
           <ul>
-            <li>Tira <b>LED RGB</b> de iluminación emocional</li>
-            <li><b>Pulsadores</b> conectados a la GPIO</li>
-            <li>Lector de <b>pictogramas</b> para accesibilidad</li>
-            <li>Impresora <b>Brother QL-800</b> de pegatinas</li>
+            <li>Tira de <b>21 LED WS2812B</b> de iluminación emocional</li>
+            <li><b>4 pulsadores</b> en la GPIO: apagado, parar, dibujo y luces</li>
+            <li>Tarjetas NFC con <b>pictogramas</b> para elegir las ideas del cuento</li>
+            <li>Impresora <b>Brother QL-820NWBc</b> de pegatinas</li>
           </ul>
         </div>
         <div class="tech-card reveal">
@@ -246,8 +250,9 @@
           <ul>
             <li>Backend en <b>Python 3.10 + FastAPI</b></li>
             <li>Eventos en tiempo real con <b>SSE</b></li>
-            <li>Panel de administración para docentes</li>
+            <li>Panel de administración para docentes, sin apps que instalar</li>
             <li>Arquitectura modular <b>HardwareManager</b> / <b>StoryManager</b></li>
+            <li>Actualizaciones desde el propio panel</li>
           </ul>
         </div>
         <div class="tech-card reveal">
@@ -256,7 +261,7 @@
             <li>Carcasa <b>impresa en 3D</b> resistente y segura</li>
             <li>Diseño ergonómico adaptado al uso infantil</li>
             <li>Sistema sencillo de mantenimiento</li>
-            <li>Red WiFi local con router TP-Link</li>
+            <li>El robot crea su propia <b>red WiFi</b> para el panel docente</li>
           </ul>
         </div>
         <div class="tech-card reveal">
@@ -264,10 +269,88 @@
           <ul>
             <li>Funcionamiento <b>100% sin internet</b></li>
             <li>Ningún dato del aula sale del dispositivo</li>
+            <li>Ni voces ni imágenes se envían a servicios externos</li>
+            <li>El panel docente solo es accesible desde la red local del robot</li>
             <li>Materiales seguros para la primera infancia</li>
-            <li>Puntuación de seguridad: <b>10/10</b></li>
           </ul>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CÓMO FUNCIONA ============ -->
+  <section id="uso">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <span class="eyebrow">Cómo funciona</span>
+        <h2>Así se maneja StoryBot</h2>
+        <p>Tarjetas, botones y luces para los niños; un panel web para el profesorado. Nada de menús complicados: todo se maneja con gestos que un niño de tres años entiende.</p>
+      </div>
+
+      <div class="uso-grid">
+        <div class="uso-card reveal">
+          <div class="ico">🃏</div>
+          <h3>Tarjetas mágicas</h3>
+          <p>Cada cuento tiene su tarjeta NFC: al acercarla, empieza a sonar. Si se vuelve a acercar la misma tarjeta, el cuento se pausa o se reanuda.</p>
+          <p>Las <b>tarjetas de parámetros</b> llevan pictogramas (un dragón, un castillo, una emoción). Los niños eligen varias y las van acumulando en pantalla; con la <b>tarjeta Go</b> el robot escribe y narra un cuento nuevo con esas ideas.</p>
+          <p>El cuento empieza a escucharse en cuanto está lista la primera frase, sin esperar a que termine de escribirse.</p>
+        </div>
+
+        <div class="uso-card reveal">
+          <div class="ico">🔘</div>
+          <h3>Cuatro pulsadores</h3>
+          <p>Los botones funcionan aunque la pantalla esté ocupada o bloqueada, porque los gestiona directamente el robot.</p>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th>Botón</th><th>Qué hace</th></tr></thead>
+              <tbody>
+                <tr><td>Apagado</td><td>Apaga el robot de forma segura.</td></tr>
+                <tr><td>Parar</td><td>Corta el cuento y vuelve a la pantalla principal.</td></tr>
+                <tr><td>Dibujo</td><td>Crea un dibujo para colorear del cuento que suena.</td></tr>
+                <tr><td>Luces</td><td>Lanza una animación arcoíris en la tira LED.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>El dibujo aparece en la pantalla al cabo de uno o dos minutos, sin cortar la narración, y después se puede imprimir como pegatina.</p>
+        </div>
+
+        <div class="uso-card reveal">
+          <div class="ico">👩‍🏫</div>
+          <h3>Panel del profesorado</h3>
+          <p>Desde el móvil o la tablet, conectándose a la red WiFi que crea el propio robot, el profesorado gestiona todo el contenido sin instalar nada.</p>
+          <ul style="color:var(--ink-soft);font-size:.97rem;margin-left:18px;">
+            <li>Subir, editar y borrar cuentos con su audio, emoji y color de LED</li>
+            <li>Asignar a cada cuento su tarjeta NFC</li>
+            <li>Registrar tarjetas de parámetros y la tarjeta Go</li>
+            <li>Revisar, imprimir, guardar en la biblioteca o descartar los cuentos creados por la IA</li>
+            <li>Configurar WiFi, altavoz Bluetooth e instalar actualizaciones</li>
+          </ul>
+        </div>
+
+        <div class="uso-card wide reveal">
+          <div class="ico">🌈</div>
+          <h3>Luces que hablan</h3>
+          <p>La tira LED cuenta en todo momento qué está pasando, incluso desde el otro lado del aula.</p>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th>Luz</th><th>Significado</th></tr></thead>
+              <tbody>
+                <tr><td><span class="led-dot led-warm"></span>Brillo cálido tenue</td><td>En reposo, esperando una tarjeta.</td></tr>
+                <tr><td><span class="led-dot led-story"></span>Color del cuento, latiendo</td><td>Cuento sonando; congelado si está en pausa.</td></tr>
+                <tr><td><span class="led-dot led-white"></span>Destello blanco</td><td>Tarjeta de cuento leída.</td></tr>
+                <tr><td><span class="led-dot led-teal"></span>Una luz más por toque</td><td>Idea añadida con una tarjeta de parámetro.</td></tr>
+                <tr><td><span class="led-dot led-green"></span>Destello verde largo</td><td>Tarjeta Go: empieza a crear el cuento.</td></tr>
+                <tr><td><span class="led-dot led-cyan"></span>Luz que recorre la tira</td><td>El robot está pensando o generando.</td></tr>
+                <tr><td><span class="led-dot led-amber"></span>Ámbar unos segundos</td><td>Aviso: algo no se ha podido hacer.</td></tr>
+                <tr><td><span class="led-dot led-rainbow"></span>Arcoíris</td><td>Dibujo listo o botón de luces pulsado.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero-cta reveal" style="justify-content:center;margin-top:38px;">
+        <a href="manual.html" class="btn btn-primary">📖 Leer el manual de usuario completo</a>
       </div>
     </div>
   </section>
@@ -398,6 +481,12 @@
         <p>Descarga las guías para el profesorado y los materiales pedagógicos del proyecto.</p>
       </div>
       <div class="manual-grid">
+        <a class="manual-card reveal" href="manual.html">
+          <div class="ico">📖</div>
+          <h3>Manual de usuario del robot</h3>
+          <p>Manual completo y actualizado: tarjetas NFC, pulsadores físicos, significado de las luces, panel del profesorado y solución de problemas.</p>
+          <span class="dl dl-go">Ver manual en línea</span>
+        </a>
         <a class="manual-card reveal" href="manuales/guia-profesoras.pdf" target="_blank" rel="noopener">
           <div class="ico">👩‍🏫</div>
           <h3>Guía para el profesorado</h3>
@@ -426,7 +515,7 @@
       <div class="cta-band reveal">
         <h2>Innovación aplicada con impacto real</h2>
         <p>StoryBot demuestra el potencial de la Formación Profesional para generar soluciones que conectan tecnología y educación, con un elevado potencial de continuidad y replicabilidad.</p>
-        <a href="mailto:soporte@santiagoapostol.net" class="btn btn-primary">✉️ Contacta con el equipo</a>
+        <a href="mailto:jredrejo@santiagoapostol.net" class="btn btn-primary">✉️ Contacta con el equipo</a>
       </div>
     </div>
   </section>
@@ -446,6 +535,7 @@
             <li><a href="#objetivos">Objetivos</a></li>
             <li><a href="#centros">Centros participantes</a></li>
             <li><a href="#tecnologias">Tecnologías</a></li>
+            <li><a href="#uso">Cómo funciona</a></li>
             <li><a href="#fases">Fases de desarrollo</a></li>
           </ul>
         </div>
@@ -454,9 +544,10 @@
           <ul>
             <li><a href="#cuentos">Cuentos</a></li>
             <li><a href="#galeria">Galería</a></li>
+            <li><a href="manual.html">Manual de usuario</a></li>
             <li><a href="manuales/guia-profesoras.pdf" target="_blank" rel="noopener">Guía del profesorado</a></li>
             <li><a href="manuales/presentacion-storybot.pdf" target="_blank" rel="noopener">Presentación</a></li>
-            <li><a href="mailto:soporte@santiagoapostol.net">Contacto</a></li>
+            <li><a href="mailto:jredrejo@santiagoapostol.net">Contacto</a></li>
           </ul>
         </div>
       </div>
