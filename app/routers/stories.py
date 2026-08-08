@@ -352,3 +352,9 @@ async def delete_story(
     story_dir = Path("content/stories") / story_id
     if story_dir.exists():
         shutil.rmtree(story_dir)
+
+    # The GPIO cover button writes cover-preview.png / cover-print.png to
+    # content/generated/<story_id>/ for curated stories too. Nothing else ever
+    # cleans that up (sweep_generated and prune_generated both skip dirs
+    # without story.json), so remove it with the story.
+    story_manager.delete_generated(story_id)

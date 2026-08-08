@@ -254,6 +254,52 @@ class TestDeleteStory:
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
 
+    def test_delete_story_removes_generated_cover_dir(
+        self, client: TestClient, monkeypatch, tmp_path
+    ):
+        """Deleting a story also removes its generated cover directory.
+
+        The GPIO cover button writes cover-preview.png / cover-print.png to
+        content/generated/<story_id>/ for curated stories too, so deleting the
+        story must not leave that directory orphaned forever — nothing else
+        cleans it (the sweeper and prune both skip dirs without story.json).
+        """
+        generated_dir = tmp_path / "content" / "generated"
+        generated_dir.mkdir(parents=True)
+        monkeypatch.setattr(StoryManager, "GENERATED_DIR", generated_dir)
+
+        files = {"audio": ("audio.mp3", BytesIO(b"fake audio"), "audio/mpeg")}
+        data = {"title": "Test Story", "emoji": "📚", "led_color": "#FF5733"}
+        story_id = client.post("/api/stories", files=files, data=data).json()["id"]
+
+        cover_dir = generated_dir / story_id
+        cover_dir.mkdir()
+        (cover_dir / "cover-preview.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+        (cover_dir / "cover-print.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+        response = client.delete(f"/api/stories/{story_id}")
+
+        assert response.status_code == 204
+        assert (
+            not cover_dir.exists()
+        ), "content/generated/<story_id>/ must be removed with the story"
+
+    def test_delete_story_without_generated_dir_still_succeeds(
+        self, client: TestClient, monkeypatch, tmp_path
+    ):
+        """Most stories have no generated cover dir; deletion must not fail."""
+        generated_dir = tmp_path / "content" / "generated"
+        generated_dir.mkdir(parents=True)
+        monkeypatch.setattr(StoryManager, "GENERATED_DIR", generated_dir)
+
+        files = {"audio": ("audio.mp3", BytesIO(b"fake audio"), "audio/mpeg")}
+        data = {"title": "Test Story", "emoji": "📚", "led_color": "#FF5733"}
+        story_id = client.post("/api/stories", files=files, data=data).json()["id"]
+
+        response = client.delete(f"/api/stories/{story_id}")
+
+        assert response.status_code == 204
+
 
 class TestNFCAssignment:
     """Test NFC assignment endpoints."""
