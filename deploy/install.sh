@@ -545,6 +545,15 @@ chmod 0440 /etc/sudoers.d/storybot-poweroff
 visudo -c -f /etc/sudoers.d/storybot-poweroff
 echo -e "${GREEN}Sudoers entry for GPIO poweroff installed${NC}"
 
+# Step 6f2: Hardware power button -> immediate poweroff.
+# Separate from the GPIO button above: this is the carrier board's power key,
+# which GNOME grabs and answers with a Cancel / Power Off dialog and a 60s
+# countdown. See deploy/install-powerkey.sh.
+echo ""
+echo "Step 6f2: Configuring immediate poweroff for the hardware power button..."
+bash "$INSTALL_DIR/deploy/install-powerkey.sh"
+echo -e "${GREEN}Hardware power button configured${NC}"
+
 # Step 6g: Configure Avahi (mDNS) so devices on the TP-Link AP can reach
 # the device as storybot.local without knowing its IP address.
 echo ""

@@ -1,0 +1,16 @@
+[Unit]
+Description=StoryBot hardware power button (immediate poweroff, no GNOME dialog)
+Documentation=file:///usr/local/bin/storybot-powerkey.py
+# Reads /dev/input directly, so it needs nothing from the graphical session.
+After=systemd-udevd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/storybot-powerkey.py
+# The daemon exits when the device disappears (or after firing poweroff);
+# always bring it back so a press is never missed.
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

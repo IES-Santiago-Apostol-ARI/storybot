@@ -1,0 +1,5 @@
+# StoryBot: never show GNOME's interactive end-session dialog for the power key.
+# The stock 'interactive' value answers a press with a Cancel / Power Off dialog
+# and a 60 second countdown; storybot-powerkey.service handles the key instead.
+[org/gnome/settings-daemon/plugins/power]
+power-button-action='nothing'
