@@ -226,3 +226,12 @@ wifi.md
 # Regenerate with deploy/generate-patched-capsule.sh from the archived
 # artifacts in deploy/firmware/r<release>/ (see that dir's README).
 deploy/firmware/**/*.Cap
+
+# Local agent tooling config — untracked on purpose, varies per machine.
+.mcp.json
+opencode.jsonc
+CLAUDE.md
+AGENTS.md
+
+# graphify build output (14 MB, regenerate with /graphify).
+graphify-out/
