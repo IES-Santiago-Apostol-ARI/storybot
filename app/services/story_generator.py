@@ -23,6 +23,81 @@ SYSTEM_PREAMBLE = (
 )
 
 
+def _partial_tag_len(text: str, tag: str) -> int:
+    """Length of the longest proper prefix of ``tag`` that ``text`` ends with.
+
+    Lets the filter hold back a trailing ``"<th"`` until the next delta
+    resolves it into either ``<think>`` or ordinary text.
+    """
+    for size in range(min(len(tag) - 1, len(text)), 0, -1):
+        if text.endswith(tag[:size]):
+            return size
+    return 0
+
+
+class _ThinkFilter:
+    """Strips ``<think>…</think>`` spans from a token stream.
+
+    Qwen3.5 emits an (often empty) think block in ``content`` even with
+    ``--reasoning off --reasoning-format none``, so the tags reach the story
+    text and get narrated by Piper. Tags arrive split across deltas, so this
+    keeps a small buffer instead of filtering each delta in isolation.
+
+    One instance per generation — never shared between concurrent streams.
+    """
+
+    _OPEN = "<think>"
+    _CLOSE = "</think>"
+
+    def __init__(self) -> None:
+        self._buf = ""
+        self._in_think = False
+        self._emitted = False
+
+    def feed(self, chunk: str) -> str:
+        self._buf += chunk
+        out: list[str] = []
+        while self._buf:
+            if self._in_think:
+                idx = self._buf.find(self._CLOSE)
+                if idx == -1:
+                    keep = _partial_tag_len(self._buf, self._CLOSE)
+                    self._buf = self._buf[len(self._buf) - keep :] if keep else ""
+                    break
+                self._buf = self._buf[idx + len(self._CLOSE) :]
+                self._in_think = False
+                continue
+
+            idx = self._buf.find(self._OPEN)
+            if idx == -1:
+                keep = _partial_tag_len(self._buf, self._OPEN)
+                emit = self._buf[: len(self._buf) - keep] if keep else self._buf
+                self._buf = self._buf[len(emit) :]
+                out.append(emit)
+                break
+
+            out.append(self._buf[:idx])
+            self._buf = self._buf[idx + len(self._OPEN) :]
+            self._in_think = True
+
+        return self._clean("".join(out))
+
+    def flush(self) -> str:
+        """Emit any held-back partial tag that never completed."""
+        if self._in_think:
+            return ""
+        rest, self._buf = self._buf, ""
+        return self._clean(rest)
+
+    def _clean(self, text: str) -> str:
+        if not self._emitted:
+            # Drop the blank lines the closing tag leaves before the story.
+            text = text.lstrip()
+        if text:
+            self._emitted = True
+        return text
+
+
 class StoryGenerator:
     def __init__(
         self,
@@ -77,6 +152,7 @@ class StoryGenerator:
         # stream is open (token gaps on the Jetson can be long).
         timeout = httpx.Timeout(self.timeout, connect=5.0)
         finish_reason: str | None = None
+        think = _ThinkFilter()
         try:
             async with httpx.AsyncClient(
                 timeout=timeout, transport=self._transport
@@ -108,13 +184,16 @@ class StoryGenerator:
                         if content is None:
                             continue
 
-                        # No <think> filtering here: reasoning is disabled
-                        # server-side (deploy/llama-server.service runs
-                        # --reasoning off --reasoning-format none), and a
-                        # per-delta filter can't catch tags split across
-                        # chunks anyway.
-                        if content:
-                            yield {"text": content, "done": False}
+                        # --reasoning off is not honoured by Qwen3.5, which
+                        # still emits <think></think> inside `content`; strip
+                        # it here so the tags never reach the story or Piper.
+                        visible = think.feed(content)
+                        if visible:
+                            yield {"text": visible, "done": False}
+
+                    tail = think.flush()
+                    if tail:
+                        yield {"text": tail, "done": False}
         except httpx.HTTPError:
             yield {"error": "Failed to connect to llama-server", "done": True}
             return

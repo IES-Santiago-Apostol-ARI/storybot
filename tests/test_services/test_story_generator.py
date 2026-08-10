@@ -16,7 +16,10 @@ class TestBuildUserMessage:
             {"category": "objeto", "value": "llave mágica"},
         ]
         msg = sg._build_user_message(params)
-        assert msg == "Cuenta una historia con estos elementos: personaje=dragón amable, objeto=llave mágica."
+        assert (
+            msg
+            == "Cuenta una historia con estos elementos: personaje=dragón amable, objeto=llave mágica."
+        )
 
     def test_single_param(self):
         sg = StoryGenerator()
@@ -103,6 +106,52 @@ class TestGenerateStory:
         assert text_events[0]["text"] == "Story text"
 
     @pytest.mark.asyncio
+    async def test_strips_inline_think_block(self):
+        """Qwen3.5 emits <think></think> in `content` even with
+        --reasoning off, so the tags reach the story text and Piper."""
+        body = (
+            'data: {"choices":[{"delta":{"content":"<think>\\n\\n</think>\\n\\n"}}]}\n'
+            'data: {"choices":[{"delta":{"content":"El conejo salta."}}]}\n'
+            "data: [DONE]\n"
+        )
+        sg = StoryGenerator(transport=self._transport(body))
+        events = await self._collect(sg, [{"category": "personaje", "value": "conejo"}])
+
+        text = "".join(e["text"] for e in events if e.get("text"))
+        assert text == "El conejo salta."
+
+    @pytest.mark.asyncio
+    async def test_strips_think_block_split_across_chunks(self):
+        """The tags arrive token-by-token, so the filter must survive tags
+        split across deltas — the case the old comment called impossible."""
+        body = (
+            'data: {"choices":[{"delta":{"content":"<th"}}]}\n'
+            'data: {"choices":[{"delta":{"content":"ink>razonando"}}]}\n'
+            'data: {"choices":[{"delta":{"content":" mas</thi"}}]}\n'
+            'data: {"choices":[{"delta":{"content":"nk>Habia una vez"}}]}\n'
+            "data: [DONE]\n"
+        )
+        sg = StoryGenerator(transport=self._transport(body))
+        events = await self._collect(sg, [{"category": "lugar", "value": "bosque"}])
+
+        text = "".join(e["text"] for e in events if e.get("text"))
+        assert text == "Habia una vez"
+
+    @pytest.mark.asyncio
+    async def test_keeps_text_with_stray_angle_bracket(self):
+        """A lone '<' must not be swallowed by the partial-tag buffer."""
+        body = (
+            'data: {"choices":[{"delta":{"content":"5 < 7"}}]}\n'
+            'data: {"choices":[{"delta":{"content":" y fin"}}]}\n'
+            "data: [DONE]\n"
+        )
+        sg = StoryGenerator(transport=self._transport(body))
+        events = await self._collect(sg, [{"category": "objeto", "value": "reloj"}])
+
+        text = "".join(e["text"] for e in events if e.get("text"))
+        assert text == "5 < 7 y fin"
+
+    @pytest.mark.asyncio
     async def test_connection_error(self):
         def handler(request: httpx.Request) -> httpx.Response:
             raise httpx.ConnectError("Connection refused")
@@ -164,7 +213,9 @@ class TestGenerateStory:
             return httpx.Response(200, content=b"data: [DONE]\n")
 
         sg = StoryGenerator(
-            temperature=0.7, top_p=0.9, max_tokens=500,
+            temperature=0.7,
+            top_p=0.9,
+            max_tokens=500,
             transport=httpx.MockTransport(handler),
         )
         await self._collect(sg, [{"category": "personaje", "value": "dragón"}])
