@@ -41,6 +41,13 @@ SCAN_WINDOW_S = 8.0
 A2DP_SINK_UUID = "0000110b-0000-1000-8000-00805f9b34fb"
 
 
+# bt_monitor retries connect() every ~10s while a speaker is off/out of range,
+# so logging every failure floods the journal (2026-08-09: the flood buried a
+# llama-server crash loop). Log the first failure, then only every Nth repeat.
+# At the 10s retry cadence 60 ≈ one line every 10 minutes.
+CONNECT_FAIL_LOG_EVERY = 60
+
+
 def _log_event(event: str, **kwargs: object) -> None:
     """Structured JSON log to stderr (same pattern as wifi_manager)."""
     print(
@@ -209,6 +216,9 @@ class RealBtManager(BtManager):
         # connect/pair (sink="bt") and reset on disconnect/forget (sink="wired").
         self._connected_mac: str | None = None
         self._current_sink = "wired"
+        # Consecutive-identical-failure tracking for connect() log throttling.
+        self._connect_fail_key: tuple[str, str] | None = None
+        self._connect_fail_count = 0
 
     async def _get_managed_objects(self) -> dict:
         """Run the blocking ~8-10s BlueZ discovery window, return managed objs.
@@ -352,10 +362,32 @@ class RealBtManager(BtManager):
             await bt_audio.route_to_bt(mac)
             self._connected_mac = mac
             self._current_sink = "bt"
+            self._connect_fail_key = None
+            self._connect_fail_count = 0
             return {"ok": True}
         except Exception as exc:
-            _log_event("bt_connect_failed", reason=type(exc).__name__)
-            return {"ok": False, "error": type(exc).__name__}
+            reason = type(exc).__name__
+            self._log_connect_failure(mac, reason)
+            return {"ok": False, "error": reason}
+
+    def _log_connect_failure(self, mac: str, reason: str) -> None:
+        """Throttle repeated identical connect() failures (see
+        CONNECT_FAIL_LOG_EVERY). A new mac/reason always logs immediately so a
+        genuine change of symptom is never hidden."""
+        key = (mac, reason)
+        if key != self._connect_fail_key:
+            self._connect_fail_key = key
+            self._connect_fail_count = 1
+            _log_event("bt_connect_failed", reason=reason)
+            return
+
+        self._connect_fail_count += 1
+        if self._connect_fail_count % CONNECT_FAIL_LOG_EVERY == 0:
+            _log_event(
+                "bt_connect_failed",
+                reason=reason,
+                repeated=self._connect_fail_count,
+            )
 
     async def _read_connected(self, bus, mac: str) -> bool:
         """Read the live BlueZ ``Device1.Connected`` property for ``mac``."""

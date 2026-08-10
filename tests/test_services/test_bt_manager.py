@@ -8,6 +8,8 @@ The Real scan is tested by patching ONE seam (_get_managed_objects) per
 RESEARCH Pitfall 6 — never the full dbus chain.
 """
 
+import json
+
 import pytest
 
 from app.services.bt_manager import (
@@ -668,6 +670,76 @@ class TestRealBtManagerMemory:
         last = store2.get_last_speaker()
         assert last["name"] == "New Speaker"
         assert last["mac"] == "11:22:33:44:55:66"
+
+
+class TestRealBtManagerConnectFailureLogging:
+    """A speaker that is off/out of range makes bt_monitor retry connect()
+    every 10s forever. Logging every failure floods the journal (2026-08-09:
+    the flood buried a llama-server crash loop). Retry behaviour must NOT
+    change — only the log volume."""
+
+    class _BoomError(Exception):
+        pass
+
+    def _raising_bus(self, monkeypatch, exc):
+        class _Bus:
+            def __init__(self, bus_type=None):
+                pass
+
+            async def connect(self):
+                raise exc
+
+        class _BusType:
+            SYSTEM = "system"
+
+        monkeypatch.setattr("app.services.bt_manager.MessageBus", _Bus)
+        monkeypatch.setattr("app.services.bt_manager.BusType", _BusType)
+
+    def _failure_lines(self, capsys):
+        out = capsys.readouterr().err
+        return [
+            json.loads(ln)
+            for ln in out.splitlines()
+            if ln.strip().startswith("{") and "bt_connect_failed" in ln
+        ]
+
+    async def test_repeated_identical_failures_log_once(self, monkeypatch, capsys):
+        self._raising_bus(monkeypatch, self._BoomError("down"))
+        mgr = RealBtManager()
+
+        for _ in range(5):
+            res = await mgr.connect("AA:BB:CC:DD:EE:FF")
+            assert res["ok"] is False  # retry contract unchanged
+
+        assert len(self._failure_lines(capsys)) == 1
+
+    async def test_periodic_summary_while_still_failing(self, monkeypatch, capsys):
+        monkeypatch.setattr("app.services.bt_manager.CONNECT_FAIL_LOG_EVERY", 3)
+        self._raising_bus(monkeypatch, self._BoomError("down"))
+        mgr = RealBtManager()
+
+        for _ in range(6):
+            await mgr.connect("AA:BB:CC:DD:EE:FF")
+
+        lines = self._failure_lines(capsys)
+        # 1st, 3rd and 6th — the periodic ones carry the suppressed count.
+        assert len(lines) == 3
+        assert lines[-1]["repeated"] == 6
+
+    async def test_new_reason_logs_immediately(self, monkeypatch, capsys):
+        self._raising_bus(monkeypatch, self._BoomError("down"))
+        mgr = RealBtManager()
+        await mgr.connect("AA:BB:CC:DD:EE:FF")
+        await mgr.connect("AA:BB:CC:DD:EE:FF")
+
+        class _OtherError(Exception):
+            pass
+
+        self._raising_bus(monkeypatch, _OtherError("different"))
+        await mgr.connect("AA:BB:CC:DD:EE:FF")
+
+        reasons = [ln["reason"] for ln in self._failure_lines(capsys)]
+        assert reasons == ["_BoomError", "_OtherError"]
 
 
 # ---------------------------------------------------------------------------
