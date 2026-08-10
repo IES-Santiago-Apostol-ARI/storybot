@@ -136,7 +136,7 @@ Para obtener el máximo rendimiento:
 
 ## Modelo de IA
 
-- **LLM**: Qwen 2.5 3B Instruct via Ollama (~2GB RAM)
+- **LLM**: Qwen3.5 4B Instruct (Q4_K_M) via llama.cpp / `llama-server` (~3.4GB RAM)
 - **TTS**: Piper TTS con voces en español (~400MB RAM)
 - **Imágenes**: Stable Diffusion 1.5 + LCM LoRA (~2.8GB RAM) — *planificado*
 
