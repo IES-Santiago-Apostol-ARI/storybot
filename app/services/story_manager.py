@@ -443,16 +443,14 @@ class StoryManager:
         count is already at or below the limit.
         """
         stories = self.list_generated()
+        remaining = len(stories)
         # Sort by created_at ascending (oldest first); entries without a
         # created_at timestamp sort to the front so they are deleted first.
-        sorted_stories = sorted(
-            stories,
-            key=lambda s: s.get("created_at") or "",
-        )
-        for story in sorted_stories:
-            if len(self.list_generated()) <= max_count:
+        for story in sorted(stories, key=lambda s: s.get("created_at") or ""):
+            if remaining <= max_count:
                 break
-            self.delete_generated(story["id"])
+            if self.delete_generated(story["id"]):
+                remaining -= 1
 
     def delete_generated(self, story_id: str) -> bool:
         """Recursively remove content/generated/<story_id>/.

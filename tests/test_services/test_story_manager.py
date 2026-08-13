@@ -536,6 +536,92 @@ class TestPruneGenerated:
 
         assert (gen_dir / "no-json").exists()
 
+    def test_prune_generated_calls_list_generated_exactly_once(
+        self, tmp_path, monkeypatch
+    ):
+        """prune_generated must call list_generated exactly once, not once per
+        iteration. With 8 stories pruned to 4, the old code called it 5+ times."""
+        gen_dir = self._make_generated_dir(
+            tmp_path,
+            [
+                ("s0", "2026-01-01T00:00:00+00:00"),
+                ("s1", "2026-02-01T00:00:00+00:00"),
+                ("s2", "2026-03-01T00:00:00+00:00"),
+                ("s3", "2026-04-01T00:00:00+00:00"),
+                ("s4", "2026-05-01T00:00:00+00:00"),
+                ("s5", "2026-06-01T00:00:00+00:00"),
+                ("s6", "2026-07-01T00:00:00+00:00"),
+                ("s7", "2026-08-01T00:00:00+00:00"),
+            ],
+        )
+
+        manager = StoryManager()
+        manager.CONTENT_DIR = tmp_path / "content" / "stories"
+        manager.INDEX_FILE = tmp_path / "content" / "stories" / "stories.json"
+        manager.INDEX_FILE.parent.mkdir(parents=True, exist_ok=True)
+        manager.INDEX_FILE.write_text(
+            json.dumps({"version": 1, "stories": {}, "nfc_to_story": {}})
+        )
+        manager.GENERATED_DIR = gen_dir
+
+        call_count = {"n": 0}
+        original = manager.list_generated
+
+        def counting_list():
+            call_count["n"] += 1
+            return original()
+
+        monkeypatch.setattr(manager, "list_generated", counting_list)
+
+        manager.prune_generated(4)
+
+        assert call_count["n"] == 1
+        remaining = list(gen_dir.iterdir())
+        assert len(remaining) == 4
+        remaining_ids = {d.name for d in remaining}
+        assert remaining_ids == {"s4", "s5", "s6", "s7"}
+
+    def test_prune_generated_continues_when_delete_fails(self, tmp_path, monkeypatch):
+        """If delete_generated returns False for one story, prune continues with
+        the next instead of stopping early."""
+        gen_dir = self._make_generated_dir(
+            tmp_path,
+            [
+                ("s0", "2026-01-01T00:00:00+00:00"),
+                ("s1", "2026-02-01T00:00:00+00:00"),
+                ("s2", "2026-03-01T00:00:00+00:00"),
+                ("s3", "2026-04-01T00:00:00+00:00"),
+                ("s4", "2026-05-01T00:00:00+00:00"),
+            ],
+        )
+
+        manager = StoryManager()
+        manager.CONTENT_DIR = tmp_path / "content" / "stories"
+        manager.INDEX_FILE = tmp_path / "content" / "stories" / "stories.json"
+        manager.INDEX_FILE.parent.mkdir(parents=True, exist_ok=True)
+        manager.INDEX_FILE.write_text(
+            json.dumps({"version": 1, "stories": {}, "nfc_to_story": {}})
+        )
+        manager.GENERATED_DIR = gen_dir
+
+        original_delete = manager.delete_generated
+        fail_once = {"done": False}
+
+        def flaky_delete(story_id):
+            if story_id == "s1" and not fail_once["done"]:
+                fail_once["done"] = True
+                return False
+            return original_delete(story_id)
+
+        monkeypatch.setattr(manager, "delete_generated", flaky_delete)
+
+        manager.prune_generated(2)
+
+        remaining = list(gen_dir.iterdir())
+        assert len(remaining) == 2
+        remaining_ids = {d.name for d in remaining}
+        assert remaining_ids == {"s1", "s4"}
+
 
 class TestCreatedAtTimestamp:
     """IMPROVEMENTS.md 2.5: standardize on datetime.now(timezone.utc)."""
