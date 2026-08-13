@@ -6,11 +6,10 @@ import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.config import get_settings
 from app.services.atomic_io import write_json_atomic
@@ -36,8 +35,14 @@ def _gen_progress_rgb() -> tuple[int, int, int]:
     return hex_to_rgb(get_settings().led_accum_color)
 
 
+class StoryParameter(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    category: str = Field(..., min_length=1)
+    value: str = Field(..., min_length=1)
+
+
 class StoryGenerateRequest(BaseModel):
-    parameters: list[dict[str, Any]]
+    parameters: list[StoryParameter]
 
 
 def _save_generated_story(
@@ -76,6 +81,8 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
         )
     if not request.parameters:
         return JSONResponse(status_code=400, content={"error": "parameters required"})
+
+    params = [p.model_dump() for p in request.parameters]
 
     story_generator = fastapi_request.app.state.story_generator
     tts_pipeline = getattr(fastapi_request.app.state, "tts_pipeline", None)
@@ -174,7 +181,7 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
         if animator is not None:
             animator.set_mode(Mode.THINKING)
 
-        async for event in story_generator.generate_story(request.parameters):
+        async for event in story_generator.generate_story(params):
             data = json.dumps(event, ensure_ascii=False)
             yield f"data: {data}\n\n"
             if event.get("text"):
@@ -236,14 +243,14 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
             _save_generated_story(
                 story_id,
                 "".join(collected_text),
-                request.parameters,
+                params,
                 GENERATED_DIR,
                 segments=segments,
             )
 
         # Cover generation (after story save, audio fully flushed)
         if collected_text and orchestrator and story_manager:
-            positive, negative = build_cover_prompt(request.parameters)
+            positive, negative = build_cover_prompt(params)
             seed = story_seed(story_id)
 
             try:

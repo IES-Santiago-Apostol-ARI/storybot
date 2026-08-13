@@ -96,6 +96,142 @@ def client(mock_story_generator, mock_tts_pipeline):
     return TestClient(app)
 
 
+class TestGenerateStoryParamValidation:
+    """IMPROVE.md Task 6: parameter validation via Pydantic."""
+
+    def test_empty_dict_in_params_returns_422(self, client):
+        """{'parameters': [{}]} must be rejected with 422 before streaming."""
+        resp = client.post("/api/generate/story", json={"parameters": [{}]})
+        assert resp.status_code == 422
+
+    def test_missing_category_returns_422(self, client):
+        """Parameter without 'category' must be rejected with 422."""
+        resp = client.post(
+            "/api/generate/story",
+            json={"parameters": [{"value": "dragón"}]},
+        )
+        assert resp.status_code == 422
+
+    def test_missing_value_returns_422(self, client):
+        """Parameter without 'value' must be rejected with 422."""
+        resp = client.post(
+            "/api/generate/story",
+            json={"parameters": [{"category": "personaje"}]},
+        )
+        assert resp.status_code == 422
+
+    def test_empty_string_category_returns_422(self, client):
+        """Parameter with empty category must be rejected with 422."""
+        resp = client.post(
+            "/api/generate/story",
+            json={"parameters": [{"category": "", "value": "dragón"}]},
+        )
+        assert resp.status_code == 422
+
+    def test_empty_string_value_returns_422(self, client):
+        """Parameter with empty value must be rejected with 422."""
+        resp = client.post(
+            "/api/generate/story",
+            json={"parameters": [{"category": "personaje", "value": ""}]},
+        )
+        assert resp.status_code == 422
+
+    def test_empty_list_still_returns_400(self, client):
+        """{'parameters': []} must return the existing 400, not 422."""
+        resp = client.post("/api/generate/story", json={"parameters": []})
+        assert resp.status_code == 400
+
+    def test_extra_keys_survive_to_story_json(
+        self, client, mock_story_generator, tmp_path
+    ):
+        """Extra keys (emoji, label, etc.) survive to story.json."""
+        mock_story_generator.generate_story.return_value = _async_gen(
+            [{"text": "Hola.", "done": False}, {"text": None, "done": True}]
+        )
+
+        generated_dir = tmp_path / "content" / "generated"
+        generated_dir.mkdir(parents=True)
+
+        from app.routers import generate as gen_module
+
+        original_dir = getattr(gen_module, "GENERATED_DIR", None)
+        gen_module.GENERATED_DIR = generated_dir
+
+        try:
+            resp = client.post(
+                "/api/generate/story",
+                json={
+                    "parameters": [
+                        {
+                            "category": "personaje",
+                            "value": "dragón",
+                            "emoji": "🐉",
+                            "label": "Personaje",
+                        }
+                    ]
+                },
+            )
+        finally:
+            if original_dir is not None:
+                gen_module.GENERATED_DIR = original_dir
+            else:
+                delattr(gen_module, "GENERATED_DIR")
+
+        assert resp.status_code == 200
+
+        saved = list(generated_dir.glob("*/story.json"))
+        assert len(saved) == 1
+
+        data = json.loads(saved[0].read_text())
+        assert len(data["parameters"]) == 1
+        param = data["parameters"][0]
+        assert param["category"] == "personaje"
+        assert param["value"] == "dragón"
+        assert param["emoji"] == "🐉"
+        assert param["label"] == "Personaje"
+
+    def test_two_params_produce_same_prompt_as_before(
+        self, client, mock_story_generator
+    ):
+        """Two valid parameters must produce the same prompt shape as before."""
+        mock_story_generator.generate_story.return_value = _async_gen(
+            [{"text": "Hola.", "done": False}, {"text": None, "done": True}]
+        )
+
+        resp = client.post(
+            "/api/generate/story",
+            json={
+                "parameters": [
+                    {"category": "personaje", "value": "gato"},
+                    {"category": "lugar", "value": "jardín"},
+                ]
+            },
+        )
+        assert resp.status_code == 200
+
+        # Verify the generator was called with dict params in order.
+        call_args = mock_story_generator.generate_story.call_args
+        params = call_args[0][0]
+        assert isinstance(params, list)
+        assert len(params) == 2
+        assert params[0]["category"] == "personaje"
+        assert params[0]["value"] == "gato"
+        assert params[1]["category"] == "lugar"
+        assert params[1]["value"] == "jardín"
+
+        # Verify build_cover_prompt receives equivalent params.
+        from app.services.cover_prompt_builder import build
+
+        positive_after, _ = build(params)
+
+        expected_params = [
+            {"category": "personaje", "value": "gato"},
+            {"category": "lugar", "value": "jardín"},
+        ]
+        positive_before, _ = build(expected_params)
+        assert positive_after == positive_before
+
+
 class TestGenerateStory:
     def test_generate_returns_sse(self, client, mock_story_generator):
         async def _fake_async_gen(events):
