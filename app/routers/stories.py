@@ -183,6 +183,14 @@ def create_story(
             detail="Audio file name is required",
         )
 
+    # Validate cover content type before creating anything on disk, so a
+    # rejected cover cannot leave an orphaned story directory behind.
+    if cover and cover.content_type not in VALID_COVER_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid cover type. Must be one of: {VALID_COVER_TYPES}",
+        )
+
     # Generate UUID for story
     story_id = str(uuid.uuid4())
 
@@ -190,33 +198,33 @@ def create_story(
     story_dir = Path("content/stories") / story_id
     story_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save audio file (extension from content-type, not filename)
-    audio_ext = _EXT_BY_TYPE[audio.content_type]
-    audio_path = story_dir / f"audio{audio_ext}"
-    _save_upload(audio, audio_path, settings.max_audio_upload_mb * 1024 * 1024)
+    try:
+        # Save audio file (extension from content-type, not filename)
+        audio_ext = _EXT_BY_TYPE[audio.content_type]
+        audio_path = story_dir / f"audio{audio_ext}"
+        _save_upload(audio, audio_path, settings.max_audio_upload_mb * 1024 * 1024)
 
-    # Save cover image if provided
-    cover_filename = None
-    if cover:
-        if cover.content_type not in VALID_COVER_TYPES:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid cover type. Must be one of: {VALID_COVER_TYPES}",
-            )
-        cover_ext = _EXT_BY_TYPE[cover.content_type]
-        cover_path = story_dir / f"cover{cover_ext}"
-        _save_upload(cover, cover_path, settings.max_cover_upload_mb * 1024 * 1024)
-        cover_filename = f"cover{cover_ext}"
+        # Save cover image if provided
+        cover_filename = None
+        if cover:
+            cover_ext = _EXT_BY_TYPE[cover.content_type]
+            cover_path = story_dir / f"cover{cover_ext}"
+            _save_upload(cover, cover_path, settings.max_cover_upload_mb * 1024 * 1024)
+            cover_filename = f"cover{cover_ext}"
 
-    # Create story in manager
-    story = story_manager.create_story(
-        id=story_id,
-        title=title,
-        emoji=emoji,
-        led_color=led_color,
-        audio_file=f"audio{audio_ext}",
-        cover_image=cover_filename,
-    )
+        # Create story in manager
+        story = story_manager.create_story(
+            id=story_id,
+            title=title,
+            emoji=emoji,
+            led_color=led_color,
+            audio_file=f"audio{audio_ext}",
+            cover_image=cover_filename,
+        )
+    except HTTPException:
+        # e.g. a 413 from _save_upload: drop the half-populated directory.
+        shutil.rmtree(story_dir, ignore_errors=True)
+        raise
 
     background_tasks.add_task(
         _transcribe_story_audio, story_manager, story_id, audio_path
@@ -267,57 +275,70 @@ def update_story(
 
     story_dir = Path("content/stories") / story_id
 
-    # Handle audio file replacement
+    # Validate every content-type BEFORE writing or deleting anything: a
+    # rejection partway through used to delete the old audio and then abort
+    # without updating the index, leaving the story pointing at a file that
+    # no longer existed.
     audio_file = existing_story.audio_file
-    if audio:
-        # Validate audio content type
-        if audio.content_type not in VALID_AUDIO_TYPES:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid audio type. Must be one of: {VALID_AUDIO_TYPES}",
-            )
+    if audio and audio.content_type not in VALID_AUDIO_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid audio type. Must be one of: {VALID_AUDIO_TYPES}",
+        )
 
-        # Save new audio file (extension from content-type)
+    cover_image = existing_story.cover_image
+    if cover and cover.content_type not in VALID_COVER_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid cover type. Must be one of: {VALID_COVER_TYPES}",
+        )
+
+    # Write the new files. Still no deletions — a 413 here must leave the
+    # story consistent with what the index already records.
+    new_audio_path: Path | None = None
+    new_cover_path: Path | None = None
+
+    if audio:
         audio_ext = _EXT_BY_TYPE[audio.content_type]
         new_audio_path = story_dir / f"audio{audio_ext}"
         _save_upload(audio, new_audio_path, settings.max_audio_upload_mb * 1024 * 1024)
         audio_file = f"audio{audio_ext}"
-
-        # Delete old audio file if extension changed
-        old_audio_path = story_dir / existing_story.audio_file
-        if old_audio_path.exists() and old_audio_path != new_audio_path:
-            old_audio_path.unlink()
 
         # Re-transcribe the replaced audio
         background_tasks.add_task(
             _transcribe_story_audio, story_manager, story_id, new_audio_path
         )
 
-    # Handle cover image replacement/removal
-    cover_image = existing_story.cover_image
     if cover:
-        if cover.content_type not in VALID_COVER_TYPES:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid cover type. Must be one of: {VALID_COVER_TYPES}",
-            )
         cover_ext = _EXT_BY_TYPE[cover.content_type]
         new_cover_path = story_dir / f"cover{cover_ext}"
         _save_upload(cover, new_cover_path, settings.max_cover_upload_mb * 1024 * 1024)
         cover_image = f"cover{cover_ext}"
 
-        # Delete old cover file if extension changed
+    # Every upload succeeded — only now retire the superseded files.
+    files_to_delete: list[Path] = []
+
+    if new_audio_path is not None:
+        old_audio_path = story_dir / existing_story.audio_file
+        if old_audio_path.exists() and old_audio_path != new_audio_path:
+            files_to_delete.append(old_audio_path)
+
+    # A supplied cover wins over remove_cover (mirrors the original if/elif),
+    # so the two can never queue the same path for deletion twice.
+    if new_cover_path is not None:
         if existing_story.cover_image:
             old_cover_path = story_dir / existing_story.cover_image
             if old_cover_path.exists() and old_cover_path != new_cover_path:
-                old_cover_path.unlink()
+                files_to_delete.append(old_cover_path)
     elif remove_cover:
-        # Delete cover file if exists
         if existing_story.cover_image:
             old_cover_path = story_dir / existing_story.cover_image
             if old_cover_path.exists():
-                old_cover_path.unlink()
+                files_to_delete.append(old_cover_path)
         cover_image = None
+
+    for path in files_to_delete:
+        path.unlink(missing_ok=True)
 
     # Update story in manager
     # Pass remove_cover flag to manager

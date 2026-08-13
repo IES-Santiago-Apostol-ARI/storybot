@@ -495,3 +495,43 @@ class TestTimeout:
             result = await RealWifiManager().scan()
 
         assert result == []
+
+    @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
+    @patch("app.services.wifi_manager._log_event")
+    async def test_timeout_log_redacts_password(self, mock_log, mock_exec):
+        """A connect() timeout must NOT log the password in clear text."""
+        proc = self._hanging_proc()
+        mock_exec.return_value = proc
+
+        await _run_nmcli(
+            "device",
+            "wifi",
+            "connect",
+            "HomeNet",
+            "password",
+            "SuperSecret123",
+            "ifname",
+            "wlan0",
+            timeout_s=0.01,
+        )
+
+        timeout_calls = [
+            c for c in mock_log.call_args_list if c[0] and c[0][0] == "nmcli_timeout"
+        ]
+        assert len(timeout_calls) == 1
+        logged_args = timeout_calls[0][1]["args"]
+        assert "SuperSecret123" not in logged_args
+        assert "HomeNet" in logged_args
+        assert "wlan0" in logged_args
+        assert logged_args[4] == "password"
+        assert logged_args[5] == "***"
+
+    @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
+    async def test_timeout_reaps_zombie(self, mock_exec):
+        """After kill(), _run_nmcli must await proc.wait() to reap the zombie."""
+        proc = self._hanging_proc()
+        mock_exec.return_value = proc
+
+        await _run_nmcli("device", "wifi", timeout_s=0.01)
+
+        proc.wait.assert_called_once()

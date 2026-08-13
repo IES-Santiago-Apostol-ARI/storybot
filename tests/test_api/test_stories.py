@@ -756,6 +756,46 @@ class TestUploadHardening:
         assert response.status_code == 400
         assert "cover" in response.json()["detail"].lower()
 
+    def test_create_story_invalid_cover_leaves_no_orphan_dir(
+        self, client: TestClient, temp_story_manager
+    ):
+        """POST with invalid cover -> 400, no orphaned story directory."""
+        story_manager, stories_dir = temp_story_manager
+
+        files = {
+            "audio": ("audio.mp3", BytesIO(b"fake audio"), "audio/mpeg"),
+            "cover": ("cover.html", BytesIO(b"<html>"), "text/html"),
+        }
+        data = {"title": "Test", "emoji": "📚", "led_color": "#FF5733"}
+
+        response = client.post("/api/stories", files=files, data=data)
+        assert response.status_code == 400
+
+        # No story directories should exist
+        story_dirs = list(stories_dir.glob("*"))
+        non_index = [d for d in story_dirs if d.name != "stories.json"]
+        assert len(non_index) == 0, "Orphaned story directory left behind"
+
+    def test_create_story_cover_too_large_leaves_no_orphan_dir(
+        self, client: TestClient, temp_story_manager
+    ):
+        """POST with oversized cover -> 413, no orphaned story directory."""
+        story_manager, stories_dir = temp_story_manager
+
+        large_cover = b"x" * (10 * 1024 * 1024)
+        files = {
+            "audio": ("audio.mp3", BytesIO(b"fake audio"), "audio/mpeg"),
+            "cover": ("cover.jpg", BytesIO(large_cover), "image/jpeg"),
+        }
+        data = {"title": "Test", "emoji": "📚", "led_color": "#FF5733"}
+
+        response = client.post("/api/stories", files=files, data=data)
+        assert response.status_code == 413
+
+        story_dirs = list(stories_dir.glob("*"))
+        non_index = [d for d in story_dirs if d.name != "stories.json"]
+        assert len(non_index) == 0, "Orphaned story directory left behind"
+
     def test_upload_without_filename_returns_client_error_not_500(
         self, client: TestClient
     ):
@@ -819,6 +859,68 @@ class TestUploadHardening:
 
         assert response.status_code == 400
 
+    def test_update_story_invalid_cover_keeps_old_audio(
+        self, client: TestClient, temp_story_manager
+    ):
+        """PUT with audio/wav + invalid cover -> 400, old audio still exists.
+
+        Regression: cover validation after deleting old audio left the story
+        index pointing to a file that no longer existed on disk.
+        """
+        story_manager, stories_dir = temp_story_manager
+
+        # Create story with audio/mpeg -> audio.mp3
+        files = {"audio": ("audio.mp3", BytesIO(b"fake audio"), "audio/mpeg")}
+        data = {"title": "Test", "emoji": "📚", "led_color": "#FF5733"}
+        story_id = client.post("/api/stories", files=files, data=data).json()["id"]
+
+        # PUT with new audio/wav + invalid cover type
+        new_files = {
+            "audio": ("audio.wav", BytesIO(b"new audio"), "audio/wav"),
+            "cover": ("cover.html", BytesIO(b"<html>"), "text/html"),
+        }
+        update_data = {"title": "Test", "emoji": "📚", "led_color": "#FF5733"}
+
+        response = client.put(
+            f"/api/stories/{story_id}", files=new_files, data=update_data
+        )
+        assert response.status_code == 400
+
+        # The index must still point to audio.mp3, and that file must exist
+        got = client.get(f"/api/stories/{story_id}")
+        assert got.status_code == 200
+        audio_file = got.json()["audio_file"]
+        assert audio_file == "audio.mp3"
+        assert (stories_dir / story_id / audio_file).exists()
+
+    def test_update_story_cover_too_large_keeps_old_audio(
+        self, client: TestClient, temp_story_manager
+    ):
+        """PUT with audio/wav + oversized cover -> 413, old audio still exists."""
+        story_manager, stories_dir = temp_story_manager
+
+        files = {"audio": ("audio.mp3", BytesIO(b"fake audio"), "audio/mpeg")}
+        data = {"title": "Test", "emoji": "📚", "led_color": "#FF5733"}
+        story_id = client.post("/api/stories", files=files, data=data).json()["id"]
+
+        large_cover = b"x" * (10 * 1024 * 1024)
+        new_files = {
+            "audio": ("audio.wav", BytesIO(b"new audio"), "audio/wav"),
+            "cover": ("cover.jpg", BytesIO(large_cover), "image/jpeg"),
+        }
+        update_data = {"title": "Test", "emoji": "📚", "led_color": "#FF5733"}
+
+        response = client.put(
+            f"/api/stories/{story_id}", files=new_files, data=update_data
+        )
+        assert response.status_code == 413
+
+        got = client.get(f"/api/stories/{story_id}")
+        assert got.status_code == 200
+        audio_file = got.json()["audio_file"]
+        assert audio_file == "audio.mp3"
+        assert (stories_dir / story_id / audio_file).exists()
+
     def test_happy_path_within_limits_still_works(self, client: TestClient):
         """Normal upload within limits still succeeds with correct filenames."""
         files = {
@@ -833,6 +935,41 @@ class TestUploadHardening:
         story = response.json()
         assert story["audio_file"] == "audio.mp3"
         assert story["cover_image"] == "cover.png"
+
+    def test_cover_and_remove_cover_together_does_not_500(self, client: TestClient):
+        """A supplied cover plus remove_cover=true must not double-delete.
+
+        Regression guard: deferring the deletions turned the original
+        `if cover: ... elif remove_cover: ...` into two independent ifs, which
+        queued the same old cover path twice and crashed on the second
+        unlink() with FileNotFoundError.
+        """
+        created = client.post(
+            "/api/stories",
+            files={
+                "audio": ("a.mp3", BytesIO(b"audio"), "audio/mpeg"),
+                "cover": ("c.png", BytesIO(b"png"), "image/png"),
+            },
+            data={"title": "T", "emoji": "😊", "led_color": "#00FF00"},
+        )
+        assert created.status_code == 201
+        story_id = created.json()["id"]
+
+        response = client.put(
+            f"/api/stories/{story_id}",
+            files={"cover": ("new.jpg", BytesIO(b"jpg"), "image/jpeg")},
+            data={
+                "title": "T",
+                "emoji": "😊",
+                "led_color": "#00FF00",
+                "remove_cover": "true",
+            },
+        )
+
+        assert response.status_code == 200, (
+            "contradictory cover+remove_cover must not raise FileNotFoundError; "
+            f"got {response.status_code}"
+        )
 
 
 class TestNonBlockingEventLoop:

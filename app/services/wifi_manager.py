@@ -6,6 +6,15 @@ import shutil
 import sys
 
 
+def _redact_args(args: list[str]) -> list[str]:
+    """Return a copy of args with the value after 'password' redacted."""
+    out = list(args)
+    for i, token in enumerate(out):
+        if token == "password" and i + 1 < len(out):
+            out[i + 1] = "***"
+    return out
+
+
 async def _run_nmcli(*args: str, timeout_s: float = 20.0) -> tuple[str, str, int]:
     """Run nmcli command and return (stdout, stderr, returncode)."""
     proc = await asyncio.create_subprocess_exec(
@@ -18,7 +27,8 @@ async def _run_nmcli(*args: str, timeout_s: float = 20.0) -> tuple[str, str, int
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
     except asyncio.TimeoutError:
         proc.kill()
-        _log_event("nmcli_timeout", args=list(args))
+        await proc.wait()
+        _log_event("nmcli_timeout", args=_redact_args(list(args)))
         return ("", "timeout", -1)
     return (
         stdout.decode().strip(),
