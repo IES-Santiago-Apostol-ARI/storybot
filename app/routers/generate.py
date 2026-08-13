@@ -3,6 +3,7 @@
 import asyncio
 import json
 import sys
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -114,6 +115,8 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
         buf = SentenceBuffer()
         seg_index = 0
         truncated = False
+        start_time = time.monotonic()
+        first_token_emitted = False
 
         async def _synth_and_events(sentence):
             """Synthesize one sentence and yield its SSE event(s).
@@ -147,6 +150,20 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
             yield f"data: {json.dumps(audio_event, ensure_ascii=False)}\n\n"
             segments.append(meta)
             seg_index += 1
+
+            # Task 12: structured timing for TTS segment synthesis.
+            print(
+                json.dumps(
+                    {
+                        "event": "gen_segment_synth",
+                        "story_id": story_id,
+                        "index": meta["index"],
+                        "chars": len(meta["text"]),
+                        "ms": (time.monotonic() - start_time) * 1000,
+                    }
+                ),
+                file=sys.stderr,
+            )
 
             # LED-20 / D-21 (PLAN DECISION): each audio_ready advances the
             # per-pixel progress bar with RUNNING-KNOWN-COUNT N (i == n each
@@ -186,6 +203,20 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
             yield f"data: {data}\n\n"
             if event.get("text"):
                 collected_text.append(event["text"])
+
+                # Task 12: structured timing for first LLM token arrival.
+                if not first_token_emitted:
+                    first_token_emitted = True
+                    print(
+                        json.dumps(
+                            {
+                                "event": "gen_first_token",
+                                "story_id": story_id,
+                                "ms": (time.monotonic() - start_time) * 1000,
+                            }
+                        ),
+                        file=sys.stderr,
+                    )
 
                 # Feed text to sentence buffer
                 completed = buf.feed(event["text"])
@@ -239,6 +270,22 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
         # reading the stream for cover_ready/cover_failed.
         yield f"data: {json.dumps({'audio_complete': True, 'done': False})}\n\n"
 
+        # Task 12: structured timing for pipeline completion.
+        full_text = "".join(collected_text)
+        print(
+            json.dumps(
+                {
+                    "event": "gen_complete",
+                    "story_id": story_id,
+                    "segments": len(segments),
+                    "chars": len(full_text),
+                    "total_ms": (time.monotonic() - start_time) * 1000,
+                    "truncated": truncated,
+                }
+            ),
+            file=sys.stderr,
+        )
+
         if collected_text:
             _save_generated_story(
                 story_id,
@@ -269,6 +316,17 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
                         story_id,
                         str(preview_path),
                         str(print_path),
+                    )
+                    # Task 12: structured timing for cover generation.
+                    print(
+                        json.dumps(
+                            {
+                                "event": "cover_generated",
+                                "story_id": story_id,
+                                "gen_seconds": gen_seconds,
+                            }
+                        ),
+                        file=sys.stderr,
                     )
                     yield _cover_event(
                         "cover_ready",

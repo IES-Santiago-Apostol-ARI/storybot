@@ -1185,6 +1185,273 @@ class TestGeneratedCap:
         assert len(all_stories) == 1
 
 
+class TestGenerateTimingEvents:
+    """IMPROVE.md Task 12: structured timing events on stderr for the generation
+    pipeline. Events are stderr-only — the SSE body must be byte-identical to
+    today. Each event is JSON with an 'event' key and numeric 'ms'."""
+
+    def _run_with_timing(
+        self, mock_story_generator, mock_tts_pipeline, tmp_path, events, monotonic_seq
+    ):
+        """Run a generation with mocked time.monotonic; return the SSE lines."""
+        import time
+        from unittest.mock import patch
+
+        mock_story_generator.generate_story.return_value = _async_gen(events)
+
+        generated_dir = tmp_path / "content" / "generated"
+        generated_dir.mkdir(parents=True)
+
+        from app.routers import generate as gen_module
+
+        original_dir = getattr(gen_module, "GENERATED_DIR", None)
+        gen_module.GENERATED_DIR = generated_dir
+
+        seq_iter = iter(monotonic_seq)
+
+        def fake_monotonic():
+            return next(seq_iter)
+
+        try:
+            with patch.object(time, "monotonic", fake_monotonic):
+                client = TestClient(app)
+                resp = client.post(
+                    "/api/generate/story",
+                    json={"parameters": [{"category": "personaje", "value": "gato"}]},
+                )
+        finally:
+            if original_dir is not None:
+                gen_module.GENERATED_DIR = original_dir
+            else:
+                delattr(gen_module, "GENERATED_DIR")
+
+        assert resp.status_code == 200
+        return [
+            line for line in resp.text.strip().split("\n") if line.startswith("data: ")
+        ]
+
+    def test_first_token_event_on_stderr(
+        self, mock_story_generator, mock_tts_pipeline, tmp_path, capsys
+    ):
+        """gen_first_token emitted when first LLM text arrives in the streaming loop."""
+        # Enough monotonic values: start + one per yield + buffer for TTS calls
+        seq = list(range(100))
+
+        self._run_with_timing(
+            mock_story_generator,
+            mock_tts_pipeline,
+            tmp_path,
+            [
+                {"text": "Hola. ", "done": False},
+                {"text": None, "done": True},
+            ],
+            seq,
+        )
+
+        stderr = capsys.readouterr().err
+        events = [
+            json.loads(line)
+            for line in stderr.strip().split("\n")
+            if line.strip().startswith("{")
+        ]
+        first_token = [e for e in events if e.get("event") == "gen_first_token"]
+        assert len(first_token) == 1, f"expected one gen_first_token; got {events}"
+        ft = first_token[0]
+        assert "story_id" in ft
+        assert isinstance(ft["ms"], (int, float))
+
+    def test_segment_synth_events_on_stderr(
+        self, mock_story_generator, mock_tts_pipeline, tmp_path, capsys
+    ):
+        """gen_segment_synth emitted at end of each _synth_and_events call."""
+        seq = list(range(200))
+
+        self._run_with_timing(
+            mock_story_generator,
+            mock_tts_pipeline,
+            tmp_path,
+            [
+                {"text": "Primera. ", "done": False},
+                {"text": "Segunda. ", "done": False},
+                {"text": None, "done": True},
+            ],
+            seq,
+        )
+
+        stderr = capsys.readouterr().err
+        events = [
+            json.loads(line)
+            for line in stderr.strip().split("\n")
+            if line.strip().startswith("{")
+        ]
+        synth_events = [e for e in events if e.get("event") == "gen_segment_synth"]
+        assert len(synth_events) == 2, f"expected two gen_segment_synth; got {events}"
+
+        for i, se in enumerate(synth_events):
+            assert se["index"] == i
+            assert "story_id" in se
+            assert "chars" in se
+            assert isinstance(se["ms"], (int, float))
+
+    def test_complete_event_on_stderr(
+        self, mock_story_generator, mock_tts_pipeline, tmp_path, capsys
+    ):
+        """gen_complete emitted after audio_complete, with segment/char totals."""
+        seq = list(range(200))
+
+        self._run_with_timing(
+            mock_story_generator,
+            mock_tts_pipeline,
+            tmp_path,
+            [
+                {"text": "Primera. ", "done": False},
+                {"text": "Segunda.", "done": False},
+                {"text": None, "done": True},
+            ],
+            seq,
+        )
+
+        stderr = capsys.readouterr().err
+        events = [
+            json.loads(line)
+            for line in stderr.strip().split("\n")
+            if line.strip().startswith("{")
+        ]
+        complete = [e for e in events if e.get("event") == "gen_complete"]
+        assert len(complete) == 1, f"expected one gen_complete; got {events}"
+        gc = complete[0]
+        assert "story_id" in gc
+        assert gc["segments"] == 2
+        assert gc["chars"] == len("Primera. Segunda.")
+        assert isinstance(gc["total_ms"], (int, float))
+        assert gc["truncated"] is False
+
+    def test_complete_event_truncated_true(
+        self, mock_story_generator, mock_tts_pipeline, tmp_path, capsys
+    ):
+        """gen_complete.truncated mirrors the truncated sentinel."""
+        seq = list(range(150))
+
+        self._run_with_timing(
+            mock_story_generator,
+            mock_tts_pipeline,
+            tmp_path,
+            [
+                {"text": "Primera. ", "done": False},
+                {"text": "Cortad", "done": False},
+                {"text": None, "done": True, "truncated": True},
+            ],
+            seq,
+        )
+
+        stderr = capsys.readouterr().err
+        events = [
+            json.loads(line)
+            for line in stderr.strip().split("\n")
+            if line.strip().startswith("{")
+        ]
+        complete = [e for e in events if e.get("event") == "gen_complete"]
+        assert len(complete) == 1
+        assert complete[0]["truncated"] is True
+
+    def test_timing_events_not_in_sse(
+        self, mock_story_generator, mock_tts_pipeline, tmp_path, capsys
+    ):
+        """Timing events are stderr-only — SSE body must be byte-identical to today."""
+        seq = list(range(200))
+
+        sse_lines = self._run_with_timing(
+            mock_story_generator,
+            mock_tts_pipeline,
+            tmp_path,
+            [
+                {"text": "Hola. ", "done": False},
+                {"text": None, "done": True},
+            ],
+            seq,
+        )
+
+        sse_text = "\n".join(sse_lines)
+        for key in (
+            "gen_first_token",
+            "gen_segment_synth",
+            "gen_complete",
+            "gen_seconds",
+        ):
+            assert key not in sse_text, f"timing key '{key}' leaked into SSE body"
+
+    def test_cover_generated_event_on_stderr(
+        self, mock_story_generator, mock_tts_pipeline, tmp_path, capsys
+    ):
+        """cover_generated event emitted to stderr when cover finishes, carrying
+        the same gen_seconds that goes to cover_ready."""
+        from unittest.mock import MagicMock
+
+        mock_story_generator.generate_story.return_value = _async_gen(
+            [
+                {"text": "Cuento. ", "done": False},
+                {"text": None, "done": True},
+            ]
+        )
+
+        generated_dir = tmp_path / "content" / "generated"
+        generated_dir.mkdir(parents=True)
+
+        from app.routers import generate as gen_module
+        from app.services.story_manager import StoryManager
+        from app.services.swap_orchestrator import SwapOrchestrator
+
+        original_dir = getattr(gen_module, "GENERATED_DIR", None)
+        gen_module.GENERATED_DIR = generated_dir
+
+        orchestrator = MagicMock(spec=SwapOrchestrator)
+        gen_seconds = 3.7
+        preview = generated_dir / "test-id" / "cover-preview.png"
+        print_path = generated_dir / "test-id" / "cover-print.png"
+        preview.parent.mkdir(parents=True)
+        preview.touch()
+        print_path.touch()
+        orchestrator.generate_cover_for_story.return_value = (
+            preview,
+            print_path,
+            gen_seconds,
+        )
+
+        sm = StoryManager()
+        sm.GENERATED_DIR = generated_dir
+
+        app.state.swap_orchestrator = orchestrator
+        app.state.story_manager = sm
+
+        try:
+            client = TestClient(app)
+            resp = client.post(
+                "/api/generate/story",
+                json={"parameters": [{"category": "personaje", "value": "oso"}]},
+            )
+        finally:
+            delattr(app.state, "swap_orchestrator")
+            delattr(app.state, "story_manager")
+            if original_dir is not None:
+                gen_module.GENERATED_DIR = original_dir
+            else:
+                delattr(gen_module, "GENERATED_DIR")
+
+        assert resp.status_code == 200
+
+        stderr = capsys.readouterr().err
+        events = [
+            json.loads(line)
+            for line in stderr.strip().split("\n")
+            if line.strip().startswith("{")
+        ]
+        cover_events = [e for e in events if e.get("event") == "cover_generated"]
+        assert len(cover_events) == 1, f"expected one cover_generated; got {events}"
+        ce = cover_events[0]
+        assert "story_id" in ce
+        assert ce["gen_seconds"] == gen_seconds
+
+
 class TestStorySpeakerConsistency:
     """One randomly picked voice per story, held across every segment."""
 
