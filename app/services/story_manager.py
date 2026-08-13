@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.models.story import Story
+from app.services.atomic_io import write_json_atomic
 
 _UUID_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
@@ -69,9 +70,7 @@ class StoryManager:
         Args:
             index: dict with keys: version, stories, nfc_to_story
         """
-        self.INDEX_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.INDEX_FILE, "w") as f:
-            json.dump(index, f, indent=2)
+        write_json_atomic(self.INDEX_FILE, index, indent=2)
 
     def create_story(
         self,
@@ -403,9 +402,7 @@ class StoryManager:
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
 
-        tmp = story_file.with_suffix(".tmp")
-        tmp.write_text(json.dumps(story_data, ensure_ascii=False, indent=2))
-        tmp.rename(story_file)
+        write_json_atomic(story_file, story_data, indent=2, ensure_ascii=False)
 
     def list_generated(self) -> list[dict]:
         """Return lightweight summaries for each generated story dir.

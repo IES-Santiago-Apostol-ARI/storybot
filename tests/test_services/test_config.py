@@ -201,3 +201,53 @@ class TestNoModuleSettingsSingletons:
             "app.state.config must be the shared manager so a reload() "
             "on it reaches every get_settings() caller"
         )
+
+
+class TestAtomicConfigSave:
+    """IMPROVE.md Task 2: ConfigManager.save uses write_json_atomic."""
+
+    def test_save_routes_through_atomic_helper(
+        self, config_manager, temp_config_file, monkeypatch
+    ):
+        """save() calls write_json_atomic instead of raw write_text."""
+        from app.config import Settings
+
+        call_count = {"n": 0}
+
+        def counting_write(path, data, **kwargs):
+            call_count["n"] += 1
+
+        monkeypatch.setattr("app.config.write_json_atomic", counting_write)
+
+        settings = Settings(led_brightness=200)
+        config_manager.save(settings)
+
+        assert call_count["n"] == 1
+
+    def test_interrupted_save_preserves_previous_config(
+        self, config_manager, temp_config_file, monkeypatch
+    ):
+        """A save() that fails before os.replace leaves the prior config.json
+        readable with its values intact — no silent reset to defaults."""
+        from app.config import Settings
+
+        # Write initial config
+        config_manager.save(Settings(led_brightness=200, tts_voice="custom"))
+        assert config_manager.load().led_brightness == 200
+
+        # Monkeypatch os.replace to fail mid-save
+        import os
+
+        def failing_replace(*args, **kwargs):
+            raise OSError("simulated power cut")
+
+        monkeypatch.setattr(os, "replace", failing_replace)
+
+        # Attempt to save new config — should raise
+        with pytest.raises(OSError):
+            config_manager.save(Settings(led_brightness=7))
+
+        # Old config must still be intact
+        reloaded = config_manager.reload()
+        assert reloaded.led_brightness == 200
+        assert reloaded.tts_voice == "custom"

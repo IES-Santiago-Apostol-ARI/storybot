@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from app.config import get_settings
+from app.services.atomic_io import write_json_atomic
 from app.services.cover_prompt_builder import build as build_cover_prompt
 from app.services.cover_prompt_builder import story_seed
 from app.services.led_animator import Mode
@@ -55,8 +56,8 @@ def _save_generated_story(
     }
     if segments is not None:
         story_data["segments"] = segments
-    (story_dir / "story.json").write_text(
-        json.dumps(story_data, ensure_ascii=False, indent=2)
+    write_json_atomic(
+        story_dir / "story.json", story_data, indent=2, ensure_ascii=False
     )
 
 

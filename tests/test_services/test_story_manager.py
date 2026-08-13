@@ -551,3 +551,54 @@ class TestCreatedAtTimestamp:
         parsed = datetime.fromisoformat(story.created_at)
         assert parsed.tzinfo is not None
         assert parsed.utcoffset() == timedelta(0)
+
+
+class TestAtomicWrites:
+    """IMPROVE.md Task 2: _save_index routes through write_json_atomic."""
+
+    def test_create_story_uses_atomic_write(
+        self, story_manager: StoryManager, story_create_data: dict, monkeypatch
+    ):
+        """create_story never observes a truncated index: _save_index calls
+        write_json_atomic, not raw open/write."""
+        # Use v2 index so _migrate_v1_to_v2 doesn't add an extra _save_index call
+        story_manager.INDEX_FILE.write_text(
+            json.dumps({"version": 2, "stories": {}, "nfc_to_story": {}, "cards": {}})
+        )
+
+        call_count = {"n": 0}
+
+        def counting_write(path, data, **kwargs):
+            call_count["n"] += 1
+
+        monkeypatch.setattr(
+            "app.services.story_manager.write_json_atomic", counting_write
+        )
+
+        story_manager.create_story(**story_create_data)
+
+        assert call_count["n"] == 1
+
+    def test_attach_cover_uses_atomic_write(
+        self, story_manager: StoryManager, tmp_path: Path, monkeypatch
+    ):
+        """attach_cover uses write_json_atomic instead of manual tmp+rename."""
+        gen_dir = tmp_path / "content" / "generated" / "test-id"
+        gen_dir.mkdir(parents=True)
+        story_file = gen_dir / "story.json"
+        story_file.write_text(json.dumps({"id": "test-id", "text": ""}))
+
+        story_manager.GENERATED_DIR = tmp_path / "content" / "generated"
+
+        call_count = {"n": 0}
+
+        def counting_write(path, data, **kwargs):
+            call_count["n"] += 1
+
+        monkeypatch.setattr(
+            "app.services.story_manager.write_json_atomic", counting_write
+        )
+
+        story_manager.attach_cover("test-id", "/fake/preview.png", "/fake/print.png")
+
+        assert call_count["n"] == 1
