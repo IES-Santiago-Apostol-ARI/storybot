@@ -50,7 +50,7 @@ async def _transcribe_story_audio(
 
 # NFC lookup endpoint MUST be defined before /{story_id} to avoid path conflicts
 @router.get("/api/stories/nfc/{nfc_uid}", response_model=Story)
-async def get_story_by_nfc(
+def get_story_by_nfc(
     nfc_uid: str,
     story_manager: StoryManager = Depends(get_story_manager),
 ) -> Story:
@@ -76,7 +76,7 @@ async def get_story_by_nfc(
 
 
 @router.post("/api/stories/{story_id}/nfc", response_model=Story)
-async def assign_nfc_to_story(
+def assign_nfc_to_story(
     story_id: str,
     request: NFCAssignRequest,
     story_manager: StoryManager = Depends(get_story_manager),
@@ -104,7 +104,7 @@ async def assign_nfc_to_story(
 
 
 @router.post("/api/stories", response_model=Story, status_code=status.HTTP_201_CREATED)
-async def create_story(
+def create_story(
     request: Request,
     background_tasks: BackgroundTasks,
     title: str = Form(...),
@@ -178,7 +178,7 @@ async def create_story(
 
 
 @router.put("/api/stories/{story_id}", response_model=Story)
-async def update_story(
+def update_story(
     story_id: str,
     background_tasks: BackgroundTasks,
     title: str = Form(...),
@@ -283,7 +283,7 @@ async def update_story(
 
 
 @router.get("/api/stories", response_model=StoryList)
-async def list_stories(
+def list_stories(
     story_manager: StoryManager = Depends(get_story_manager),
 ) -> StoryList:
     """List all stories.
@@ -299,7 +299,7 @@ async def list_stories(
 
 
 @router.get("/api/stories/{story_id}", response_model=Story)
-async def get_story(
+def get_story(
     story_id: str,
     story_manager: StoryManager = Depends(get_story_manager),
 ) -> Story:
@@ -325,7 +325,7 @@ async def get_story(
 
 
 @router.delete("/api/stories/{story_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_story(
+def delete_story(
     story_id: str,
     request: Request,
     story_manager: StoryManager = Depends(get_story_manager),

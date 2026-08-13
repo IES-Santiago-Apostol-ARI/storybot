@@ -1,5 +1,6 @@
 """System status endpoints."""
 
+import asyncio
 import json
 import re
 from collections.abc import AsyncIterator
@@ -225,9 +226,9 @@ async def set_led_state(
     rgb: tuple[int, int, int] | None = None
     story = None
     if request.nfc_uid:
-        story = story_manager.get_story_by_nfc(request.nfc_uid)
+        story = await asyncio.to_thread(story_manager.get_story_by_nfc, request.nfc_uid)
     elif request.story_id:
-        story = story_manager.get_story(request.story_id)
+        story = await asyncio.to_thread(story_manager.get_story, request.story_id)
     if story is not None and getattr(story, "led_color", None):
         rgb = hex_to_rgb(story.led_color)
 

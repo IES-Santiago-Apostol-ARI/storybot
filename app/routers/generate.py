@@ -1,5 +1,6 @@
 """Generate router — AI story generation endpoint."""
 
+import asyncio
 import json
 import sys
 import uuid
@@ -91,7 +92,9 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
     # Prune BEFORE generating so the new story (saved inside _stream_body)
     # never pushes the total above the limit.
     if story_manager is not None:
-        story_manager.prune_generated(MAX_GENERATED_STORIES - 1)
+        await asyncio.to_thread(
+            story_manager.prune_generated, MAX_GENERATED_STORIES - 1
+        )
 
     story_id = str(uuid.uuid4())
     collected_text: list[str] = []
@@ -254,8 +257,11 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
                 preview_path, print_path, gen_seconds = result
 
                 if preview_path and print_path:
-                    story_manager.attach_cover(
-                        story_id, str(preview_path), str(print_path)
+                    await asyncio.to_thread(
+                        story_manager.attach_cover,
+                        story_id,
+                        str(preview_path),
+                        str(print_path),
                     )
                     yield _cover_event(
                         "cover_ready",

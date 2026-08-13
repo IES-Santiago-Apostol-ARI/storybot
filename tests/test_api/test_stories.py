@@ -705,3 +705,248 @@ class TestTranscription:
 
         assert response.status_code == 200
         assert len(transcribe_spy) == 1
+
+
+class TestNonBlockingEventLoop:
+    """IMPROVE.md Task 3: blocking I/O must not run on the event loop.
+
+    Mechanisms:
+    - Routes with no await -> converted to plain def (Starlette threadpool).
+    - Async routes that call blocking code -> wrapped with asyncio.to_thread.
+    """
+
+    def test_stories_routes_are_not_coroutines(self):
+        """Routes in stories.py that do no async work must be plain def."""
+        import inspect
+
+        from app.routers import stories
+
+        for name in [
+            "create_story",
+            "update_story",
+            "list_stories",
+            "get_story",
+            "delete_story",
+            "get_story_by_nfc",
+            "assign_nfc_to_story",
+        ]:
+            func = getattr(stories, name)
+            assert not inspect.iscoroutinefunction(
+                func
+            ), f"{name} should be plain def (Starlette threadpool), not async"
+
+    def test_transcribe_story_audio_stays_async(self):
+        """_transcribe_story_audio uses await -> must stay async."""
+        import inspect
+
+        from app.routers import stories
+
+        assert inspect.iscoroutinefunction(
+            stories._transcribe_story_audio
+        ), "_transcribe_story_audio must remain async (awaits transcriber)"
+
+    def test_cards_routes_are_not_coroutines(self):
+        """Routes in cards.py that do no async work must be plain def."""
+        import inspect
+
+        from app.routers import cards
+
+        for name in ["create_card", "list_cards", "delete_card"]:
+            func = getattr(cards, name)
+            assert not inspect.iscoroutinefunction(
+                func
+            ), f"{name} should be plain def (Starlette threadpool), not async"
+
+    def test_generated_routes_are_not_coroutines(self):
+        """Routes in generated.py that do no async work must be plain def."""
+        import inspect
+
+        from app.routers import generated
+
+        for name in [
+            "list_generated",
+            "get_generated",
+            "discard_generated",
+            "promote_generated",
+        ]:
+            func = getattr(generated, name)
+            assert not inspect.iscoroutinefunction(
+                func
+            ), f"{name} should be plain def (Starlette threadpool), not async"
+
+    def test_system_led_state_uses_to_thread_for_story_lookup(self, monkeypatch):
+        """system.py set_led_state must call story_manager lookups via to_thread."""
+        import asyncio
+        from unittest.mock import MagicMock
+
+        from app.routers.system import LEDState, LEDStateRequest, set_led_state
+
+        calls: list[tuple] = []
+
+        async def fake_to_thread(func, *args, **kwargs):
+            name = getattr(func, "__name__", str(func))
+            calls.append((name, args))
+            return func(*args, **kwargs)
+
+        # Patch at the asyncio module level — system.py will import asyncio
+        # and call asyncio.to_thread after the fix.
+        monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
+
+        class FakeAnimator:
+            def set_mode(self, mode, color=None):
+                pass
+
+        class FakeStory:
+            id = "story-1"
+            title = "Test"
+            led_color = "#FF0000"
+            cover_image = None
+
+        async def run_test():
+            from unittest.mock import MagicMock as M
+
+            http_request = M()
+            http_request.app.state.playback = None
+
+            led_req = LEDStateRequest(state=LEDState.PLAYBACK, story_id="story-1")
+
+            story_manager = MagicMock()
+            story_manager.get_story.return_value = FakeStory()
+            story_manager.get_story_by_nfc.return_value = None
+
+            animator = FakeAnimator()
+
+            await set_led_state(
+                http_request=http_request,
+                request=led_req,
+                animator=animator,
+                story_manager=story_manager,
+            )
+
+        asyncio.run(run_test())
+
+        assert any(
+            "get_story" in str(c) for c in calls
+        ), (
+            "set_led_state should use asyncio.to_thread for story_manager calls. "
+            f"Calls: {calls}"
+        )
+
+    def test_nfc_read_uses_to_thread_for_get_card(self, monkeypatch):
+        """nfc.py read_nfc_cards must call story_manager.get_card via to_thread."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock
+
+        from app.routers.nfc import read_nfc_cards
+
+        calls: list[tuple] = []
+
+        async def fake_to_thread(func, *args, **kwargs):
+            name = getattr(func, "__name__", str(func))
+            calls.append((name, args))
+            return func(*args, **kwargs)
+
+        monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
+
+        async def run_test():
+            callback_holder: dict = {}
+
+            async def mock_start_polling(callback):
+                callback_holder["cb"] = callback
+
+            mock_nfc = MagicMock()
+            mock_nfc.start_polling = mock_start_polling
+            mock_nfc.stop_polling = AsyncMock()
+
+            mock_hardware = MagicMock()
+            mock_hardware._services = {"nfc": mock_nfc}
+
+            mock_story_manager = MagicMock()
+            mock_story_manager.get_card.return_value = None
+
+            request = MagicMock()
+            del request.app.state.led_animator
+
+            response = await read_nfc_cards(
+                request=request,
+                hardware=mock_hardware,
+                story_manager=mock_story_manager,
+            )
+            event_gen = response.body_iterator
+
+            task = asyncio.create_task(event_gen.__anext__())
+            await asyncio.sleep(0.05)
+
+            callback_holder["cb"]("04:A3:5B:C2:D4:30")
+
+            event = await asyncio.wait_for(task, timeout=1.0)
+            assert event["event"] == "card"
+
+            await event_gen.aclose()
+
+        asyncio.run(run_test())
+
+        assert any(
+            "get_card" in str(c) for c in calls
+        ), f"read_nfc_cards should use asyncio.to_thread for get_card. Calls: {calls}"
+
+    def test_blocking_post_does_not_delay_concurrent_get(self, client: TestClient):
+        """A slow POST /api/stories must not block GET /api/system/status.
+
+        Regression test: on the Jetson, uploading a 20MB narration used to
+        freeze an SSE generation stream because shutil.copyfileobj ran on
+        the event loop. After the fix, the blocking route runs in the
+        Starlette threadpool, so a concurrent GET completes quickly.
+
+        This test monkeypatches the create_story handler to sleep 0.2s,
+        then fires POST and GET from separate threads. With the route as
+        plain def (Starlette threadpool), the GET thread's event loop is
+        independent and returns fast.
+        """
+        import time
+        from concurrent.futures import ThreadPoolExecutor
+
+        import app.routers.stories as stories_router
+
+        original_create = stories_router.create_story
+
+        def slow_create(*args, **kwargs):
+            time.sleep(0.2)
+            return original_create(*args, **kwargs)
+
+        stories_router.create_story = slow_create
+
+        try:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+
+                def post_story():
+                    files = {"audio": ("audio.mp3", BytesIO(b"x" * 4096), "audio/mpeg")}
+                    data = {
+                        "title": "Slow Story",
+                        "emoji": "📚",
+                        "led_color": "#FF5733",
+                    }
+                    return client.post("/api/stories", files=files, data=data)
+
+                def get_status():
+                    return client.get("/api/system/status")
+
+                post_future = pool.submit(post_story)
+                get_future = pool.submit(get_status)
+
+                get_start = time.monotonic()
+                get_resp = get_future.result(timeout=5)
+                get_end = time.monotonic()
+
+                post_resp = post_future.result(timeout=5)
+
+                get_duration = get_end - get_start
+
+                assert get_resp.status_code == 200
+                assert post_resp.status_code == 201
+                assert get_duration < 0.15, (
+                    f"GET /api/system/status took {get_duration:.3f}s while POST was "
+                    "blocking; event loop appears blocked by synchronous route"
+                )
+        finally:
+            stories_router.create_story = original_create

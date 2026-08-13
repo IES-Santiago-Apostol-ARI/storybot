@@ -47,7 +47,7 @@ def _ensure_under_generated_dir(story_manager: StoryManager, story_id: str) -> N
 
 
 @router.get("")
-async def list_generated(
+def list_generated(
     story_manager: StoryManager = Depends(get_story_manager),
 ) -> dict:
     """List all generated story summaries."""
@@ -56,7 +56,7 @@ async def list_generated(
 
 
 @router.get("/{story_id}")
-async def get_generated(
+def get_generated(
     story_id: str,
     story_manager: StoryManager = Depends(get_story_manager),
 ) -> dict:
@@ -74,7 +74,7 @@ async def get_generated(
 
 
 @router.delete("/{story_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def discard_generated(
+def discard_generated(
     story_id: str,
     story_manager: StoryManager = Depends(get_story_manager),
 ) -> None:
@@ -90,7 +90,7 @@ async def discard_generated(
 
 
 @router.post("/{story_id}/promote", status_code=status.HTTP_201_CREATED)
-async def promote_generated(
+def promote_generated(
     story_id: str,
     body: PromoteRequest,
     story_manager: StoryManager = Depends(get_story_manager),

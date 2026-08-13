@@ -85,7 +85,7 @@ async def read_nfc_cards(
             while True:
                 uid = await queue.get()
 
-                card = story_manager.get_card(uid)
+                card = await asyncio.to_thread(story_manager.get_card, uid)
 
                 if card is None:
                     yield {
@@ -101,9 +101,7 @@ async def read_nfc_cards(
                         animator.flash(255, 255, 255, ms=200)
                     yield {
                         "event": "card",
-                        "data": json.dumps(
-                            {"uid": uid, "card_type": "story"}
-                        ),
+                        "data": json.dumps({"uid": uid, "card_type": "story"}),
                     }
                 elif card["type"] == "parameter":
                     # SessionManager has side effects on each tap — call it

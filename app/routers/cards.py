@@ -11,7 +11,7 @@ router = APIRouter(prefix="/api", tags=["cards"])
 
 
 @router.post("/cards", status_code=status.HTTP_201_CREATED)
-async def create_card(
+def create_card(
     request: CardCreateRequest,
     story_manager: StoryManager = Depends(get_story_manager),
 ) -> dict:
@@ -43,7 +43,7 @@ async def create_card(
 
 
 @router.get("/cards", response_model=CardsListResponse)
-async def list_cards(
+def list_cards(
     type: str | None = Query(None, description="Filter by card type"),
     story_manager: StoryManager = Depends(get_story_manager),
 ) -> CardsListResponse:
@@ -53,7 +53,7 @@ async def list_cards(
 
 
 @router.delete("/cards/{uid}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_card(
+def delete_card(
     uid: str,
     story_manager: StoryManager = Depends(get_story_manager),
 ) -> None:
