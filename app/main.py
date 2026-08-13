@@ -103,6 +103,8 @@ async def lifespan(app: FastAPI):
         import json
         import sys
 
+        app.state.printer = None
+
         print(
             json.dumps({"event": "printer_init_failed", "reason": type(e).__name__}),
             file=sys.stderr,

@@ -88,6 +88,26 @@ class TestLifespanStateAttachment:
                 client.app.state, "printer"
             ), "Plan 16-01 RED: app.state.printer = create_printer_service() must be set by lifespan"
 
+    def test_lifespan_survives_printer_init_failure(self, lifespan_env, monkeypatch):
+        """IMPROVE.md Task 1: lifespan survives create_printer_service failure."""
+        from app.main import app
+
+        def failing_create_printer():
+            raise RuntimeError("printer init failed")
+
+        monkeypatch.setattr(
+            "app.services.printer_handler.create_printer_service",
+            failing_create_printer,
+        )
+
+        with TestClient(app) as client:
+            assert (
+                client.app.state.printer is None
+            ), "IMPROVE.md Task 1 RED: app.state.printer must be None when init fails"
+            assert (
+                client.app.state.capability.printer is False
+            ), "IMPROVE.md Task 1 RED: capability.printer must be False when init fails"
+
 
 class TestLifespanSweeperInvocation:
     def test_stale_dir_removed_at_startup(self, lifespan_env, capsys):
@@ -132,7 +152,10 @@ class TestLifespanLEDEngineWiring:
 
         with TestClient(app) as client:
             animator = client.app.state.led_animator
-            assert animator is not None, "LedAnimator must be constructed unconditionally"
+            assert (
+                animator is not None
+            ), "LedAnimator must be constructed unconditionally"
+
             # The boot sweep is armed via set_mode("boot"); _boot_started_at must be
             # set (engine-internal one-shot, D-10). Let the loop tick once so the
             # engine can advance its boot state if needed.
@@ -205,6 +228,6 @@ class TestLifespanLEDEngineWiring:
                 for svc in status.get("hardware", {}).values()
             )
             animator.set_health(down=any_down)
-            assert animator._health_down is True, (
-                "A service in error status must drive _health_down True (D-05/LED-21)"
-            )
+            assert (
+                animator._health_down is True
+            ), "A service in error status must drive _health_down True (D-05/LED-21)"
