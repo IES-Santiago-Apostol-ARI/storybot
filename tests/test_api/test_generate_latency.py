@@ -113,3 +113,67 @@ class TestGenerateLatency:
                 gen_module.GENERATED_DIR = original_dir
             else:
                 delattr(gen_module, "GENERATED_DIR")
+
+    def test_first_audio_ready_with_multi_paragraph_story(
+        self, mock_story_generator, mock_tts_pipeline, tmp_path
+    ):
+        async def _fake_async_gen(events):
+            for e in events:
+                yield e
+
+        mock_story_generator.generate_story.return_value = _fake_async_gen(
+            [
+                {
+                    "text": (
+                        "Había una vez un gato.\n\n"
+                        "El gato tenia hambre. Fue a comer. "
+                    ),
+                    "done": False,
+                },
+                {"text": None, "done": True},
+            ]
+        )
+
+        generated_dir = tmp_path / "content" / "generated"
+        generated_dir.mkdir(parents=True)
+
+        from app.routers import generate as gen_module
+
+        original_dir = getattr(gen_module, "GENERATED_DIR", None)
+        gen_module.GENERATED_DIR = generated_dir
+
+        client = TestClient(app)
+
+        try:
+            start = time.monotonic()
+
+            with client.stream(
+                "POST",
+                "/api/generate/story",
+                json={
+                    "parameters": [
+                        {"category": "personaje", "value": "gato"},
+                    ]
+                },
+            ) as resp:
+                assert resp.status_code == 200
+
+                first_audio_at = None
+                for line in resp.iter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    event = json.loads(line[6:])
+                    if "audio_ready" in event:
+                        first_audio_at = time.monotonic() - start
+                        break
+
+            assert first_audio_at is not None, "No audio_ready event received"
+            assert first_audio_at < 2.0, (
+                f"First audio_ready took {first_audio_at:.3f}s "
+                "(multi-paragraph) — sentence buffer not splitting on newlines?"
+            )
+        finally:
+            if original_dir is not None:
+                gen_module.GENERATED_DIR = original_dir
+            else:
+                delattr(gen_module, "GENERATED_DIR")

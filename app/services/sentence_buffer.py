@@ -40,7 +40,7 @@ class SentenceBuffer:
                     i = end
                     continue
                 # Consume whitespace after terminator
-                while end < len(self._buf) and self._buf[end] == " ":
+                while end < len(self._buf) and self._buf[end].isspace():
                     end += 1
                 # Sentence is complete if there's whitespace or end-of-buffer
                 if end > i + 1 or i + 1 == len(self._buf):

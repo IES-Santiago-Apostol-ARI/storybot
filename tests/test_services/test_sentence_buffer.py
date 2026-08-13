@@ -127,3 +127,38 @@ class TestSentenceBufferWhitespace:
         buf = SentenceBuffer()
         buf.feed("Completo. ")
         assert buf.flush() == []
+
+
+class TestSentenceBufferNewlines:
+    def test_newline_separates_sentences(self):
+        buf = SentenceBuffer()
+        results = buf.feed(
+            "Erase una vez un gato.\n\nEl gato tenia hambre. Fue a comer. "
+        )
+        assert results == [
+            "Erase una vez un gato.",
+            "El gato tenia hambre.",
+            "Fue a comer.",
+        ]
+
+    def test_single_newline_separates_sentences(self):
+        buf = SentenceBuffer()
+        results = buf.feed("Uno.\nDos. ")
+        assert results == ["Uno.", "Dos."]
+
+    def test_tab_as_whitespace(self):
+        buf = SentenceBuffer()
+        results = buf.feed("Uno.\tDos. ")
+        assert results == ["Uno.", "Dos."]
+
+    def test_crlf_as_whitespace(self):
+        buf = SentenceBuffer()
+        results = buf.feed("Uno.\r\nDos. ")
+        assert results == ["Uno.", "Dos."]
+
+    def test_abbreviation_across_newline(self):
+        buf = SentenceBuffer()
+        results = buf.feed("Sr.\nGarcia camino. ")
+        results.extend(buf.flush())
+        assert len(results) == 1
+        assert "Sr." in results[0]
