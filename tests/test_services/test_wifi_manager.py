@@ -1,5 +1,6 @@
 """Tests for wifi_manager — WiFi service with nmcli subprocess wrapping."""
 
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -9,6 +10,7 @@ from app.services.wifi_manager import (
     MockWifiManager,
     RealWifiManager,
     WifiManager,
+    _run_nmcli,
     create_wifi_manager,
 )
 
@@ -68,6 +70,10 @@ class TestWifiConnectRequestModel:
     def test_short_password_rejected(self):
         with pytest.raises(Exception):
             WifiConnectRequest(ssid="Home", password="short")
+
+    def test_ssid_starting_with_dash_rejected(self):
+        with pytest.raises(Exception):
+            WifiConnectRequest(ssid="-test", password="secret123")
 
 
 class TestWifiStatusModel:
@@ -423,3 +429,69 @@ class TestWifiManagerBaseClass:
         mgr = WifiManager()
         with pytest.raises(NotImplementedError):
             await mgr.status()
+
+
+# ---------------------------------------------------------------------------
+# Timeout behavior
+# ---------------------------------------------------------------------------
+
+
+class TestTimeout:
+    """_run_nmcli timeout kills hanging processes and logs structured JSON."""
+
+    @staticmethod
+    def _hanging_proc():
+        """A subprocess mock whose communicate() never resolves."""
+        from unittest.mock import Mock
+
+        async def never_resolves():
+            await asyncio.Event().wait()
+
+        proc = AsyncMock()
+        proc.wait = AsyncMock()
+        proc.communicate = AsyncMock(side_effect=never_resolves)
+        proc.returncode = None
+        proc.kill = Mock()
+        return proc
+
+    @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
+    @patch("app.services.wifi_manager._log_event")
+    async def test_run_nmcli_times_out_and_kills_process(self, mock_log, mock_exec):
+        """A wedged nmcli is killed, logged, and reported as an ordinary failure.
+
+        Uses a tiny timeout_s so the suite does not wait the 20 s default.
+        """
+        proc = self._hanging_proc()
+        mock_exec.return_value = proc
+
+        stdout, stderr, rc = await _run_nmcli("device", "wifi", timeout_s=0.01)
+
+        assert (stdout, stderr, rc) == ("", "timeout", -1)
+        proc.kill.assert_called_once()
+
+        timeout_calls = [
+            c for c in mock_log.call_args_list if c[0] and c[0][0] == "nmcli_timeout"
+        ]
+        assert len(timeout_calls) == 1
+        assert timeout_calls[0][1]["args"] == ["device", "wifi"]
+
+    async def test_scan_degrades_to_empty_list_on_timeout(self):
+        """scan() treats the timeout tuple as an ordinary rc != 0 failure.
+
+        Interface detection succeeds; both the fresh-scan and the cached
+        fallback listing time out, so the caller gets an empty list rather
+        than a hang or an exception.
+        """
+        results = [
+            ("wlP1p1s0:wifi", "", 0),  # _detect_wifi_interface
+            ("", "timeout", -1),  # list --rescan yes
+            ("", "timeout", -1),  # cached fallback list
+        ]
+
+        async def scripted_nmcli(*args, **kwargs):
+            return results.pop(0)
+
+        with patch("app.services.wifi_manager._run_nmcli", side_effect=scripted_nmcli):
+            result = await RealWifiManager().scan()
+
+        assert result == []

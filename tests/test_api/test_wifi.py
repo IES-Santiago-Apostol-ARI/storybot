@@ -30,25 +30,29 @@ def _mock_wifi_manager(
     mgr = AsyncMock()
     mgr.is_mock = True
     mgr.scan = AsyncMock(
-        return_value=scan_return
-        if scan_return is not None
-        else [
-            {
-                "ssid": "TestNet",
-                "signal": 75,
-                "security": "WPA2",
-                "connected": False,
-            }
-        ]
+        return_value=(
+            scan_return
+            if scan_return is not None
+            else [
+                {
+                    "ssid": "TestNet",
+                    "signal": 75,
+                    "security": "WPA2",
+                    "connected": False,
+                }
+            ]
+        )
     )
     mgr.connect = AsyncMock(return_value=connect_return)
     if connect_side_effect:
         mgr.connect = AsyncMock(side_effect=connect_side_effect)
     mgr.disconnect = AsyncMock(return_value=disconnect_return)
     mgr.status = AsyncMock(
-        return_value=status_return
-        if status_return is not None
-        else {"state": "disconnected", "ssid": None, "interface": "wlan0"}
+        return_value=(
+            status_return
+            if status_return is not None
+            else {"state": "disconnected", "ssid": None, "interface": "wlan0"}
+        )
     )
     return mgr
 
@@ -173,6 +177,15 @@ class TestWifiConnect:
         )
         assert response.status_code == 422
 
+    def test_connect_ssid_starting_with_dash_returns_422(self, mock_factory, client):
+        """SSID starting with '-' returns 422 validation error."""
+        mock_factory.return_value = _mock_wifi_manager()
+        response = client.post(
+            "/api/wifi/connect",
+            json={"ssid": "-test", "password": "somepassword"},
+        )
+        assert response.status_code == 422
+
     def test_connect_passes_ssid_and_password_to_manager(self, mock_factory, client):
         """Router passes body.ssid and body.password to manager.connect()."""
         mgr = _mock_wifi_manager(connect_return=True)
@@ -219,7 +232,11 @@ class TestWifiStatus:
     def test_status_returns_correct_shape(self, mock_factory, client):
         """Status response has state, ssid, interface fields."""
         mock_factory.return_value = _mock_wifi_manager(
-            status_return={"state": "connected", "ssid": "HomeNet", "interface": "wlan0"}
+            status_return={
+                "state": "connected",
+                "ssid": "HomeNet",
+                "interface": "wlan0",
+            }
         )
         response = client.get("/api/wifi/status")
         assert response.status_code == 200

@@ -6,7 +6,7 @@ import shutil
 import sys
 
 
-async def _run_nmcli(*args: str) -> tuple[str, str, int]:
+async def _run_nmcli(*args: str, timeout_s: float = 20.0) -> tuple[str, str, int]:
     """Run nmcli command and return (stdout, stderr, returncode)."""
     proc = await asyncio.create_subprocess_exec(
         "nmcli",
@@ -14,7 +14,12 @@ async def _run_nmcli(*args: str) -> tuple[str, str, int]:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await proc.communicate()
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
+    except asyncio.TimeoutError:
+        proc.kill()
+        _log_event("nmcli_timeout", args=list(args))
+        return ("", "timeout", -1)
     return (
         stdout.decode().strip(),
         stderr.decode().strip(),
@@ -138,6 +143,9 @@ class RealWifiManager(WifiManager):
         Creates/updates a NM connection profile that persists across reboots.
         """
         iface = await self._detect_wifi_interface()
+        # PSK passed in argv for now. A future variant using 'nmcli --ask'
+        # with the password piped via stdin avoids a brief exposure in 'ps'
+        # output, but requires manual verification on the Jetson hardware.
         stdout, stderr, rc = await _run_nmcli(
             "device",
             "wifi",

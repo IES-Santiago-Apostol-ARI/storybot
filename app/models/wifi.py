@@ -1,7 +1,6 @@
 """WiFi models for scan, connect, and status operations."""
 
-
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class WifiNetwork(BaseModel):
@@ -20,6 +19,13 @@ class WifiConnectRequest(BaseModel):
 
     ssid: str = Field(..., min_length=1, description="Network SSID")
     password: str = Field(..., min_length=8, description="WPA2 password (8+ chars)")
+
+    @field_validator("ssid")
+    @classmethod
+    def ssid_must_not_start_with_dash(cls, v: str) -> str:
+        if v.startswith("-"):
+            raise ValueError("SSID must not start with '-'")
+        return v
 
 
 class WifiStatus(BaseModel):
