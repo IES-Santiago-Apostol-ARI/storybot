@@ -18,6 +18,7 @@ from fastapi import (
 )
 from fastapi.requests import Request
 
+from app.config import get_settings
 from app.dependencies import get_story_manager
 from app.models.story import NFCAssignRequest, Story, StoryList
 from app.services import transcriber
@@ -25,8 +26,43 @@ from app.services.story_manager import StoryManager
 
 router = APIRouter()
 
-# Valid audio content types
+# Valid content types
 VALID_AUDIO_TYPES = {"audio/mpeg", "audio/wav", "audio/x-wav"}
+VALID_COVER_TYPES = {"image/png", "image/jpeg", "image/webp"}
+
+# Extension derived from validated content-type (not client-supplied filename).
+_EXT_BY_TYPE: dict[str, str] = {
+    "audio/mpeg": ".mp3",
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+}
+
+_CHUNK_SIZE = 1024 * 1024  # 1 MiB
+
+
+def _save_upload(upload: UploadFile, dest: Path, max_bytes: int) -> None:
+    """Copy upload to dest in chunks; abort with 413 if size exceeded.
+
+    Deletes any partial file on failure so the story directory stays clean.
+    """
+    written = 0
+    with dest.open("wb") as f:
+        while True:
+            chunk = upload.file.read(_CHUNK_SIZE)
+            if not chunk:
+                break
+            written += len(chunk)
+            if written > max_bytes:
+                f.close()
+                dest.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                    detail=f"Upload exceeds {max_bytes // (1024 * 1024)} MB limit",
+                )
+            f.write(chunk)
 
 
 async def _transcribe_story_audio(
@@ -131,11 +167,20 @@ def create_story(
     Raises:
         HTTPException: If audio file is invalid or missing
     """
+    settings = get_settings()
+
     # Validate audio content type
     if audio.content_type not in VALID_AUDIO_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid audio type. Must be one of: {VALID_AUDIO_TYPES}",
+        )
+
+    # Validate audio filename is present
+    if not audio.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Audio file name is required",
         )
 
     # Generate UUID for story
@@ -145,19 +190,22 @@ def create_story(
     story_dir = Path("content/stories") / story_id
     story_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save audio file
-    audio_ext = Path(audio.filename).suffix or ".mp3"
+    # Save audio file (extension from content-type, not filename)
+    audio_ext = _EXT_BY_TYPE[audio.content_type]
     audio_path = story_dir / f"audio{audio_ext}"
-    with audio_path.open("wb") as f:
-        shutil.copyfileobj(audio.file, f)
+    _save_upload(audio, audio_path, settings.max_audio_upload_mb * 1024 * 1024)
 
     # Save cover image if provided
     cover_filename = None
     if cover:
-        cover_ext = Path(cover.filename).suffix or ".jpg"
+        if cover.content_type not in VALID_COVER_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid cover type. Must be one of: {VALID_COVER_TYPES}",
+            )
+        cover_ext = _EXT_BY_TYPE[cover.content_type]
         cover_path = story_dir / f"cover{cover_ext}"
-        with cover_path.open("wb") as f:
-            shutil.copyfileobj(cover.file, f)
+        _save_upload(cover, cover_path, settings.max_cover_upload_mb * 1024 * 1024)
         cover_filename = f"cover{cover_ext}"
 
     # Create story in manager
@@ -207,6 +255,8 @@ def update_story(
     Raises:
         HTTPException: If story not found or audio file is invalid
     """
+    settings = get_settings()
+
     # Verify story exists first
     existing_story = story_manager.get_story(story_id)
     if not existing_story:
@@ -227,11 +277,10 @@ def update_story(
                 detail=f"Invalid audio type. Must be one of: {VALID_AUDIO_TYPES}",
             )
 
-        # Save new audio file
-        audio_ext = Path(audio.filename).suffix or ".mp3"
+        # Save new audio file (extension from content-type)
+        audio_ext = _EXT_BY_TYPE[audio.content_type]
         new_audio_path = story_dir / f"audio{audio_ext}"
-        with new_audio_path.open("wb") as f:
-            shutil.copyfileobj(audio.file, f)
+        _save_upload(audio, new_audio_path, settings.max_audio_upload_mb * 1024 * 1024)
         audio_file = f"audio{audio_ext}"
 
         # Delete old audio file if extension changed
@@ -247,11 +296,14 @@ def update_story(
     # Handle cover image replacement/removal
     cover_image = existing_story.cover_image
     if cover:
-        # Save new cover file
-        cover_ext = Path(cover.filename).suffix or ".jpg"
+        if cover.content_type not in VALID_COVER_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid cover type. Must be one of: {VALID_COVER_TYPES}",
+            )
+        cover_ext = _EXT_BY_TYPE[cover.content_type]
         new_cover_path = story_dir / f"cover{cover_ext}"
-        with new_cover_path.open("wb") as f:
-            shutil.copyfileobj(cover.file, f)
+        _save_upload(cover, new_cover_path, settings.max_cover_upload_mb * 1024 * 1024)
         cover_image = f"cover{cover_ext}"
 
         # Delete old cover file if extension changed

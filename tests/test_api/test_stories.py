@@ -707,6 +707,134 @@ class TestTranscription:
         assert len(transcribe_spy) == 1
 
 
+class TestUploadHardening:
+    """IMPROVE.md Task 5: harden file uploads."""
+
+    def test_audio_over_size_limit_returns_413(self, client: TestClient, tmp_path):
+        """Audio larger than max_audio_upload_mb -> 413, no partial file left."""
+        # Create a 60MB audio file (limit is 50MB by default)
+        large_audio = b"x" * (60 * 1024 * 1024)
+        files = {"audio": ("audio.mp3", BytesIO(large_audio), "audio/mpeg")}
+        data = {"title": "Big Story", "emoji": "📚", "led_color": "#FF5733"}
+
+        response = client.post("/api/stories", files=files, data=data)
+
+        assert response.status_code == 413
+        # No partial audio file should remain in content/stories/
+        story_dirs = list(tmp_path.glob("content/stories/*/audio*"))
+        assert (
+            len(story_dirs) == 0
+        ), "Partial audio file left behind after 413 rejection"
+
+    def test_cover_over_size_limit_returns_413(self, client: TestClient, tmp_path):
+        """Cover larger than max_cover_upload_mb -> 413, no partial file left."""
+        large_cover = b"x" * (10 * 1024 * 1024)
+        files = {
+            "audio": ("audio.mp3", BytesIO(b"fake audio"), "audio/mpeg"),
+            "cover": ("cover.jpg", BytesIO(large_cover), "image/jpeg"),
+        }
+        data = {"title": "Big Cover", "emoji": "📚", "led_color": "#FF5733"}
+
+        response = client.post("/api/stories", files=files, data=data)
+
+        assert response.status_code == 413
+        story_dirs = list(tmp_path.glob("content/stories/*/cover*"))
+        assert (
+            len(story_dirs) == 0
+        ), "Partial cover file left behind after 413 rejection"
+
+    def test_cover_with_html_content_type_returns_400(self, client: TestClient):
+        """Cover with text/html content-type -> 400."""
+        files = {
+            "audio": ("audio.mp3", BytesIO(b"fake audio"), "audio/mpeg"),
+            "cover": ("cover.html", BytesIO(b"<script>alert(1)</script>"), "text/html"),
+        }
+        data = {"title": "XSS Story", "emoji": "📚", "led_color": "#FF5733"}
+
+        response = client.post("/api/stories", files=files, data=data)
+
+        assert response.status_code == 400
+        assert "cover" in response.json()["detail"].lower()
+
+    def test_upload_without_filename_returns_client_error_not_500(
+        self, client: TestClient
+    ):
+        """File part with no filename -> 4xx (not 500 from Path(None).suffix)."""
+        files = {"audio": (None, BytesIO(b"no name"), "audio/mpeg")}
+        data = {"title": "No Name", "emoji": "📚", "led_color": "#FF5733"}
+
+        response = client.post("/api/stories", files=files, data=data)
+
+        # FastAPI may return 422 (validation) or our 400; key is NOT 500
+        assert (
+            400 <= response.status_code < 500
+        ), f"Expected client error for missing filename, got {response.status_code}"
+
+    def test_extension_derived_from_content_type_not_filename(self, client: TestClient):
+        """A .png uploaded as image/png is saved as cover.png regardless of filename."""
+        files = {
+            "audio": ("audio.mp3", BytesIO(b"fake audio"), "audio/mpeg"),
+            "cover": ("evil.html", BytesIO(b"\x89PNG"), "image/png"),
+        }
+        data = {"title": "Tricky", "emoji": "📚", "led_color": "#FF5733"}
+
+        response = client.post("/api/stories", files=files, data=data)
+
+        assert response.status_code == 201
+        story = response.json()
+        assert story["cover_image"] == "cover.png"
+
+    def test_update_story_audio_over_limit_returns_413(
+        self, client: TestClient, tmp_path
+    ):
+        """PUT with oversized audio -> 413, no partial file."""
+        files = {"audio": ("audio.mp3", BytesIO(b"fake audio"), "audio/mpeg")}
+        data = {"title": "Test", "emoji": "📚", "led_color": "#FF5733"}
+        story_id = client.post("/api/stories", files=files, data=data).json()["id"]
+
+        large_audio = b"x" * (60 * 1024 * 1024)
+        new_files = {"audio": ("audio.mp3", BytesIO(large_audio), "audio/mpeg")}
+        update_data = {"title": "Test", "emoji": "📚", "led_color": "#FF5733"}
+
+        response = client.put(
+            f"/api/stories/{story_id}", files=new_files, data=update_data
+        )
+
+        assert response.status_code == 413
+
+    def test_update_story_cover_with_html_type_returns_400(self, client: TestClient):
+        """PUT with text/html cover -> 400."""
+        files = {"audio": ("audio.mp3", BytesIO(b"fake audio"), "audio/mpeg")}
+        data = {"title": "Test", "emoji": "📚", "led_color": "#FF5733"}
+        story_id = client.post("/api/stories", files=files, data=data).json()["id"]
+
+        new_files = {
+            "cover": ("cover.html", BytesIO(b"<html>"), "text/html"),
+        }
+        update_data = {"title": "Test", "emoji": "📚", "led_color": "#FF5733"}
+
+        response = client.put(
+            f"/api/stories/{story_id}", files=new_files, data=update_data
+        )
+
+        assert response.status_code == 400
+
+    def test_happy_path_within_limits_still_works(self, client: TestClient):
+        """Normal upload within limits still succeeds with correct filenames."""
+        files = {
+            "audio": ("story.mp3", BytesIO(b"audio data"), "audio/mpeg"),
+            "cover": ("pic.png", BytesIO(b"png data"), "image/png"),
+        }
+        data = {"title": "Happy", "emoji": "😊", "led_color": "#00FF00"}
+
+        response = client.post("/api/stories", files=files, data=data)
+
+        assert response.status_code == 201
+        story = response.json()
+        assert story["audio_file"] == "audio.mp3"
+        assert story["cover_image"] == "cover.png"
+
+
 class TestNonBlockingEventLoop:
     """IMPROVE.md Task 3: blocking I/O must not run on the event loop.
 
@@ -825,9 +953,7 @@ class TestNonBlockingEventLoop:
 
         asyncio.run(run_test())
 
-        assert any(
-            "get_story" in str(c) for c in calls
-        ), (
+        assert any("get_story" in str(c) for c in calls), (
             "set_led_state should use asyncio.to_thread for story_manager calls. "
             f"Calls: {calls}"
         )

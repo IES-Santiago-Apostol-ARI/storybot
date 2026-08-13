@@ -203,6 +203,34 @@ class TestNoModuleSettingsSingletons:
         )
 
 
+class TestUploadSizeLimits:
+    """IMPROVE.md Task 5: max_audio_upload_mb and max_cover_upload_mb settings."""
+
+    def test_default_max_audio_upload_mb_is_50(self):
+        from app.config import Settings
+
+        assert Settings().max_audio_upload_mb == 50
+
+    def test_default_max_cover_upload_mb_is_5(self):
+        from app.config import Settings
+
+        assert Settings().max_cover_upload_mb == 5
+
+    def test_max_audio_upload_mb_clamps_to_sane_range(self):
+        from app.config import Settings
+
+        assert Settings(max_audio_upload_mb=0).max_audio_upload_mb == 1
+        assert Settings(max_audio_upload_mb=-10).max_audio_upload_mb == 1
+        assert Settings(max_audio_upload_mb=10000).max_audio_upload_mb == 500
+
+    def test_max_cover_upload_mb_clamps_to_sane_range(self):
+        from app.config import Settings
+
+        assert Settings(max_cover_upload_mb=0).max_cover_upload_mb == 1
+        assert Settings(max_cover_upload_mb=-5).max_cover_upload_mb == 1
+        assert Settings(max_cover_upload_mb=5000).max_cover_upload_mb == 100
+
+
 class TestAtomicConfigSave:
     """IMPROVE.md Task 2: ConfigManager.save uses write_json_atomic."""
 

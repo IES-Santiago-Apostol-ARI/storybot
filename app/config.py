@@ -51,6 +51,10 @@ class Settings(BaseModel):
     # Story speaking-speed multiplier on top of tts_length_scale;
     # 1.0 = current speed, >1 faster, <1 slower. Clamped to [0.5, 2.0].
     tts_speed: float = 1.0
+    # Max upload sizes (MB). Clamped to sane ranges so a bad config.json
+    # value cannot disable protection or starve the SD card.
+    max_audio_upload_mb: int = 50
+    max_cover_upload_mb: int = 5
     # Whisper.cpp transcription of /admin audio uploads. Effective only when
     # the binary, model and ffmpeg exist on disk — dev machines without them
     # silently skip transcription (uploads still succeed).
@@ -81,6 +85,16 @@ class Settings(BaseModel):
         # Clamp instead of raising: a bad config.json value must not crash
         # the app at startup (matches the load()-falls-back-to-defaults ethos).
         return min(max(v, 0.5), 2.0)
+
+    @field_validator("max_audio_upload_mb")
+    @classmethod
+    def _clamp_max_audio_upload_mb(cls, v: int) -> int:
+        return min(max(v, 1), 500)
+
+    @field_validator("max_cover_upload_mb")
+    @classmethod
+    def _clamp_max_cover_upload_mb(cls, v: int) -> int:
+        return min(max(v, 1), 100)
 
 
 class ConfigManager:
