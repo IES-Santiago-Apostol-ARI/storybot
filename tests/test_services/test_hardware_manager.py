@@ -100,6 +100,19 @@ class TestHardwareManager:
         status = await hardware_manager.get_status()
         assert "nfc" in status["hardware"]
 
+    def test_get_service_returns_registered_instance(self, hardware_manager):
+        """get_service(name) returns the registered HardwareService instance."""
+        mock_service = MockService("led")
+        hardware_manager.register_service("led", mock_service)
+
+        retrieved = hardware_manager.get_service("led")
+        assert retrieved is mock_service
+
+    def test_get_service_returns_none_for_unknown(self, hardware_manager):
+        """get_service(name) returns None for an unregistered service name."""
+        result = hardware_manager.get_service("nonexistent")
+        assert result is None
+
     @pytest.mark.asyncio
     async def test_shutdown_cleans_up_all_services(self, hardware_manager):
         """HardwareManager.shutdown() cleans up all services."""

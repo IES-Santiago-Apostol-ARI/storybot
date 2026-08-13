@@ -231,3 +231,62 @@ class TestLifespanLEDEngineWiring:
             assert (
                 animator._health_down is True
             ), "A service in error status must drive _health_down True (D-05/LED-21)"
+
+
+class TestLifespanShutdownOrder:
+    """IMPROVE.md Task 8: bt_monitor must be cancelled BEFORE hardware.shutdown()."""
+
+    def test_bt_monitor_cancelled_before_hardware_shutdown(
+        self, lifespan_env, monkeypatch
+    ):
+        """bt_monitor_task cancel+gather must occur before hardware.shutdown().
+
+        BtMonitor.run() is a live writer: its polling loop calls route_to_wired /
+        route_to_bt, which reorganize the audio sink while the audio service is
+        being torn down. Cancelling after shutdown() risks racing against
+        half-shutdown hardware.
+        """
+        import asyncio
+
+        from app.main import app
+
+        order: list[str] = []
+
+        # Monkeypatch hardware.shutdown to record when it's called
+        from app.services.hardware_manager import HardwareManager
+
+        original_shutdown = HardwareManager.shutdown
+
+        async def _spy_shutdown(self):
+            order.append("shutdown")
+            return await original_shutdown(self)
+
+        monkeypatch.setattr(HardwareManager, "shutdown", _spy_shutdown)
+
+        # Monkeypatch BtMonitor.run to record when it receives CancelledError
+        from app.services.bt_monitor import BtMonitor
+
+        original_run = BtMonitor.run
+
+        async def _spy_run(self):
+            try:
+                return await original_run(self)
+            except asyncio.CancelledError:
+                order.append("bt_cancelled")
+                raise
+
+        monkeypatch.setattr(BtMonitor, "run", _spy_run)
+
+        with TestClient(app):
+            pass  # shutdown phase records order
+
+        assert (
+            "bt_cancelled" in order
+        ), "bt_monitor_task must be cancelled during shutdown"
+        assert "shutdown" in order, "hardware.shutdown() must be called during shutdown"
+        bt_idx = order.index("bt_cancelled")
+        shutdown_idx = order.index("shutdown")
+        assert bt_idx < shutdown_idx, (
+            "IMPROVE.md Task 8 RED: bt_monitor_task must be cancelled BEFORE "
+            f"hardware.shutdown() (observed order: {order})"
+        )

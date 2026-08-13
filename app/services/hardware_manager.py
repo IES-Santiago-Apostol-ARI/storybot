@@ -24,6 +24,10 @@ class HardwareManager:
         """
         self._services[name] = service
 
+    def get_service(self, name: str) -> HardwareService | None:
+        """Return a registered hardware service, or None when absent."""
+        return self._services.get(name)
+
     async def get_status(self) -> dict:
         """Get status of all hardware services.
 

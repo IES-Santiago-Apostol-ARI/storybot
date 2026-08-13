@@ -639,6 +639,76 @@ class TestCreatedAtTimestamp:
         assert parsed.utcoffset() == timedelta(0)
 
 
+class TestBootstrapIndexVersion:
+    """IMPROVE.md Task 10: lifespan bootstrap writes v2 format (with 'cards' key)."""
+
+    def test_bootstrap_index_has_version_2_and_cards_key(self, tmp_path, monkeypatch):
+        """A freshly bootstrapped stories.json must have version==2 and 'cards' key,
+        matching StoryManager._load_index default — no v1→v2 migration on next read."""
+        import json
+        from pathlib import Path
+        from unittest.mock import patch
+
+        content_dir = tmp_path / "content" / "stories"
+
+        def _fake_path(*args, **kwargs):
+            if len(args) >= 1 and args[0] == "content/stories":
+                return content_dir
+            return Path(*args, **kwargs)
+
+        monkeypatch.delenv("TESTING", raising=False)
+        monkeypatch.setenv("STORYBOT_LIFESPAN_TEST", "1")
+        monkeypatch.setenv("STORYBOT_AI", "0")
+
+        with patch("app.main.Path", _fake_path):
+            from fastapi.testclient import TestClient
+
+            from app.main import app
+
+            with TestClient(app):
+                pass  # startup bootstraps index
+
+        index_file = content_dir / "stories.json"
+        assert index_file.exists(), "Lifespan must create stories.json on first run"
+        index = json.loads(index_file.read_text())
+        assert (
+            index["version"] == 2
+        ), "IMPROVE.md Task 10 RED: bootstrap must write version==2, not version==1"
+        assert (
+            "cards" in index
+        ), "IMPROVE.md Task 10 RED: bootstrap must include 'cards' key"
+
+    def test_v1_to_v2_migration_still_works(self, tmp_path):
+        """Existing v1 indexes must still migrate correctly on load."""
+        import json
+
+        content_dir = tmp_path / "content" / "stories"
+        content_dir.mkdir(parents=True)
+        index_file = content_dir / "stories.json"
+        # Write a v1 index with NFC mappings
+        v1_index = {
+            "version": 1,
+            "stories": {"s1": {"title": "Test"}},
+            "nfc_to_story": {"uid1": "s1"},
+        }
+        index_file.write_text(json.dumps(v1_index))
+
+        from app.services.story_manager import StoryManager
+
+        manager = StoryManager()
+        manager.CONTENT_DIR = content_dir
+        manager.INDEX_FILE = index_file
+
+        loaded = manager._load_index()
+
+        assert loaded["version"] == 2
+        assert loaded["cards"]["uid1"] == {
+            "uid": "uid1",
+            "type": "story",
+            "story_id": "s1",
+        }
+
+
 class TestAtomicWrites:
     """IMPROVE.md Task 2: _save_index routes through write_json_atomic."""
 

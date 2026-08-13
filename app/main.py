@@ -176,7 +176,7 @@ async def lifespan(app: FastAPI):
     try:
         from app.services.led_animator import LedAnimator
 
-        app.state.led_animator = LedAnimator(hardware._services.get("led"))
+        app.state.led_animator = LedAnimator(hardware.get_service("led"))
         led_animator_task = asyncio.create_task(app.state.led_animator.run())
         # Expose the task on the engine for lifecycle observation (LED-06 test).
         app.state.led_animator._run_task = led_animator_task
@@ -225,7 +225,7 @@ async def lifespan(app: FastAPI):
 
     # Wire TTS pipeline to loaded engine (D-12 step 8: skip when ai disabled or testing)
     if profile.ai_enabled and not os.environ.get("TESTING"):
-        tts_engine = hardware._services.get("tts")
+        tts_engine = hardware.get_service("tts")
         if tts_engine:
             app.state.tts_pipeline = TTSPipeline(synthesizer=tts_engine)
 
@@ -240,7 +240,9 @@ async def lifespan(app: FastAPI):
             import json
 
             index_file.write_text(
-                json.dumps({"version": 1, "stories": {}, "nfc_to_story": {}})
+                json.dumps(
+                    {"version": 2, "stories": {}, "nfc_to_story": {}, "cards": {}}
+                )
             )
 
     # Phase 23 D-13: clear .update-state flag on successful boot.
@@ -291,7 +293,7 @@ async def lifespan(app: FastAPI):
         app.state.gpio_dispatcher = GpioDispatcher(
             gpio_events=app.state.gpio_events,
             kiosk_events=app.state.kiosk_events,
-            audio_player=hardware._services.get("audio"),
+            audio_player=hardware.get_service("audio"),
             led_animator=getattr(app.state, "led_animator", None),
             swap_orchestrator=getattr(app.state, "swap_orchestrator", None),
             playback_holder=app.state,
@@ -351,12 +353,16 @@ async def lifespan(app: FastAPI):
         gpio_dispatcher_task.cancel()
         await asyncio.gather(gpio_dispatcher_task, return_exceptions=True)
 
-    await hardware.shutdown()
-
-    # Phase 28 BOOT-04: clean cancel of health monitor.
+    # Phase 28 BOOT-04: clean cancel of health monitor — before hardware
+    # shutdown. BtMonitor.run() is a live writer: its polling loop calls
+    # route_to_wired / route_to_bt, which reorganize the audio sink while the
+    # audio service is being torn down. Same reason the LED animator is
+    # cancelled first.
     if bt_monitor_task:
         bt_monitor_task.cancel()
         await asyncio.gather(bt_monitor_task, return_exceptions=True)
+
+    await hardware.shutdown()
 
 
 app = FastAPI(
