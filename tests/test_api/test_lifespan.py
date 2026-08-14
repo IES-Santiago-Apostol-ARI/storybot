@@ -290,3 +290,28 @@ class TestLifespanShutdownOrder:
             "IMPROVE.md Task 8 RED: bt_monitor_task must be cancelled BEFORE "
             f"hardware.shutdown() (observed order: {order})"
         )
+
+
+class TestLifespanStateCleanup:
+    """Shutdown must not leak dead services on the module-level app.state."""
+
+    def test_bt_monitor_cleared_after_shutdown(self, lifespan_env):
+        """A leftover BtMonitor overlays sink/health_state on /api/bt/status.
+
+        Regression: a non-TESTING lifespan cycle installed a real BtMonitor;
+        shutdown cancelled its task but left the object on app.state. The next
+        test cycle (TESTING=1, no new monitor) then read the dead monitor's
+        initial sink="unknown" instead of the mock's "wired" (test_bt.py
+        ::test_status_has_sink_key failed in suite order).
+        """
+        from app.main import app
+
+        with TestClient(app):
+            assert getattr(
+                app.state, "bt_monitor", None
+            ) is not None, "lifespan must attach a BtMonitor when TESTING is unset"
+
+        assert getattr(app.state, "bt_monitor", None) is None, (
+            "lifespan shutdown must clear app.state.bt_monitor; a dead monitor "
+            "leaks sink='unknown' into /api/bt/status for later tests"
+        )

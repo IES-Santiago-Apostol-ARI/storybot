@@ -30,10 +30,6 @@ class TestBtStatusHealth:
         the endpoint must still return a valid BtStatus with backward-compatible
         defaults and all existing fields.
         """
-        # Ensure monitor is absent
-        if hasattr(app.state, "bt_monitor"):
-            del app.state.bt_monitor
-
         response = client.get("/api/bt/status")
         assert response.status_code == 200
         data = response.json()

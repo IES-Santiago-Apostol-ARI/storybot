@@ -361,6 +361,7 @@ async def lifespan(app: FastAPI):
     if bt_monitor_task:
         bt_monitor_task.cancel()
         await asyncio.gather(bt_monitor_task, return_exceptions=True)
+    app.state.bt_monitor = None
 
     await hardware.shutdown()
 
