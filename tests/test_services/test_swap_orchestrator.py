@@ -217,6 +217,74 @@ class TestWorkerTimeoutAlwaysRestartsLlama:
         worker_proc.kill.assert_called_once()
 
 
+class TestStopFailure:
+    """systemctl stop exits non-zero → probe llama health before spawning SD.
+
+    If the stop failed but llama-server is still alive, launching the SD
+    worker would make it race a live llama-server for VRAM → OOM on the 8 GB
+    Jetson. Abort instead. If llama is actually down, the stop's intended
+    effect happened anyway — proceed.
+    """
+
+    @patch("app.services.swap_orchestrator._llama_is_healthy", return_value=True)
+    @patch("app.services.swap_orchestrator._wait_for_llama_health", return_value=True)
+    @patch("app.services.swap_orchestrator.asyncio.create_subprocess_exec")
+    async def test_stop_nonzero_aborts_when_llama_healthy(
+        self, mock_exec, mock_health, mock_healthy, orchestrator, capsys
+    ):
+        stop_proc = _make_subprocess_mock(
+            returncode=1, stderr=b"sudo: a password is required\n"
+        )
+        mock_exec.return_value = stop_proc
+
+        result = await orchestrator.generate_cover_for_story("s1", "p", "n", 1)
+
+        assert result == (None, None, None)
+        # Only the stop was launched — the SD worker must NOT start while
+        # llama-server is alive.
+        assert mock_exec.call_count == 1
+        captured = capsys.readouterr()
+        log = json.loads(captured.err.strip().split("\n")[-1])
+        assert log["event"] == "llama_stop_failed"
+        assert log["reason"] == "nonzero_exit"
+        assert "sudo: a password is required" in log["detail"]
+
+    @patch("app.services.swap_orchestrator._llama_is_healthy", return_value=False)
+    @patch("app.services.swap_orchestrator._wait_for_llama_health", return_value=True)
+    @patch("app.services.swap_orchestrator.asyncio.create_subprocess_exec")
+    async def test_stop_nonzero_proceeds_when_llama_dead(
+        self, mock_exec, mock_health, mock_healthy, orchestrator
+    ):
+        stop_proc = _make_subprocess_mock(
+            returncode=1, stderr=b"sudo: a password is required\n"
+        )
+        worker_output = json.dumps(
+            {
+                "status": "ok",
+                "preview": "/a.png",
+                "print": "/b.png",
+                "gen_seconds": 5.0,
+            }
+        ).encode()
+        worker_proc = _make_subprocess_mock(stdout=worker_output)
+        start_proc = _make_subprocess_mock()
+
+        mock_exec.side_effect = [stop_proc, worker_proc, start_proc]
+
+        result = await orchestrator.generate_cover_for_story("s1", "p", "n", 1)
+
+        # Stop failed but llama is down: VRAM is free, so the swap proceeds.
+        assert result[0] is not None
+        assert result[1] is not None
+        # Health was probed after the failed stop...
+        mock_healthy.assert_awaited_once()
+        # ...and the finally relaunched llama.
+        assert mock_exec.call_count == 3
+        third_cmd = mock_exec.call_args_list[2]
+        assert "start" in third_cmd[0]
+        assert "llama-server" in third_cmd[0]
+
+
 class TestEnsureLlamaRunning:
     """Self-heal: generation can bring llama back if a prior swap left it dead."""
 

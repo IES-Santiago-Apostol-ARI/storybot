@@ -143,9 +143,29 @@ class SwapOrchestrator:
             "stop",
             "llama-server",
             stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
         )
-        await stop_proc.wait()
+        _, stop_stderr = await stop_proc.communicate()
+
+        if stop_proc.returncode != 0:
+            # The stop failed — log it (stderr used to go to DEVNULL, making
+            # this invisible) and probe whether llama-server is actually down.
+            print(
+                json.dumps(
+                    {
+                        "event": "llama_stop_failed",
+                        "reason": "nonzero_exit",
+                        "detail": stop_stderr.decode(errors="replace").strip(),
+                    }
+                ),
+                file=sys.stderr,
+            )
+            if await _llama_is_healthy():
+                # llama-server never stopped: aborting before the SD worker
+                # spawns so it cannot race a live llama-server for VRAM. No
+                # relaunch needed — it was never stopped (exits before the
+                # try/finally that restarts llama).
+                return (None, None, None)
 
         # 2. Brief settle delay — swap-in pressure makes MemAvailable unreliable
         # as a gate, so we trust sequential CPU offload in the worker.
