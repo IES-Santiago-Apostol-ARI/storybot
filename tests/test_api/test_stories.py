@@ -1010,6 +1010,46 @@ class TestNonBlockingEventLoop:
             stories._transcribe_story_audio
         ), "_transcribe_story_audio must remain async (awaits transcriber)"
 
+    def test_transcript_update_runs_off_the_event_loop(self, monkeypatch):
+        """_transcribe_story_audio must offload update_story from the loop.
+
+        update_story takes StoryManager._lock and writes the index to disk;
+        a sync endpoint in the threadpool may hold that lock, so the
+        background task must not wait for it on the event loop.
+        """
+        import asyncio
+        import threading
+        from pathlib import Path
+
+        from app.routers import stories
+
+        recorded_idents: list[int] = []
+
+        def spy_update_story(*args, **kwargs):
+            recorded_idents.append(threading.get_ident())
+
+        async def fake_transcribe(path):
+            return "fixed transcript"
+
+        monkeypatch.setattr("app.services.transcriber.transcribe", fake_transcribe)
+        monkeypatch.setattr(StoryManager, "update_story", spy_update_story)
+
+        loop_ident: list[int] = []
+
+        async def run_test():
+            loop_ident.append(threading.get_ident())
+            await stories._transcribe_story_audio(
+                StoryManager(), "story-1", Path("audio.mp3")
+            )
+
+        asyncio.run(run_test())
+
+        assert recorded_idents, "update_story was never called"
+        assert recorded_idents[0] != loop_ident[0], (
+            "update_story ran on the event loop thread; it must be "
+            "offloaded with asyncio.to_thread"
+        )
+
     def test_cards_routes_are_not_coroutines(self):
         """Routes in cards.py that do no async work must be plain def."""
         import inspect

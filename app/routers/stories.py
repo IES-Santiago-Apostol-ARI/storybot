@@ -1,5 +1,6 @@
 """Story CRUD API endpoints."""
 
+import asyncio
 import json
 import shutil
 import sys
@@ -81,7 +82,9 @@ async def _transcribe_story_audio(
         )
         return
     if text:
-        story_manager.update_story(story_id=story_id, transcript=text)
+        await asyncio.to_thread(
+            story_manager.update_story, story_id=story_id, transcript=text
+        )
 
 
 # NFC lookup endpoint MUST be defined before /{story_id} to avoid path conflicts
