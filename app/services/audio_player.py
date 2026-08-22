@@ -38,6 +38,7 @@ class RealAudioPlayer(AudioPlayer):
     def __init__(self) -> None:
         """Initialize real audio player."""
         self._playback_obj: object | None = None
+        self._wait_task: asyncio.Task | None = None
         self._playing = False
         self._available = self._check_availability()
 
@@ -61,6 +62,11 @@ class RealAudioPlayer(AudioPlayer):
         if not self._available:
             raise RuntimeError("Audio system not available")
 
+        # Stop any in-flight playback first: otherwise the old stream keeps
+        # playing (self._playback_obj gets overwritten) and its wait task races
+        # the new one.
+        await self.stop()
+
         file_path = Path(file_path)
 
         # Convert MP3 to WAV if needed
@@ -75,8 +81,10 @@ class RealAudioPlayer(AudioPlayer):
             self._playback_obj = wave_obj.play()
             self._playing = True
 
-            # Wait for playback to complete in background
-            asyncio.create_task(self._wait_for_completion())
+            # Wait for playback to complete in background. Keep a strong
+            # reference so the task cannot be garbage-collected while pending
+            # ("Task was destroyed but it is pending").
+            self._wait_task = asyncio.create_task(self._wait_for_completion())
 
         except Exception as e:
             self._playing = False
@@ -119,6 +127,12 @@ class RealAudioPlayer(AudioPlayer):
 
     async def stop(self) -> None:
         """Stop current playback."""
+        if self._wait_task is not None:
+            # Cancel the completion waiter. The CancelledError stays contained
+            # in the task; _wait_for_completion already snapshots the handle,
+            # so there is no use-after-free.
+            self._wait_task.cancel()
+            self._wait_task = None
         if self._playback_obj is not None:
             try:
                 self._playback_obj.stop()
@@ -165,6 +179,8 @@ class MockAudioPlayer(AudioPlayer):
         """Initialize mock audio player."""
         self._playing = False
         self._current_file: Path | None = None
+        self._play_token: int = 0
+        self._end_task: asyncio.Task | None = None
 
     @property
     def is_mock(self) -> bool:
@@ -180,16 +196,23 @@ class MockAudioPlayer(AudioPlayer):
         self._current_file = Path(file_path)
         self._playing = True
 
-        # Simulate playback ending after a short time
-        asyncio.create_task(self._simulate_playback_end())
+        # Bump the generation token so a stale end-task from a previous play()
+        # cannot flip _playing off. Keep a strong reference to the task so it
+        # is not garbage-collected while pending.
+        self._play_token += 1
+        token = self._play_token
+        self._end_task = asyncio.create_task(self._simulate_playback_end(token))
 
-    async def _simulate_playback_end(self) -> None:
+    async def _simulate_playback_end(self, token: int) -> None:
         """Simulate playback ending."""
         await asyncio.sleep(0.5)  # Simulate short playback
-        self._playing = False
+        if token == self._play_token:
+            self._playing = False
 
     async def stop(self) -> None:
         """Stop simulated playback."""
+        # Invalidate any pending end-task so it cannot flip _playing off later.
+        self._play_token += 1
         self._playing = False
         self._current_file = None
 

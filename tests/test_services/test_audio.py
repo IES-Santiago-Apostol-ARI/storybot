@@ -1,6 +1,11 @@
 """Tests for audio player service."""
 
 import asyncio
+import contextlib
+import importlib.machinery
+import sys
+import types
+from pathlib import Path
 
 import pytest
 
@@ -77,6 +82,28 @@ class TestMockAudioPlayer:
         assert mock_audio_player.is_playing is False
 
     @pytest.mark.asyncio
+    async def test_stale_end_task_does_not_kill_new_playback(
+        self, mock_audio_player, tmp_path
+    ):
+        """A new play() must survive the previous playback's end task."""
+        wav_file = tmp_path / "test.wav"
+        wav_file.write_bytes(
+            b"RIFF\x24\x00\x00\x00WAVEfmt "
+            b"\x10\x00\x00\x00\x01\x00\x01\x00\x44\xac\x00\x00\x88\x58\x01\x00"
+            b"\x02\x00\x10\x00data\x00\x00\x00\x00"
+        )
+
+        await mock_audio_player.play(wav_file)
+        await asyncio.sleep(0.1)
+        await mock_audio_player.play(wav_file)
+        # The first play's stale end-task fires 0.5 s after it started (t=0.5);
+        # the second playback ends naturally 0.5 s after it started (t=0.6).
+        # Check inside that window so we assert the stale task did not kill the
+        # new playback, not that the new playback already finished.
+        await asyncio.sleep(0.45)
+        assert mock_audio_player.is_playing is True
+
+    @pytest.mark.asyncio
     async def test_mock_audio_player_get_status(self, mock_audio_player):
         """Test getting mock audio player status."""
         status = await mock_audio_player.get_status()
@@ -127,3 +154,68 @@ class TestRealAudioPlayerStopRace:
 
         await asyncio.wait_for(wait_task, timeout=1.0)
         assert player.is_playing is False
+
+
+class TestRealAudioPlayer:
+    """play() must stop previous playback and keep the wait task reachable."""
+
+    @pytest.fixture
+    def fake_simpleaudio(self, monkeypatch):
+        """Install a fake simpleaudio module and return the created playbacks."""
+        created: list[_FakePlayback] = []
+
+        class _FakeWaveObject:
+            @classmethod
+            def from_wave_file(cls, path):
+                return cls()
+
+            def play(self):
+                playback = _FakePlayback()
+                created.append(playback)
+                return playback
+
+        module = types.ModuleType("simpleaudio")
+        module.__spec__ = importlib.machinery.ModuleSpec("simpleaudio", loader=None)
+        setattr(module, "WaveObject", _FakeWaveObject)
+        monkeypatch.setitem(sys.modules, "simpleaudio", module)
+        return created
+
+    @staticmethod
+    def _make_wav(tmp_path) -> Path:
+        wav_file = tmp_path / "test.wav"
+        wav_file.write_bytes(
+            b"RIFF\x24\x00\x00\x00WAVEfmt "
+            b"\x10\x00\x00\x00\x01\x00\x01\x00\x44\xac\x00\x00\x88\x58\x01\x00"
+            b"\x02\x00\x10\x00data\x00\x00\x00\x00"
+        )
+        return wav_file
+
+    @pytest.mark.asyncio
+    async def test_play_stops_previous_playback(self, tmp_path, fake_simpleaudio):
+        """A second play() must stop the first playback object."""
+        player = RealAudioPlayer()
+        player._available = True
+        wav_file = self._make_wav(tmp_path)
+
+        await player.play(wav_file)
+        await player.play(wav_file)
+
+        assert fake_simpleaudio[0]._playing is False
+
+    @pytest.mark.asyncio
+    async def test_stop_cancels_wait_task(self, tmp_path, fake_simpleaudio):
+        """stop() must cancel the background wait task and clear its ref."""
+        player = RealAudioPlayer()
+        player._available = True
+        wav_file = self._make_wav(tmp_path)
+
+        await player.play(wav_file)
+        assert player._wait_task is not None
+        wait_task = player._wait_task
+
+        await player.stop()
+
+        assert player._wait_task is None
+        with contextlib.suppress(asyncio.CancelledError):
+            await wait_task
+        assert wait_task.cancelled()
