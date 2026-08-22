@@ -130,14 +130,44 @@ class RealNFCService(NFCService):
 
         return _Observer()
 
+    def _claim_monitor_start(self) -> bool:
+        """Reserve the monitor start. True = this caller gets to start it.
+
+        The reservation happens under the lock but the monitor itself is
+        built outside it: with _START_ON_DEMAND_ = False, addObserver calls
+        observer.update() synchronously in the calling thread, and
+        _Observer.update takes this same (non-reentrant) lock — starting the
+        monitor inside the lock would deadlock the event loop while a card
+        is on the reader.
+        """
+        with self._lock:
+            if self._polling or self._shutdown_event.is_set():
+                return False
+            self._polling = True  # reservation; monitor built outside the lock
+            return True
+
+    def _try_start_monitor(self) -> None:
+        """Claim the start under the lock, build the monitor outside it.
+
+        Rolls the claim back if _start_monitor raises so the next caller can
+        retry; the exception is re-raised to the caller.
+        """
+        if not self._claim_monitor_start():
+            return
+        try:
+            self._start_monitor()
+        except Exception:
+            with self._lock:
+                self._polling = False
+            raise
+
     def _start_monitor(self) -> None:
-        """Start CardMonitor background thread."""
+        """Start CardMonitor background thread. Caller must hold the claim."""
         from smartcard.CardMonitoring import CardMonitor
 
         self._observer = self._make_observer()
         self._monitor = CardMonitor()
         self._monitor.addObserver(self._observer)
-        self._polling = True
 
     def _retry_loop(self) -> None:
         """Background thread: re-check availability until reader found or shutdown."""
@@ -148,8 +178,7 @@ class RealNFCService(NFCService):
             if self._check_availability():
                 logger.info("NFC reader detected after replug — starting monitor")
                 self._available = True
-                if not self._polling:
-                    self._start_monitor()
+                self._try_start_monitor()
                 break
 
     async def start_polling(self, callback: Callable[[str], None]) -> None:
@@ -160,8 +189,8 @@ class RealNFCService(NFCService):
         with self._lock:
             if callback not in self._callbacks:
                 self._callbacks.append(callback)
-        if self._available and not self._polling:
-            self._start_monitor()
+        if self._available:
+            self._try_start_monitor()
 
     async def stop_polling(self, callback: Callable[[str], None] | None = None) -> None:
         """Unregister callback. Monitor keeps running until shutdown()."""
@@ -200,7 +229,7 @@ class RealNFCService(NFCService):
 
         self._available = self._check_availability()
         if self._available:
-            self._start_monitor()
+            self._try_start_monitor()
         else:
             logging.getLogger(__name__).warning(
                 "NFC reader not available at startup — retrying every %.0fs. "
@@ -215,8 +244,8 @@ class RealNFCService(NFCService):
     async def shutdown(self) -> None:
         """Shutdown NFC service — stop CardMonitor."""
         self._shutdown_event.set()
-        self._polling = False
         with self._lock:
+            self._polling = False
             self._callbacks.clear()
         if self._monitor is not None and self._observer is not None:
             try:

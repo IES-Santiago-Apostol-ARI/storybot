@@ -2,6 +2,8 @@
 
 import asyncio
 import sys
+import threading
+from unittest import mock
 
 import pytest
 
@@ -332,5 +334,97 @@ class TestCreateNFCService:
         # Should have required methods regardless of type
         assert hasattr(service, "start_polling")
         assert hasattr(service, "stop_polling")
-        assert hasattr(service, "is_mock")
+        assert hasattr(service, "is_polling")
         assert hasattr(service, "get_status")
+
+
+class TestMonitorStartRace:
+    """Tarea 4: the nfc-retry thread and the event loop must never start the
+    CardMonitor twice — two addObserver calls on the singleton mean every tap
+    fires the callbacks twice and one observer leaks past shutdown()."""
+
+    @staticmethod
+    def _make_service() -> RealNFCService:
+        service = RealNFCService()
+        service._available = True
+        return service
+
+    def test_monitor_started_once_under_race(self):
+        """Two callers racing at the barrier: exactly one addObserver."""
+        import smartcard.CardMonitoring as card_monitoring  # noqa: N813
+
+        for _ in range(20):
+            calls: list = []
+            calls_lock = threading.Lock()
+            errors: list = []
+
+            class CountingCardMonitor:
+                def addObserver(self, observer):  # noqa: N802
+                    with calls_lock:
+                        calls.append(observer)
+
+                def deleteObserver(self, observer):  # noqa: N802
+                    pass
+
+            service = self._make_service()
+            barrier = threading.Barrier(2)
+
+            def retry_path():
+                try:
+                    barrier.wait()
+                    if service._claim_monitor_start():
+                        service._start_monitor()
+                except Exception as e:  # a dying thread would hide the race
+                    errors.append(e)
+
+            def polling_path():
+                try:
+                    barrier.wait()
+                    asyncio.run(service.start_polling(lambda uid: None))
+                except Exception as e:
+                    errors.append(e)
+
+            with mock.patch.object(
+                card_monitoring, "CardMonitor", CountingCardMonitor
+            ):
+                threads = [
+                    threading.Thread(target=retry_path),
+                    threading.Thread(target=polling_path),
+                ]
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join()
+
+            assert not errors
+            assert len(calls) == 1
+
+    def test_no_monitor_start_after_shutdown(self):
+        """shutdown() sets the event; the retry-loop body must not start."""
+        import smartcard.CardMonitoring as card_monitoring  # noqa: N813
+
+        calls: list = []
+
+        class CountingCardMonitor:
+            def addObserver(self, observer):  # noqa: N802
+                calls.append(observer)
+
+        service = self._make_service()
+        asyncio.run(service.shutdown())
+        # retry-loop body after shutdown
+        if service._claim_monitor_start():
+            with mock.patch.object(
+                card_monitoring, "CardMonitor", CountingCardMonitor
+            ):
+                service._start_monitor()
+        assert calls == []
+
+    def test_start_monitor_failure_releases_claim(self):
+        """A failed start must roll the claim back so it can be retried."""
+        service = self._make_service()
+        with mock.patch.object(
+            service, "_start_monitor", side_effect=RuntimeError("boom")
+        ):
+            with pytest.raises(RuntimeError):
+                service._try_start_monitor()
+        assert service.is_polling is False
