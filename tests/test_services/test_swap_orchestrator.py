@@ -284,6 +284,61 @@ class TestStopFailure:
         assert "start" in third_cmd[0]
         assert "llama-server" in third_cmd[0]
 
+    @patch("app.services.swap_orchestrator._llama_is_healthy", return_value=True)
+    @patch("app.services.swap_orchestrator._wait_for_llama_health", return_value=True)
+    @patch("app.services.swap_orchestrator.asyncio.create_subprocess_exec")
+    async def test_stop_timeout_kills_and_aborts_when_healthy(
+        self, mock_exec, mock_health, mock_healthy, orchestrator, capsys
+    ):
+        """A hung `systemctl stop` must be killed, not wedge the lock: probe
+        health, and if llama is still alive abort before the SD worker spawns."""
+        stop_proc = _make_subprocess_mock()
+        stop_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
+        stop_proc.kill = MagicMock()
+        mock_exec.return_value = stop_proc
+
+        result = await orchestrator.generate_cover_for_story("s1", "p", "n", 1)
+
+        assert result == (None, None, None)
+        stop_proc.kill.assert_called_once()
+        # Only the stop was launched — the SD worker must NOT start.
+        assert mock_exec.call_count == 1
+        captured = capsys.readouterr()
+        log = json.loads(captured.err.strip().split("\n")[-1])
+        assert log["event"] == "llama_stop_failed"
+        assert log["reason"] == "stop_timeout_still_healthy"
+
+    @patch("app.services.swap_orchestrator._llama_is_healthy", return_value=False)
+    @patch("app.services.swap_orchestrator._wait_for_llama_health", return_value=False)
+    @patch("app.services.swap_orchestrator.asyncio.create_subprocess_exec")
+    async def test_start_timeout_raises_relaunch_error(
+        self, mock_exec, mock_health, mock_healthy, orchestrator
+    ):
+        """A hung `systemctl start` in the finally is killed and falls through
+        to the existing health check, which fails → LlamaRelaunchError."""
+        stop_proc = _make_subprocess_mock()
+        worker_output = json.dumps(
+            {
+                "status": "ok",
+                "preview": "/a.png",
+                "print": "/b.png",
+                "gen_seconds": 5.0,
+            }
+        ).encode()
+        worker_proc = _make_subprocess_mock(stdout=worker_output)
+        start_proc = _make_subprocess_mock()
+        # First await (the bounded wait) hangs; after kill() the process is
+        # reaped, so the second wait returns.
+        start_proc.wait = AsyncMock(side_effect=[asyncio.TimeoutError, None])
+        start_proc.kill = MagicMock()
+
+        mock_exec.side_effect = [stop_proc, worker_proc, start_proc]
+
+        with pytest.raises(LlamaRelaunchError):
+            await orchestrator.generate_cover_for_story("s1", "p", "n", 1)
+
+        start_proc.kill.assert_called_once()
+
 
 class TestEnsureLlamaRunning:
     """Self-heal: generation can bring llama back if a prior swap left it dead."""
@@ -359,6 +414,34 @@ class TestEnsureLlamaRunning:
 
         assert ok is True
         assert observed["locked_during_restart"] is True
+        assert orchestrator._lock.locked() is False  # released afterward
+
+    @patch("app.services.swap_orchestrator.asyncio.create_subprocess_exec")
+    async def test_ensure_llama_running_start_timeout_returns_false(
+        self, mock_exec, orchestrator
+    ):
+        """A hung `systemctl start` must be killed and fall through to the
+        health check (False) — and the lock MUST be released, or every later
+        cover drops on busy and this self-heal never runs again."""
+        start_proc = _make_subprocess_mock()
+        start_proc.wait = AsyncMock(side_effect=[asyncio.TimeoutError, None])
+        start_proc.kill = MagicMock()
+        mock_exec.return_value = start_proc
+
+        with (
+            patch(
+                "app.services.swap_orchestrator._llama_is_healthy",
+                new=AsyncMock(return_value=False),
+            ),
+            patch(
+                "app.services.swap_orchestrator._wait_for_llama_health",
+                new=AsyncMock(return_value=False),
+            ),
+        ):
+            ok = await orchestrator.ensure_llama_running()
+
+        assert ok is False
+        start_proc.kill.assert_called_once()
         assert orchestrator._lock.locked() is False  # released afterward
 
 

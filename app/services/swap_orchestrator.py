@@ -15,6 +15,11 @@ SD_WORKER = (
 )
 MEM_SETTLE_S = 3
 LLAMA_TIMEOUT_S = 30
+# Upper bound on `sudo systemctl` stop/start. An unbounded await on a hung
+# systemctl would block the coroutine while holding SwapOrchestrator._lock, so
+# every later cover drops on busy and ensure_llama_running() returns False
+# forever — the device is wedged until a reboot.
+SYSTEMCTL_TIMEOUT_S = 30
 # Upper bound on the SD cover worker. Enforced INSIDE the orchestrator so the
 # llama-server restart (in a finally) always runs — unlike the old external
 # asyncio.wait_for() in generate.py, which cancelled the swap mid-cycle and
@@ -54,6 +59,32 @@ async def _wait_for_llama_health(timeout_s: float) -> bool:
     return False
 
 
+async def _start_llama_server() -> None:
+    """Start llama-server via systemctl, bounded by SYSTEMCTL_TIMEOUT_S.
+
+    The callers hold SwapOrchestrator._lock, so a hung systemctl must be
+    killed instead of blocking forever. On timeout the process is killed and
+    control falls through to the caller's existing health check, which fails
+    and produces LlamaRelaunchError / healthy=False exactly as today.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        "sudo",
+        "systemctl",
+        "start",
+        "llama-server",
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    try:
+        await asyncio.wait_for(proc.wait(), SYSTEMCTL_TIMEOUT_S)
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+            await proc.wait()
+        except ProcessLookupError:
+            pass
+
+
 class SwapOrchestrator:
     """Orchestrates the llama↔SD swap cycle for cover generation."""
 
@@ -81,15 +112,7 @@ class SwapOrchestrator:
         try:
             if await _llama_is_healthy():
                 return True
-            start_proc = await asyncio.create_subprocess_exec(
-                "sudo",
-                "systemctl",
-                "start",
-                "llama-server",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            await start_proc.wait()
+            await _start_llama_server()
             healthy = await _wait_for_llama_health(LLAMA_TIMEOUT_S)
             print(
                 json.dumps({"event": "llama_restarted_on_demand", "healthy": healthy}),
@@ -145,22 +168,48 @@ class SwapOrchestrator:
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
         )
-        _, stop_stderr = await stop_proc.communicate()
+        stop_timed_out = False
+        try:
+            _, stop_stderr = await asyncio.wait_for(
+                stop_proc.communicate(), SYSTEMCTL_TIMEOUT_S
+            )
+        except asyncio.TimeoutError:
+            stop_timed_out = True
+            # Kill the hung systemctl so it cannot wedge self._lock forever;
+            # the health probe below decides whether the stop happened anyway.
+            try:
+                stop_proc.kill()
+                await stop_proc.wait()
+            except ProcessLookupError:
+                pass
+            stop_stderr = b""
 
-        if stop_proc.returncode != 0:
-            # The stop failed — log it (stderr used to go to DEVNULL, making
-            # this invisible) and probe whether llama-server is actually down.
+        if stop_timed_out or stop_proc.returncode != 0:
+            # The stop failed (hung or non-zero exit) — log it (stderr used to
+            # go to DEVNULL, making this invisible) and probe whether
+            # llama-server is actually down.
+            still_healthy = await _llama_is_healthy()
+            if stop_timed_out:
+                reason = (
+                    "stop_timeout_still_healthy"
+                    if still_healthy
+                    else "stop_timeout_unhealthy"
+                )
+                detail = f"systemctl stop exceeded {SYSTEMCTL_TIMEOUT_S}s"
+            else:
+                reason = "nonzero_exit"
+                detail = stop_stderr.decode(errors="replace").strip()
             print(
                 json.dumps(
                     {
                         "event": "llama_stop_failed",
-                        "reason": "nonzero_exit",
-                        "detail": stop_stderr.decode(errors="replace").strip(),
+                        "reason": reason,
+                        "detail": detail,
                     }
                 ),
                 file=sys.stderr,
             )
-            if await _llama_is_healthy():
+            if still_healthy:
                 # llama-server never stopped: aborting before the SD worker
                 # spawns so it cannot race a live llama-server for VRAM. No
                 # relaunch needed — it was never stopped (exits before the
@@ -208,15 +257,7 @@ class SwapOrchestrator:
                     pass
         finally:
             # 4. Always restart llama-server
-            start_proc = await asyncio.create_subprocess_exec(
-                "sudo",
-                "systemctl",
-                "start",
-                "llama-server",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            await start_proc.wait()
+            await _start_llama_server()
 
         # 5. Verify llama is back
         healthy = await _wait_for_llama_health(LLAMA_TIMEOUT_S)
