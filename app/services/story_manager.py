@@ -37,7 +37,7 @@ class StoryManager:
 
     def __init__(self) -> None:
         """Initialize StoryManager."""
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
     def _load_index(self) -> dict:
         """Load story index from JSON file.
@@ -498,87 +498,98 @@ class StoryManager:
         copies the cover (if present), registers via create_story, and
         deletes the generated directory on success.
         """
-        if not _is_valid_generated_id(generated_id):
-            raise ValueError(f"invalid generated id: {generated_id!r}")
+        with self._lock:
+            if not _is_valid_generated_id(generated_id):
+                raise ValueError(f"invalid generated id: {generated_id!r}")
 
-        src_dir = self.GENERATED_DIR / generated_id
-        if not src_dir.exists() or not (src_dir / "story.json").exists():
-            raise FileNotFoundError(f"generated story {generated_id} not found")
+            src_dir = self.GENERATED_DIR / generated_id
+            if not src_dir.exists() or not (src_dir / "story.json").exists():
+                raise FileNotFoundError(f"generated story {generated_id} not found")
 
-        audio_dir = src_dir / "audio"
-        segments = sorted(audio_dir.glob("*.wav")) if audio_dir.exists() else []
-        if not segments:
-            raise FileNotFoundError(f"no audio segments under {audio_dir}")
+            audio_dir = src_dir / "audio"
+            segments = sorted(audio_dir.glob("*.wav")) if audio_dir.exists() else []
+            if not segments:
+                raise FileNotFoundError(f"no audio segments under {audio_dir}")
 
-        # Verify all segments share params.
-        params_ref = None
-        with wave.open(str(segments[0]), "rb") as wf0:
-            params_ref = (wf0.getnchannels(), wf0.getsampwidth(), wf0.getframerate())
-        for seg in segments[1:]:
-            with wave.open(str(seg), "rb") as wf:
-                seg_params = (wf.getnchannels(), wf.getsampwidth(), wf.getframerate())
-                if seg_params != params_ref:
-                    print(
-                        json.dumps(
-                            {
-                                "event": "promote_segment_format_mismatch",
-                                "story_id": generated_id,
-                                "segment": seg.name,
-                            }
-                        ),
-                        file=sys.stderr,
-                    )
-                    raise ValueError(f"segment {seg.name} has incompatible WAV params")
-
-        # Reserve the new curated id so we can write audio before create_story.
-        new_id = str(uuid.uuid4())
-        curated_dir = self.CONTENT_DIR / new_id
-        curated_dir.mkdir(parents=True, exist_ok=True)
-
-        audio_out = curated_dir / "narration.wav"
-        with wave.open(str(audio_out), "wb") as out:
-            out.setnchannels(params_ref[0])
-            out.setsampwidth(params_ref[1])
-            out.setframerate(params_ref[2])
-            for seg in segments:
+            # Verify all segments share params.
+            params_ref = None
+            with wave.open(str(segments[0]), "rb") as wf0:
+                params_ref = (
+                    wf0.getnchannels(),
+                    wf0.getsampwidth(),
+                    wf0.getframerate(),
+                )
+            for seg in segments[1:]:
                 with wave.open(str(seg), "rb") as wf:
-                    out.writeframes(wf.readframes(wf.getnframes()))
+                    seg_params = (
+                        wf.getnchannels(),
+                        wf.getsampwidth(),
+                        wf.getframerate(),
+                    )
+                    if seg_params != params_ref:
+                        print(
+                            json.dumps(
+                                {
+                                    "event": "promote_segment_format_mismatch",
+                                    "story_id": generated_id,
+                                    "segment": seg.name,
+                                }
+                            ),
+                            file=sys.stderr,
+                        )
+                        raise ValueError(
+                            f"segment {seg.name} has incompatible WAV params"
+                        )
 
-        # Copy cover if present.
-        cover_src = src_dir / "cover-preview.png"
-        cover_image_field: str | None = None
-        if cover_src.exists():
-            cover_dst = curated_dir / "cover-preview.png"
-            shutil.copy2(cover_src, cover_dst)
-            cover_image_field = "cover-preview.png"
+            # Reserve the new curated id so we can write audio before create_story.
+            new_id = str(uuid.uuid4())
+            curated_dir = self.CONTENT_DIR / new_id
+            curated_dir.mkdir(parents=True, exist_ok=True)
 
-        print(
-            json.dumps(
-                {"event": "promote_started", "src": generated_id, "new_id": new_id}
-            ),
-            file=sys.stderr,
-        )
+            audio_out = curated_dir / "narration.wav"
+            with wave.open(str(audio_out), "wb") as out:
+                out.setnchannels(params_ref[0])
+                out.setsampwidth(params_ref[1])
+                out.setframerate(params_ref[2])
+                for seg in segments:
+                    with wave.open(str(seg), "rb") as wf:
+                        out.writeframes(wf.readframes(wf.getnframes()))
 
-        # Register in stories.json — create_story accepts explicit id.
-        story = self.create_story(
-            id=new_id,
-            title=title,
-            emoji=emoji,
-            led_color=led_color,
-            audio_file="narration.wav",
-            cover_image=cover_image_field,
-        )
+            # Copy cover if present.
+            cover_src = src_dir / "cover-preview.png"
+            cover_image_field: str | None = None
+            if cover_src.exists():
+                cover_dst = curated_dir / "cover-preview.png"
+                shutil.copy2(cover_src, cover_dst)
+                cover_image_field = "cover-preview.png"
 
-        # Delete-on-promote.
-        shutil.rmtree(src_dir)
-        print(
-            json.dumps(
-                {
-                    "event": "promote_complete",
-                    "src": generated_id,
-                    "new_id": story.id,
-                }
-            ),
-            file=sys.stderr,
-        )
-        return story
+            print(
+                json.dumps(
+                    {"event": "promote_started", "src": generated_id, "new_id": new_id}
+                ),
+                file=sys.stderr,
+            )
+
+            # Register in stories.json — create_story accepts explicit id.
+            story = self.create_story(
+                id=new_id,
+                title=title,
+                emoji=emoji,
+                led_color=led_color,
+                audio_file="narration.wav",
+                cover_image=cover_image_field,
+            )
+
+            # Delete-on-promote.
+            shutil.rmtree(src_dir)
+            print(
+                json.dumps(
+                    {
+                        "event": "promote_complete",
+                        "src": generated_id,
+                        "new_id": story.id,
+                    }
+                ),
+                file=sys.stderr,
+            )
+            return story

@@ -4,11 +4,13 @@ Plan 16-02 turns these GREEN.
 """
 
 import json
+import threading
 import wave
 from pathlib import Path
 
 import pytest
 
+from app.models.story import Story
 from app.services.story_manager import StoryManager
 
 
@@ -134,3 +136,46 @@ class TestStoryManagerPromoteGenerated:
             story_manager.promote_generated(
                 generated_id="nope", title="T", emoji="🐉", led_color="#FF5733"
             )
+
+
+class TestStoryManagerPromoteGeneratedConcurrent:
+    def test_concurrent_promote_same_id_only_one_wins(self, story_manager):
+        _seed_generated(story_manager, "uuid-a", n_segments=2)
+        barrier = threading.Barrier(2)
+        results: dict[str, object] = {}
+
+        def worker(name: str) -> None:
+            try:
+                barrier.wait()
+                results[name] = story_manager.promote_generated(
+                    generated_id="uuid-a",
+                    title="Mi cuento",
+                    emoji="🐉",
+                    led_color="#FF5733",
+                )
+            except FileNotFoundError as exc:
+                results[name] = exc
+
+        threads = [threading.Thread(target=worker, args=(n,)) for n in ("a", "b")]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        outcomes = list(results.values())
+        winners = [o for o in outcomes if isinstance(o, Story)]
+        losers = [o for o in outcomes if isinstance(o, FileNotFoundError)]
+        assert len(winners) == 1, f"expected exactly one winner, got {len(winners)}"
+        assert len(losers) == 1, (
+            f"expected exactly one FileNotFoundError, got {len(losers)}"
+        )
+
+        stories = story_manager.list_stories()
+        assert len(stories) == 1
+        assert stories[0].id == winners[0].id
+
+        audio_file = story_manager.CONTENT_DIR / winners[0].id / winners[0].audio_file
+        with wave.open(str(audio_file), "rb") as wf:
+            assert wf.getnframes() == 2 * 22050
+
+        assert not (story_manager.GENERATED_DIR / "uuid-a").exists()
