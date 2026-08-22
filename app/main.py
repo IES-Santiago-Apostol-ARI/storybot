@@ -177,7 +177,18 @@ async def lifespan(app: FastAPI):
     _ = config.load()
 
     # Initialize hardware detection — D-15: pass ai_enabled explicitly.
-    await hardware.detect_hardware(ai_enabled=profile.ai_enabled)
+    # Isolate failures: a single peripheral fault (corrupt config, pyscard
+    # import in RealNFCService._start_monitor) must degrade, not kill, boot.
+    try:
+        await hardware.detect_hardware(ai_enabled=profile.ai_enabled)
+    except Exception as e:
+        import json
+        import sys
+
+        print(
+            json.dumps({"event": "hardware_detect_failed", "reason": type(e).__name__}),
+            file=sys.stderr,
+        )
 
     # Phase 32 LED-06: construct the LedAnimator render engine on the
     # already-probed led driver and start its loop UNCONDITIONALLY (D-12 /
