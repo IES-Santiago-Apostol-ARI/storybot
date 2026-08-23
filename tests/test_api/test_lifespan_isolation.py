@@ -42,15 +42,15 @@ class TestDetectHardwareFailureIsolation:
 
         with TestClient(app) as client:
             state = client.app.state
-            assert hasattr(state, "hardware"), (
-                "app.state.hardware must exist even when detect_hardware raises"
-            )
-            assert hasattr(state, "config"), (
-                "app.state.config must exist even when detect_hardware raises"
-            )
-            assert hasattr(state, "story_manager"), (
-                "app.state.story_manager must exist even when detect_hardware raises"
-            )
+            assert hasattr(
+                state, "hardware"
+            ), "app.state.hardware must exist even when detect_hardware raises"
+            assert hasattr(
+                state, "config"
+            ), "app.state.config must exist even when detect_hardware raises"
+            assert hasattr(
+                state, "story_manager"
+            ), "app.state.story_manager must exist even when detect_hardware raises"
 
         captured = capsys.readouterr()
         assert "hardware_detect_failed" in captured.err, (
