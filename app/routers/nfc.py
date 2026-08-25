@@ -65,7 +65,7 @@ async def read_nfc_cards(
         # (T-33-11). Every call below is None-guarded so a missing engine
         # degrades to no LED feedback rather than breaking the NFC SSE stream.
         animator = getattr(request.app.state, "led_animator", None)
-        nfc_service = hardware._services.get("nfc")
+        nfc_service = hardware.get_service("nfc")
         if not nfc_service:
             yield {
                 "event": "error",
@@ -156,7 +156,7 @@ async def get_nfc_status(
     hardware: HardwareManager = Depends(get_hardware),
 ) -> dict:
     """Get NFC service status."""
-    nfc_service = hardware._services.get("nfc")
+    nfc_service = hardware.get_service("nfc")
     if not nfc_service:
         return {
             "name": "nfc",

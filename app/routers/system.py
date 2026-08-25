@@ -122,7 +122,7 @@ async def rescan_hardware(
     # engine at the freshly-probed driver; otherwise it would keep writing to the
     # orphaned old driver (split-brain / dual SPI owners).
     if animator is not None:
-        animator.set_driver(hardware._services.get("led"))
+        animator.set_driver(hardware.get_service("led"))
     status_dict["platform"] = detect_platform()
     return SystemStatus(**status_dict)
 

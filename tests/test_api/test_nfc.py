@@ -136,7 +136,7 @@ class TestNFCReadEventStream:
         from app.routers.nfc import read_nfc_cards
 
         mock_hardware = MagicMock()
-        mock_hardware._services = {}
+        mock_hardware.get_service.return_value = None
         mock_story_manager = MagicMock()
 
         response = await read_nfc_cards(
@@ -163,7 +163,7 @@ class TestNFCReadEventStream:
         mock_nfc.stop_polling = AsyncMock()
 
         mock_hardware = MagicMock()
-        mock_hardware._services = {"nfc": mock_nfc}
+        mock_hardware.get_service.return_value = mock_nfc
         mock_story_manager = MagicMock()
 
         response = await read_nfc_cards(
@@ -206,7 +206,7 @@ class TestNFCReadEventStream:
         mock_nfc.stop_polling = AsyncMock()
 
         mock_hardware = MagicMock()
-        mock_hardware._services = {"nfc": mock_nfc}
+        mock_hardware.get_service.return_value = mock_nfc
         mock_story_manager = MagicMock()
         mock_story_manager.get_card.return_value = None
 

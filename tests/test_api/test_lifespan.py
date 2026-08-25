@@ -57,17 +57,23 @@ def _seed_fresh_dir(generated: Path, story_id: str) -> Path:
 
 @pytest.fixture
 def lifespan_env(tmp_path, monkeypatch):
-    """Point GENERATED_DIR at a tmp dir, disable TESTING gate so lifespan body runs."""
+    """Point StoryManager's dirs at tmp, disable TESTING gate so lifespan body runs."""
     generated = tmp_path / "generated"
     generated.mkdir()
+    stories = tmp_path / "stories"
+    stories.mkdir()
     # Disable TESTING so the lifespan actually invokes the sweeper / printer factory.
     monkeypatch.delenv("TESTING", raising=False)
     monkeypatch.setenv("STORYBOT_LIFESPAN_TEST", "1")
+    # Opt in to the startup sweeps — safe only because every dir below is tmp.
+    monkeypatch.setenv("STORYBOT_SWEEP_TEST", "1")
     # Force AI enabled so Phase 16 tests see swap_orchestrator / tts_pipeline.
     monkeypatch.setenv("STORYBOT_AI", "1")
     from app.services.story_manager import StoryManager
 
     monkeypatch.setattr(StoryManager, "GENERATED_DIR", generated)
+    monkeypatch.setattr(StoryManager, "CONTENT_DIR", stories)
+    monkeypatch.setattr(StoryManager, "INDEX_FILE", stories / "stories.json")
     return generated
 
 
@@ -307,11 +313,65 @@ class TestLifespanStateCleanup:
         from app.main import app
 
         with TestClient(app):
-            assert getattr(
-                app.state, "bt_monitor", None
-            ) is not None, "lifespan must attach a BtMonitor when TESTING is unset"
+            assert (
+                getattr(app.state, "bt_monitor", None) is not None
+            ), "lifespan must attach a BtMonitor when TESTING is unset"
 
         assert getattr(app.state, "bt_monitor", None) is None, (
             "lifespan shutdown must clear app.state.bt_monitor; a dead monitor "
             "leaks sink='unknown' into /api/bt/status for later tests"
         )
+
+
+class TestLifespanSweeperTestIsolation:
+    """The startup sweeps must never run against real content during tests.
+
+    A test that repoints only part of StoryManager's dirs (index in tmp, tree
+    on disk) makes live content look unreferenced, and the sweeps then delete
+    it for real. Tests exercising the sweeps opt in with STORYBOT_SWEEP_TEST=1.
+    """
+
+    def _tmp_trees(self, tmp_path, monkeypatch):
+        generated = tmp_path / "generated"
+        generated.mkdir()
+        stories = tmp_path / "stories"
+        stories.mkdir()
+        from app.services.story_manager import StoryManager
+
+        monkeypatch.setattr(StoryManager, "GENERATED_DIR", generated)
+        monkeypatch.setattr(StoryManager, "CONTENT_DIR", stories)
+        monkeypatch.setattr(StoryManager, "INDEX_FILE", stories / "stories.json")
+        return generated
+
+    def test_sweeps_skipped_when_testing_env_set(self, tmp_path, monkeypatch):
+        generated = self._tmp_trees(tmp_path, monkeypatch)
+        monkeypatch.setenv("TESTING", "1")
+        monkeypatch.delenv("STORYBOT_SWEEP_TEST", raising=False)
+        stale = _seed_stale_dir(generated, "stale-uuid", age_seconds=8 * 86400)
+
+        from app.main import app
+
+        with TestClient(app):
+            pass
+
+        assert (
+            stale.exists()
+        ), "lifespan must not sweep while TESTING is set — sweeps delete real content"
+
+    def test_sweeps_skipped_in_lifespan_tests_without_optin(
+        self, tmp_path, monkeypatch
+    ):
+        generated = self._tmp_trees(tmp_path, monkeypatch)
+        monkeypatch.delenv("TESTING", raising=False)
+        monkeypatch.setenv("STORYBOT_LIFESPAN_TEST", "1")
+        monkeypatch.delenv("STORYBOT_SWEEP_TEST", raising=False)
+        stale = _seed_stale_dir(generated, "stale-uuid", age_seconds=8 * 86400)
+
+        from app.main import app
+
+        with TestClient(app):
+            pass
+
+        assert (
+            stale.exists()
+        ), "lifespan tests must opt in to sweeping with STORYBOT_SWEEP_TEST=1"

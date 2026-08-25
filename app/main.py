@@ -118,13 +118,24 @@ async def lifespan(app: FastAPI):
         }
     )
 
-    # Phase 16 D-13: 7-day disk hygiene for content/generated/<uuid>/.
+    # Phase 16 D-13: 7-day disk hygiene for content/generated/<uuid>/ and for
+    # content/stories/<uuid>/ dirs the index no longer references.
     import asyncio
 
+    # Never sweep under pytest: the sweeps delete real content, and a test that
+    # repoints only part of StoryManager's dirs (index in tmp, tree on disk)
+    # makes live content look unreferenced. Tests that exercise the sweeps opt
+    # in with STORYBOT_SWEEP_TEST=1 after repointing every dir at a tmp tree.
+    _under_test = os.environ.get("TESTING") or os.environ.get("STORYBOT_LIFESPAN_TEST")
     try:
-        from app.services.generated_sweeper import sweep_generated
+        if not _under_test or os.environ.get("STORYBOT_SWEEP_TEST"):
+            from app.services.generated_sweeper import (
+                sweep_generated,
+                sweep_orphan_story_dirs,
+            )
 
-        await asyncio.to_thread(sweep_generated, story_manager)
+            await asyncio.to_thread(sweep_generated, story_manager)
+            await asyncio.to_thread(sweep_orphan_story_dirs, story_manager)
     except Exception as e:
         import json
         import sys

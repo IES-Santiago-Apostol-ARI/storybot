@@ -1122,7 +1122,7 @@ class TestNonBlockingEventLoop:
             mock_nfc.stop_polling = AsyncMock()
 
             mock_hardware = MagicMock()
-            mock_hardware._services = {"nfc": mock_nfc}
+            mock_hardware.get_service.return_value = mock_nfc
 
             mock_story_manager = MagicMock()
             mock_story_manager.get_card.return_value = None

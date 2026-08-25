@@ -246,12 +246,9 @@ sudo apt install ccache ffmpeg
 git clone https://github.com/ggml-org/whisper.cpp
 cd whisper.cpp
 
-cmake -B build \
-    -DGGML_CUDA=ON \
-    -DCMAKE_CUDA_COMPILER=/usr/local/cuda-12.6/bin/nvcc \
-    -DCMAKE_CUDA_ARCHITECTURES="87" \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DGGML_NATIVE=ON
+# Compilación solo CPU: el código invoca whisper-cli con --no-gpu, así que
+# las flags CUDA no tendrían ningún efecto en ejecución.
+cmake -B build -DCMAKE_BUILD_TYPE=Release
 
 cmake --build build --config Release -j$(nproc)
 
@@ -259,20 +256,27 @@ cmake --build build --config Release -j$(nproc)
 ./models/download-ggml-model.sh small
 ```
 
-Después, copiar el modelo y dar acceso al binario:
+Esto deja el binario en `build/bin/whisper-cli` y el modelo en
+`models/ggml-small.bin`, ambos dentro del directorio `whisper.cpp`. Como el
+binario no está en el `PATH` (igual que `llama-server`), lo más simple es
+apuntar a ambos con rutas **absolutas** en `content/config.json`:
 
-```bash
-# Desde el directorio whisper.cpp; ~/storybot = raíz de este repositorio
-mkdir -p ~/storybot/models/whisper
-cp models/ggml-small.bin ~/storybot/models/whisper/
-sudo ln -s "$(pwd)/build/bin/whisper-cli" /usr/local/bin/whisper-cli
+```json
+{
+  "whisper_bin": "/home/ari/whisper.cpp/build/bin/whisper-cli",
+  "whisper_model": "/home/ari/whisper.cpp/models/ggml-small.bin"
+}
 ```
 
-Configuración en `content/config.json` (valores por defecto):
+Valores por defecto si no se sobrescriben:
 
 - `transcription_enabled`: `true`
-- `whisper_bin`: `whisper-cli` (se resuelve vía PATH; admite ruta absoluta)
+- `whisper_bin`: `whisper-cli` (se resuelve vía PATH)
 - `whisper_model`: `models/whisper/ggml-small.bin` (relativa a la raíz del proyecto)
+
+Tras editar `content/config.json` hay que reiniciar el servicio
+(`sudo systemctl restart storybot`): `ConfigManager` cachea los ajustes al
+arrancar.
 
 La transcripción se ejecuta en segundo plano al subir/reemplazar el audio de
 una historia, en CPU (`--no-gpu`) para no competir con llama-server/SD por la
