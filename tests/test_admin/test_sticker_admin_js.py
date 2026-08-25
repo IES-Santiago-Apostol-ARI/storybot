@@ -204,8 +204,9 @@ class TestStoryCardLayout:
     """The fourth action button must not crush the card info column.
 
     Regression guard for the 'Pegatina IA' button: with four actions the
-    desktop row no longer fits the 600px container, so the actions must wrap
-    and the info column needs a min-width floor.
+    desktop row no longer fits the 600px container, so the actions must be
+    laid out in a fixed-width 2x2 grid and the info column needs a
+    min-width floor.
     """
 
     def test_story_info_has_rem_min_width_floor(self, css_text):
@@ -217,19 +218,24 @@ class TestStoryCardLayout:
             r"min-width:\s*\d+(\.\d+)?rem", block
         ), ".story-info needs a rem min-width floor"
 
-    def test_desktop_story_actions_wrap(self, css_text):
+    def test_desktop_story_actions_use_grid(self, css_text):
         media = _css_rule_block(css_text, "@media (min-width: 768px)")
         block = _css_rule_block(media, ".story-actions")
-        assert (
-            "flex-wrap: wrap" in block
-        ), "desktop .story-actions must wrap so four buttons can take two rows"
+        assert "display: grid" in block, "desktop .story-actions must use a grid layout"
 
-    def test_desktop_story_actions_shrink(self, css_text):
+    def test_desktop_story_actions_grid_two_columns(self, css_text):
         media = _css_rule_block(css_text, "@media (min-width: 768px)")
         block = _css_rule_block(media, ".story-actions")
         assert (
-            "flex-shrink: 1" in block
-        ), "desktop .story-actions must be allowed to shrink"
+            "grid-template-columns: repeat(2, 1fr)" in block
+        ), "desktop .story-actions must lay the four buttons out in two columns"
+
+    def test_desktop_story_actions_buttons_are_content_sized(self, css_text):
+        media = _css_rule_block(css_text, "@media (min-width: 768px)")
+        block = _css_rule_block(media, ".story-actions .btn")
+        assert (
+            "width: auto" in block
+        ), "desktop .story-actions .btn must override the base .btn width: 100%"
 
     def test_base_story_actions_stay_column(self, css_text):
         block = _css_rule_block(css_text, ".story-actions")

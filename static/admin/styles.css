@@ -641,13 +641,18 @@ input[type="color"] {
         border-radius: 8px 8px 0 0;
     }
 
-    /* Four action buttons no longer fit one row inside the 600px container,
-       so let them wrap into two rows instead of crushing the info column */
+    /* Cuatro acciones no caben en una fila dentro del contenedor de 600px:
+       en escritorio se reparten en una rejilla 2x2 de ancho fijo, para que la
+       columna de información conserve su espacio. */
     .story-actions {
-        flex-direction: row;
-        flex-wrap: wrap;
-        flex-shrink: 1;
-        justify-content: flex-end;
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        width: 15rem;
+        flex-shrink: 0;
+    }
+
+    .story-actions .btn {
+        width: auto;
     }
 }
 
