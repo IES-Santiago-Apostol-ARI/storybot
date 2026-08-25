@@ -3,9 +3,14 @@
 import asyncio
 import json
 import os
+import platform
 import shutil
 import sys
 from pathlib import Path
+
+# Where the Jetson's system apt packages live (python3-jetson-gpio). Module
+# level so tests can point it at a fixture directory.
+_SYSTEM_DIST_PACKAGES = Path("/usr/lib/python3/dist-packages")
 
 
 async def _run_git(*args: str, cwd: Path | None = None) -> tuple[str, str, int]:
@@ -122,6 +127,45 @@ async def _run_ruff(cwd: Path | None = None) -> int:
     return proc.returncode if proc.returncode is not None else -1
 
 
+def _relink_jetson_gpio(repo_dir: Path) -> None:
+    """Restore the system Jetson.GPIO symlink that ``uv sync`` prunes.
+
+    On the Jetson, Jetson.GPIO ships as a system apt package and is symlinked
+    into the venv by deploy/install.sh. It lives in the ``jetson`` extra, which
+    aarch64 deliberately skips, so the plain ``uv sync`` an update runs
+    uninstalls it — after which gpio_handler silently falls back to the Mock
+    and the physical buttons stop working. Re-link after every sync.
+    """
+    if platform.machine() != "aarch64":
+        return
+    site_dirs = sorted((repo_dir / ".venv" / "lib").glob("python3*/site-packages"))
+    if not site_dirs:
+        return
+    site_packages = site_dirs[0]
+    system_pkg = _SYSTEM_DIST_PACKAGES / "Jetson"
+    if not system_pkg.is_dir():
+        _log_event("jetson_gpio_relink_skipped", reason="system_package_missing")
+        return
+    targets = [
+        system_pkg,
+        *sorted(_SYSTEM_DIST_PACKAGES.glob("Jetson.GPIO-*.egg-info")),
+    ]
+    for target in targets:
+        link = site_packages / target.name
+        try:
+            if link.is_symlink() or link.exists():
+                link.unlink()
+            link.symlink_to(target)
+        except OSError as e:
+            _log_event(
+                "jetson_gpio_relink_failed",
+                target=str(target),
+                reason=type(e).__name__,
+            )
+            return
+    _log_event("jetson_gpio_relinked", site_packages=str(site_packages))
+
+
 def _log_event(event: str, **kwargs: object) -> None:
     """Structured JSON log to stderr (same pattern as wifi_manager)."""
     print(
@@ -227,6 +271,7 @@ class RealUpdateManager(UpdateManager):
                     "error": f"uv sync failed (rc={sync_rc})",
                 }
                 return
+            _relink_jetson_gpio(self._repo_dir)
 
             # Stage 4: Checking (ruff check)
             yield {"stage": "checking", "done": False}
@@ -252,6 +297,7 @@ class RealUpdateManager(UpdateManager):
         """Roll back to previous commit and sync dependencies (D-01, D-02)."""
         await _run_git("reset", "--hard", prev_hash, cwd=self._repo_dir)
         await _run_uv("sync", cwd=self._repo_dir)
+        _relink_jetson_gpio(self._repo_dir)
         _log_event("update_rolled_back", prev_hash=prev_hash)
 
     def _write_update_flag(self, prev_hash: str) -> None:

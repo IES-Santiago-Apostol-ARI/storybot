@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.models.updates import UpdateCheckResponse, UpdateVersionResponse
+from app.services import update_manager as um
 from app.services.update_manager import (
     MockUpdateManager,
     RealUpdateManager,
@@ -594,3 +595,97 @@ class TestRunGitCwd:
             call_kwargs = call[1]
             assert "cwd" in call_kwargs, "git must be called with cwd set"
             assert call_kwargs["cwd"] == mgr._repo_dir
+
+
+# ---------------------------------------------------------------------------
+# Jetson.GPIO relink after uv sync
+#
+# On the Jetson, Jetson.GPIO is a system apt package symlinked into the venv by
+# deploy/install.sh. It lives in the `jetson` extra, so the plain `uv sync` an
+# update runs prunes it ("Would uninstall 1 package - jetson-gpio") and the
+# physical buttons silently fall back to the Mock after every OTA.
+# ---------------------------------------------------------------------------
+
+
+def _make_fake_jetson_env(tmp_path, monkeypatch, machine="aarch64"):
+    """Build a fake system dist-packages + venv site-packages pair."""
+    dist = tmp_path / "dist-packages"
+    (dist / "Jetson").mkdir(parents=True)
+    (dist / "Jetson.GPIO-2.1.9.egg-info").mkdir()
+    repo = tmp_path / "repo"
+    site = repo / ".venv" / "lib" / "python3.10" / "site-packages"
+    site.mkdir(parents=True)
+    monkeypatch.setattr(um, "_SYSTEM_DIST_PACKAGES", dist)
+    monkeypatch.setattr(um.platform, "machine", lambda: machine)
+    return dist, repo, site
+
+
+class TestRelinkJetsonGpio:
+    """_relink_jetson_gpio restores what `uv sync` prunes."""
+
+    def test_relinks_package_and_egg_info(self, tmp_path, monkeypatch):
+        dist, repo, site = _make_fake_jetson_env(tmp_path, monkeypatch)
+        um._relink_jetson_gpio(repo)
+        assert (site / "Jetson").is_symlink()
+        assert (site / "Jetson").resolve() == dist / "Jetson"
+        assert (site / "Jetson.GPIO-2.1.9.egg-info").is_symlink()
+
+    def test_idempotent_when_link_already_present(self, tmp_path, monkeypatch):
+        dist, repo, site = _make_fake_jetson_env(tmp_path, monkeypatch)
+        um._relink_jetson_gpio(repo)
+        um._relink_jetson_gpio(repo)
+        assert (site / "Jetson").resolve() == dist / "Jetson"
+
+    def test_noop_on_non_aarch64(self, tmp_path, monkeypatch):
+        _, repo, site = _make_fake_jetson_env(tmp_path, monkeypatch, machine="x86_64")
+        um._relink_jetson_gpio(repo)
+        assert not (site / "Jetson").exists()
+
+    def test_noop_when_system_package_missing(self, tmp_path, monkeypatch):
+        dist, repo, site = _make_fake_jetson_env(tmp_path, monkeypatch)
+        (dist / "Jetson").rmdir()
+        um._relink_jetson_gpio(repo)  # must not raise
+        assert not (site / "Jetson").exists()
+
+    def test_noop_when_venv_missing(self, tmp_path, monkeypatch):
+        dist, repo, _ = _make_fake_jetson_env(tmp_path, monkeypatch)
+        um._relink_jetson_gpio(tmp_path / "no-such-repo")  # must not raise
+
+
+class TestApplyRelinksJetsonGpio:
+    """Every `uv sync` an update runs is followed by a relink."""
+
+    @patch("app.services.update_manager._relink_jetson_gpio")
+    @patch("app.services.update_manager.asyncio.create_subprocess_exec")
+    async def test_relink_after_successful_sync(self, mock_exec, mock_relink):
+        mock_exec.side_effect = [
+            _make_subprocess_mock(stdout=b"abc1234\n"),  # rev-parse HEAD
+            _make_subprocess_mock(returncode=0),  # git fetch
+            _make_subprocess_mock(returncode=0),  # git reset
+            _make_subprocess_mock(returncode=0),  # uv sync
+            _make_subprocess_mock(returncode=0),  # ruff check
+            _make_subprocess_mock(returncode=0),  # restart
+        ]
+        mgr = RealUpdateManager()
+        events = [event async for event in mgr.apply_update()]
+        assert events[-1]["stage"] == "restarting"
+        mock_relink.assert_called_with(mgr._repo_dir)
+        (mgr._repo_dir / ".update-state").unlink(missing_ok=True)
+
+    @patch("app.services.update_manager._relink_jetson_gpio")
+    @patch("app.services.update_manager.asyncio.create_subprocess_exec")
+    async def test_relink_after_rollback_sync(self, mock_exec, mock_relink):
+        """The rollback path syncs too, so it must relink as well."""
+        mock_exec.side_effect = [
+            _make_subprocess_mock(stdout=b"abc1234\n"),  # rev-parse HEAD
+            _make_subprocess_mock(returncode=0),  # git fetch
+            _make_subprocess_mock(returncode=0),  # git reset
+            _make_subprocess_mock(returncode=0),  # uv sync
+            _make_subprocess_mock(returncode=1),  # ruff check fails
+            _make_subprocess_mock(returncode=0),  # rollback git reset
+            _make_subprocess_mock(returncode=0),  # rollback uv sync
+        ]
+        mgr = RealUpdateManager()
+        events = [event async for event in mgr.apply_update()]
+        assert events[-1]["stage"] == "error"
+        assert mock_relink.call_count == 2  # forward sync + rollback sync
