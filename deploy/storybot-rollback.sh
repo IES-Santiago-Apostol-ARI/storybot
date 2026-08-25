@@ -76,6 +76,18 @@ except Exception:
         exit 0
     fi
 
+    # Resolve uv: systemd's PATH does not include ~/.local/bin, where
+    # install.sh puts it, and there is no uv inside the venv.
+    UV_BIN="$(command -v uv 2>/dev/null || true)"
+    if [[ -z "$UV_BIN" ]]; then
+        for candidate in "$HOME/.local/bin/uv" "$WORK_DIR/.venv/bin/uv"; do
+            if [[ -x "$candidate" ]]; then
+                UV_BIN="$candidate"
+                break
+            fi
+        done
+    fi
+
     # Perform rollback in a subshell — errors are logged but do not
     # prevent the service from starting (which may already be running
     # the old code after a manual fix)
@@ -83,7 +95,24 @@ except Exception:
         set -e
         cd "$WORK_DIR"
         git reset --hard "$PREV_HASH"
-        "$WORK_DIR/.venv/bin/uv" sync
+        if [[ -n "$UV_BIN" ]]; then
+            "$UV_BIN" sync
+            # uv sync prunes the system Jetson.GPIO symlink install.sh made
+            # (it lives in the `jetson` extra, skipped on aarch64). Without
+            # it the GPIO buttons fall back to the Mock. Mirror install.sh.
+            if [[ "$(uname -m)" == "aarch64" ]]; then
+                SYS_JETSON="/usr/lib/python3/dist-packages/Jetson"
+                VENV_SITE="$WORK_DIR/.venv/lib/python3.10/site-packages"
+                if [[ -d "$SYS_JETSON" && -d "$VENV_SITE" ]]; then
+                    ln -sfn "$SYS_JETSON" "$VENV_SITE/Jetson"
+                    for egg in /usr/lib/python3/dist-packages/Jetson.GPIO-*.egg-info; do
+                        [[ -e "$egg" ]] && ln -sfn "$egg" "$VENV_SITE/$(basename "$egg")"
+                    done
+                fi
+            fi
+        else
+            echo "storybot-rollback: uv not found, dependencies not synced" >&2
+        fi
     ) || true
 
     exit 0

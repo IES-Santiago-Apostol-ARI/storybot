@@ -447,3 +447,54 @@ class TestCompletionBanner:
         assert re.search(r"[Ss]kipped", after_banner), (
             "Completion banner should list skipped items for stories-only mode"
         )
+
+
+# ---------------------------------------------------------------------------
+# OTA rollback script (ExecStartPre)
+# ---------------------------------------------------------------------------
+
+ROLLBACK_SCRIPT = Path("deploy/storybot-rollback.sh")
+
+
+@pytest.fixture(scope="module")
+def rollback_text():
+    """Read the OTA rollback script once per module."""
+    return ROLLBACK_SCRIPT.read_text(encoding="utf-8")
+
+
+class TestRollbackScriptUv:
+    """The rollback path must find a uv that actually exists."""
+
+    def test_does_not_invoke_hardcoded_venv_uv(self, rollback_text):
+        """`.venv/bin/uv` does not exist: install.sh puts uv in ~/.local/bin."""
+        assert '"$WORK_DIR/.venv/bin/uv" sync' not in rollback_text, (
+            "Rollback hardcodes a uv path that install.sh never creates, so "
+            "the dependency rollback silently fails"
+        )
+
+    def test_resolves_uv_from_path(self, rollback_text):
+        assert (
+            "command -v uv" in rollback_text
+        ), "Rollback should look for uv on PATH first"
+
+    def test_falls_back_to_home_local_bin(self, rollback_text):
+        assert (
+            ".local/bin/uv" in rollback_text
+        ), "Rollback should fall back to the install.sh uv location"
+
+    def test_syncs_through_resolved_binary(self, rollback_text):
+        assert (
+            '"$UV_BIN" sync' in rollback_text
+        ), "Rollback should sync through the resolved uv binary"
+
+
+class TestRollbackScriptGpioRelink:
+    """`uv sync` prunes the Jetson.GPIO symlink; the rollback must restore it."""
+
+    def test_relinks_system_jetson_gpio(self, rollback_text):
+        assert (
+            "dist-packages/Jetson" in rollback_text
+        ), "Rollback should relink the system Jetson.GPIO after uv sync"
+        assert (
+            "ln -sfn" in rollback_text
+        ), "Rollback should recreate the venv symlink (as install.sh does)"
