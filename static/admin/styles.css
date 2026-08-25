@@ -641,9 +641,10 @@ input[type="color"] {
         border-radius: 8px 8px 0 0;
     }
 
-    /* Cuatro acciones no caben en una fila dentro del contenedor de 600px:
-       en escritorio se reparten en una rejilla 2x2 de ancho fijo, para que la
-       columna de información conserve su espacio. */
+    /* Four actions do not fit one row inside the 600px container, so desktop
+       lays them out as a fixed-width 2x2 grid — that keeps the info column
+       from being crushed. .btn defaults to width:100%, which would make the
+       first button claim a whole row, so it is content-sized here. */
     .story-actions {
         display: grid;
         grid-template-columns: repeat(2, 1fr);
