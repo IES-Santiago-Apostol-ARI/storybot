@@ -296,7 +296,7 @@ input[type="color"] {
 
 .story-info {
     flex-grow: 1;
-    min-width: 0;
+    min-width: 10rem;
 }
 
 .story-title {
@@ -641,8 +641,13 @@ input[type="color"] {
         border-radius: 8px 8px 0 0;
     }
 
+    /* Four action buttons no longer fit one row inside the 600px container,
+       so let them wrap into two rows instead of crushing the info column */
     .story-actions {
         flex-direction: row;
+        flex-wrap: wrap;
+        flex-shrink: 1;
+        justify-content: flex-end;
     }
 }
 

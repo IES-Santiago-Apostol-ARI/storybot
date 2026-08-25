@@ -75,6 +75,28 @@ def _sticker_block(text):
     raise AssertionError("unbalanced braces in openPrintWindow")
 
 
+def _css_rule_block(text, selector):
+    """Return the brace-matched block of the first rule for `selector`.
+
+    Works for plain rules (`.story-info`) and at-rules
+    (`@media (min-width: 768px)`); the block is delimited at its closing
+    brace so nested braces inside the rule body are handled.
+    """
+    start = text.find(selector)
+    assert start >= 0, f"{selector!r} not found in styles.css"
+    brace = text.find("{", start)
+    assert brace > start, f"no body brace found for {selector!r}"
+    depth = 1
+    for i in range(brace + 1, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    raise AssertionError(f"unbalanced braces in {selector!r}")
+
+
 class TestStickerModalHtml:
     def test_modal_overlay_exists(self, html_text):
         assert '<div id="sticker-modal" class="modal-overlay" hidden>' in html_text
@@ -176,3 +198,41 @@ class TestStickerCss:
         assert re.search(
             r"#sticker-preview\s*\{", css_text
         ), "styles.css missing #sticker-preview rule"
+
+
+class TestStoryCardLayout:
+    """The fourth action button must not crush the card info column.
+
+    Regression guard for the 'Pegatina IA' button: with four actions the
+    desktop row no longer fits the 600px container, so the actions must wrap
+    and the info column needs a min-width floor.
+    """
+
+    def test_story_info_has_rem_min_width_floor(self, css_text):
+        block = _css_rule_block(css_text, ".story-info")
+        assert (
+            "min-width: 0" not in block
+        ), ".story-info must not keep min-width: 0 (lets the column collapse)"
+        assert re.search(
+            r"min-width:\s*\d+(\.\d+)?rem", block
+        ), ".story-info needs a rem min-width floor"
+
+    def test_desktop_story_actions_wrap(self, css_text):
+        media = _css_rule_block(css_text, "@media (min-width: 768px)")
+        block = _css_rule_block(media, ".story-actions")
+        assert (
+            "flex-wrap: wrap" in block
+        ), "desktop .story-actions must wrap so four buttons can take two rows"
+
+    def test_desktop_story_actions_shrink(self, css_text):
+        media = _css_rule_block(css_text, "@media (min-width: 768px)")
+        block = _css_rule_block(media, ".story-actions")
+        assert (
+            "flex-shrink: 1" in block
+        ), "desktop .story-actions must be allowed to shrink"
+
+    def test_base_story_actions_stay_column(self, css_text):
+        block = _css_rule_block(css_text, ".story-actions")
+        assert (
+            "flex-direction: column" in block
+        ), "mobile .story-actions layout (column) must not change"
