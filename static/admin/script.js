@@ -2597,8 +2597,7 @@ function openStickerModal(story) {
         status.classList.remove('error');
         status.hidden = true;
     }
-    const previewWrap = document.getElementById('sticker-preview-wrap');
-    if (previewWrap) previewWrap.hidden = true;
+    showStickerPlaceholder();
     const printButton = document.getElementById('sticker-print');
     if (printButton) printButton.hidden = true;
     const generateButton = document.getElementById('sticker-generate');
@@ -2618,8 +2617,14 @@ function closeStickerModal() {
 async function loadExistingSticker(storyId) {
     try {
         const response = await fetch('/api/stories/' + encodeURIComponent(storyId) + '/sticker');
-        if (response.status === 404) return;
-        if (!response.ok) return;
+        if (response.status === 404) {
+            showStickerPlaceholder();
+            return;
+        }
+        if (!response.ok) {
+            showStickerPlaceholder();
+            return;
+        }
         const data = await response.json();
         if (stickerStoryId !== storyId) return;
         showStickerImage(data.preview_url, data.print_url);
@@ -2628,12 +2633,25 @@ async function loadExistingSticker(storyId) {
     }
 }
 
+function showStickerPlaceholder() {
+    const preview = document.getElementById('sticker-preview');
+    if (preview) preview.hidden = true;
+    const placeholder = document.getElementById('sticker-placeholder');
+    if (placeholder) placeholder.hidden = false;
+    stickerPrintUrl = null;
+    const printButton = document.getElementById('sticker-print');
+    if (printButton) printButton.hidden = true;
+}
+
 function showStickerImage(previewUrl, printUrl) {
     const preview = document.getElementById('sticker-preview');
-    if (preview) preview.src = previewUrl + '?t=' + Date.now();
+    if (preview) {
+        preview.src = previewUrl + '?t=' + Date.now();
+        preview.hidden = false;
+    }
+    const placeholder = document.getElementById('sticker-placeholder');
+    if (placeholder) placeholder.hidden = true;
     stickerPrintUrl = printUrl;
-    const previewWrap = document.getElementById('sticker-preview-wrap');
-    if (previewWrap) previewWrap.hidden = false;
     const printButton = document.getElementById('sticker-print');
     if (printButton) printButton.hidden = false;
 }

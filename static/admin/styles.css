@@ -1196,3 +1196,18 @@ input[type="color"] {
     border-radius: 8px;
     border: 1px solid var(--color-border, #ddd);
 }
+
+.sticker-placeholder {
+    text-align: center;
+    color: var(--color-text-muted, #6b7280);
+    padding: 1rem;
+}
+
+.sticker-placeholder svg {
+    opacity: 0.5;
+}
+
+.sticker-placeholder p {
+    margin: 0.5rem 0 0;
+    font-size: 14px;
+}

@@ -200,6 +200,60 @@ class TestStickerCss:
         ), "styles.css missing #sticker-preview rule"
 
 
+class TestStickerPlaceholder:
+    """The modal must show a placeholder until an image exists."""
+
+    def test_placeholder_block_exists_with_inline_svg(self, html_text):
+        assert (
+            'id="sticker-placeholder"' in html_text
+        ), "missing <div id='sticker-placeholder'>"
+        assert re.search(
+            r'<div[^>]*id="sticker-placeholder"[^>]*>.*?<svg', html_text, re.DOTALL
+        ), "sticker-placeholder block must contain an inline <svg>"
+
+    def test_preview_img_starts_hidden(self, html_text):
+        assert re.search(
+            r'<img[^>]*id="sticker-preview"[^>]*\bhidden\b', html_text
+        ), "<img id='sticker-preview'> must carry the hidden attribute"
+
+    def test_preview_wrap_no_longer_hidden(self, html_text):
+        match = re.search(r'<div[^>]*id="sticker-preview-wrap"[^>]*>', html_text)
+        assert match, "missing <div id='sticker-preview-wrap'>"
+        assert "hidden" not in match.group(
+            0
+        ), "sticker-preview-wrap must no longer carry the hidden attribute"
+
+    def test_show_sticker_placeholder_defined(self, script_text):
+        assert "function showStickerPlaceholder(" in script_text
+
+    def test_load_existing_sticker_shows_placeholder_on_missing(self, script_text):
+        body = _function_body(script_text, "async function loadExistingSticker(")
+        assert (
+            "showStickerPlaceholder(" in body
+        ), "loadExistingSticker must show the placeholder when no sticker exists"
+
+    def test_open_sticker_modal_shows_placeholder(self, script_text):
+        body = _function_body(script_text, "function openStickerModal(")
+        assert (
+            "showStickerPlaceholder(" in body
+        ), "openStickerModal must start the modal showing the placeholder"
+
+    def test_show_sticker_image_toggles_preview_and_placeholder(self, script_text):
+        body = _function_body(script_text, "function showStickerImage(")
+        assert (
+            "sticker-preview" in body
+        ), "showStickerImage must reveal #sticker-preview"
+        assert (
+            "sticker-placeholder" in body
+        ), "showStickerImage must hide #sticker-placeholder"
+
+    def test_sticker_placeholder_css_rule_exists(self, css_text):
+        block = _css_rule_block(css_text, ".sticker-placeholder")
+        assert (
+            "text-align: center" in block
+        ), ".sticker-placeholder rule must center its content"
+
+
 class TestStoryCardLayout:
     """The fourth action button must not crush the card info column.
 
