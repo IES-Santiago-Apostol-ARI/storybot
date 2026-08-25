@@ -663,113 +663,116 @@ function stopProgressTracking() {
 }
 
 // NFC listener
-function startNFCListener() {
-    nfcEventSource = new EventSource('/api/nfc/read');
+// The card handler is a named function so the stream can be rebuilt on
+// reconnect without re-nesting ~100 lines inside the options object.
+async function handleNfcCardEvent(event) {
+    try {
+        const data = JSON.parse(event.data);
+        const { uid, card_type } = data;
 
-    nfcEventSource.addEventListener('card', async (event) => {
-        try {
-            const data = JSON.parse(event.data);
-            const { uid, card_type } = data;
+        // Story card retap to pause/resume (existing behavior)
+        if (card_type === 'story' && currentState === STATES.PLAYING && currentStory?.nfc_uid === uid) {
+            togglePause();
+            return;
+        }
 
-            // Story card retap to pause/resume (existing behavior)
-            if (card_type === 'story' && currentState === STATES.PLAYING && currentStory?.nfc_uid === uid) {
-                togglePause();
-                return;
+        // Parameter card — add to collection
+        if (card_type === 'parameter') {
+            if (!window.aiEnabled) { playUISound('tap'); return; }
+            if (currentState !== STATES.IDLE && currentState !== STATES.COLLECTING) return;
+
+            playUISound('tap');
+            collectingParams.push({
+                emoji: data.emoji || '🏷️',
+                label: data.label || data.value || '',
+                category: data.category || '',
+                value: data.value || '',
+            });
+            renderParameterChips();
+            document.getElementById('parameter-display').classList.add('visible');
+
+            if (currentState === STATES.IDLE) {
+                transitionTo(STATES.COLLECTING);
             }
+            return;
+        }
 
-            // Parameter card — add to collection
-            if (card_type === 'parameter') {
-                if (!window.aiEnabled) { playUISound('tap'); return; }
-                if (currentState !== STATES.IDLE && currentState !== STATES.COLLECTING) return;
-
-                playUISound('tap');
-                collectingParams.push({
-                    emoji: data.emoji || '🏷️',
-                    label: data.label || data.value || '',
-                    category: data.category || '',
-                    value: data.value || '',
-                });
-                renderParameterChips();
-                document.getElementById('parameter-display').classList.add('visible');
-
-                if (currentState === STATES.IDLE) {
-                    transitionTo(STATES.COLLECTING);
-                }
-                return;
-            }
-
-            // Go card — trigger generation with collected params, or show thinking if empty
-            if (card_type === 'go') {
-                if (!window.aiEnabled) { playUISound('tap'); return; }
-                if (collectingParams.length === 0) {
-                    clearParameterDisplay();
-                    showThinkingOverlay();
-                } else {
-                    // Phase 16 D-01: copy the just-collected chips into the thinking overlay so
-                    // the child sees their choices while the AI is composing.
-                    const thinkingChipsEl = document.getElementById('thinking-chips');
-                    if (thinkingChipsEl) {
-                        thinkingChipsEl.innerHTML = '';
-                        for (const p of collectingParams) {
-                            const chip = document.createElement('span');
-                            chip.className = 'parameter-chip';
-                            chip.textContent = (p && (p.label || p.value)) || '';
-                            thinkingChipsEl.appendChild(chip);
-                        }
+        // Go card — trigger generation with collected params, or show thinking if empty
+        if (card_type === 'go') {
+            if (!window.aiEnabled) { playUISound('tap'); return; }
+            if (collectingParams.length === 0) {
+                clearParameterDisplay();
+                showThinkingOverlay();
+            } else {
+                // Phase 16 D-01: copy the just-collected chips into the thinking overlay so
+                // the child sees their choices while the AI is composing.
+                const thinkingChipsEl = document.getElementById('thinking-chips');
+                if (thinkingChipsEl) {
+                    thinkingChipsEl.innerHTML = '';
+                    for (const p of collectingParams) {
+                        const chip = document.createElement('span');
+                        chip.className = 'parameter-chip';
+                        chip.textContent = (p && (p.label || p.value)) || '';
+                        thinkingChipsEl.appendChild(chip);
                     }
-                    const params = [...collectingParams];
-                    lastGenerationParams = [...collectingParams];
-                    clearParameterDisplay();
-                    playUISound('tap');
-                    unlockAudio();
-                    startGeneration(params.map(p => ({ category: p.category, value: p.value })));
                 }
-                return;
-            }
-
-            // Story card — play normally, clear any collection
-            if (card_type === 'story') {
+                const params = [...collectingParams];
+                lastGenerationParams = [...collectingParams];
                 clearParameterDisplay();
-                lastGenerationParams = [];
-                if (currentState !== STATES.IDLE && currentState !== STATES.COLLECTING) return;
-
-                const response = await fetch(`/api/stories/nfc/${encodeURIComponent(uid)}`);
-                if (response.ok) {
-                    const story = await response.json();
-                    playStory(story);
-                }
-                return;
+                playUISound('tap');
+                unlockAudio();
+                startGeneration(params.map(p => ({ category: p.category, value: p.value })));
             }
+            return;
+        }
 
-            // Unknown card — clear collection, return to idle
-            if (card_type === 'unknown') {
-                clearParameterDisplay();
-                if (currentState !== STATES.IDLE) {
-                    transitionTo(STATES.IDLE);
-                }
-                return;
-            }
-
-            // Legacy fallback (no card_type field)
-            if (currentState === STATES.PLAYING && currentStory?.nfc_uid === uid) {
-                togglePause();
-                return;
-            }
-
-            if (currentState !== STATES.IDLE) return;
+        // Story card — play normally, clear any collection
+        if (card_type === 'story') {
+            clearParameterDisplay();
+            lastGenerationParams = [];
+            if (currentState !== STATES.IDLE && currentState !== STATES.COLLECTING) return;
 
             const response = await fetch(`/api/stories/nfc/${encodeURIComponent(uid)}`);
             if (response.ok) {
                 const story = await response.json();
                 playStory(story);
             }
-        } catch (err) {
-            console.error('NFC lookup failed:', err);
+            return;
         }
-    });
 
-    nfcEventSource.addEventListener('error', () => {
-        // Auto-reconnect built into EventSource
+        // Unknown card — clear collection, return to idle
+        if (card_type === 'unknown') {
+            clearParameterDisplay();
+            if (currentState !== STATES.IDLE) {
+                transitionTo(STATES.IDLE);
+            }
+            return;
+        }
+
+        // Legacy fallback (no card_type field)
+        if (currentState === STATES.PLAYING && currentStory?.nfc_uid === uid) {
+            togglePause();
+            return;
+        }
+
+        if (currentState !== STATES.IDLE) return;
+
+        const response = await fetch(`/api/stories/nfc/${encodeURIComponent(uid)}`);
+        if (response.ok) {
+            const story = await response.json();
+            playStory(story);
+        }
+    } catch (err) {
+        console.error('NFC lookup failed:', err);
+    }
+}
+
+function startNFCListener() {
+    // A bare EventSource gives up permanently when the server answers with
+    // an HTTP error — nginx returns 502 for the seconds a storybot restart
+    // takes, and the kiosk then ignores every tap. See /shared/sse.js.
+    nfcEventSource = createReconnectingEventSource('/api/nfc/read', {
+        listeners: { card: handleNfcCardEvent },
     });
 }
 
@@ -777,29 +780,29 @@ function startNFCListener() {
 // from the server via /api/system/events (drains app.state.kiosk_events).
 let systemEventSource = null;
 function startSystemEventListener() {
-    systemEventSource = new EventSource('/api/system/events');
+    // Reconnecting for the same reason as the NFC stream: both die together
+    // on a backend restart, taking the GPIO buttons down with them.
+    systemEventSource = createReconnectingEventSource('/api/system/events', {
+        listeners: {
+            // Interrupt button: stop the playing story, return to the main page.
+            interrupt: () => {
+                // Stop browser-side audio (story playback lives on #story-audio).
+                audioElement.pause();
+                audioElement.currentTime = 0;
+                isPaused = false;
+                transitionTo(STATES.IDLE);
+            },
 
-    // Interrupt button: stop the playing story and return to the main page.
-    systemEventSource.addEventListener('interrupt', () => {
-        // Stop browser-side audio (story playback lives on #story-audio).
-        audioElement.pause();
-        audioElement.currentTime = 0;
-        isPaused = false;
-        transitionTo(STATES.IDLE);
-    });
-
-    // Image button: show the freshly generated cover on the kiosk.
-    systemEventSource.addEventListener('image', (event) => {
-        try {
-            const { url } = JSON.parse(event.data);
-            if (url) applyCoverSwap(url);
-        } catch (err) {
-            console.error('system image event parse failed:', err);
-        }
-    });
-
-    systemEventSource.addEventListener('error', () => {
-        // Auto-reconnect built into EventSource
+            // Image button: show the freshly generated cover on the kiosk.
+            image: (event) => {
+                try {
+                    const { url } = JSON.parse(event.data);
+                    if (url) applyCoverSwap(url);
+                } catch (err) {
+                    console.error('system image event parse failed:', err);
+                }
+            },
+        },
     });
 }
 

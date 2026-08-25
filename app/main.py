@@ -54,7 +54,13 @@ class NoCacheStaticFiles(StaticFiles):
             response.headers["Pragma"] = "no-cache"
             response.headers["Expires"] = "0"
         # Kiosk code/markup: always revalidate so deploys are never stale.
-        elif path.endswith((".js", ".css", ".html")):
+        # A directory request ("/children/") reaches here as path "." and is
+        # served as index.html by html=True, so it matches no extension —
+        # check the resolved content type too, or the one file that loads all
+        # the others is the one file the kiosk never refreshes.
+        elif path.endswith((".js", ".css", ".html")) or response.headers.get(
+            "content-type", ""
+        ).startswith("text/html"):
             response.headers["Cache-Control"] = "no-cache, must-revalidate"
 
         return response

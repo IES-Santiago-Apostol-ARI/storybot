@@ -136,6 +136,8 @@
     <!-- Hidden audio element - keep outside page container -->
     <audio id="story-audio" preload="auto"></audio>
 
+    <!-- Loaded first: script.js calls createReconnectingEventSource at DOMContentLoaded. -->
+    <script src="/shared/sse.js"></script>
     <script src="/children/script.js"></script>
 </body>
 </html>
