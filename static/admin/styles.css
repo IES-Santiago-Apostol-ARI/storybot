@@ -1211,3 +1211,9 @@ input[type="color"] {
     margin: 0.5rem 0 0;
     font-size: 14px;
 }
+
+/* .btn sets display:inline-block, which beats the browser's
+   [hidden] { display: none } — restore it for this modal's buttons. */
+.sticker-modal .btn[hidden] {
+    display: none;
+}

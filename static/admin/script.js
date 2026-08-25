@@ -2617,6 +2617,7 @@ function closeStickerModal() {
 async function loadExistingSticker(storyId) {
     try {
         const response = await fetch('/api/stories/' + encodeURIComponent(storyId) + '/sticker');
+        if (stickerStoryId !== storyId) return;
         if (response.status === 404) {
             showStickerPlaceholder();
             return;

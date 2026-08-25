@@ -180,6 +180,21 @@ class TestStickerJs:
                 "(the sticker is separate from the story cover)"
             )
 
+    def test_load_existing_sticker_guards_twice(self, script_text):
+        body = _function_body(script_text, "async function loadExistingSticker(")
+        count = body.count("stickerStoryId !== storyId")
+        assert (
+            count >= 2
+        ), "loadExistingSticker must guard on the story id after fetch AND after json()"
+
+    def test_load_existing_sticker_guard_precedes_placeholder(self, script_text):
+        body = _function_body(script_text, "async function loadExistingSticker(")
+        guard = body.find("stickerStoryId !== storyId")
+        placeholder = body.find("showStickerPlaceholder(")
+        assert (
+            guard >= 0 and guard < placeholder
+        ), "the story-id guard must run before showStickerPlaceholder() (late 404 race)"
+
     def test_open_print_preview_delegates_to_open_print_window(self, script_text):
         body = _function_body(script_text, "function openPrintPreview(")
         assert (
@@ -198,6 +213,12 @@ class TestStickerCss:
         assert re.search(
             r"#sticker-preview\s*\{", css_text
         ), "styles.css missing #sticker-preview rule"
+
+    def test_sticker_modal_btn_hidden_rule_exists(self, css_text):
+        block = _css_rule_block(css_text, ".sticker-modal .btn[hidden]")
+        assert (
+            "display: none" in block
+        ), ".sticker-modal .btn[hidden] must restore display: none (beats .btn)"
 
 
 class TestStickerPlaceholder:
