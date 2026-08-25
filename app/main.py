@@ -15,6 +15,7 @@ from app.routers.generate import router as generate_router
 from app.routers.generated import router as generated_router
 from app.routers.nfc import router as nfc_router
 from app.routers.printer import router as printer_router
+from app.routers.stickers import router as stickers_router
 from app.routers.stories import router as stories_router
 from app.routers.system import router as system_router
 from app.routers.updates import router as updates_router
@@ -416,6 +417,7 @@ app.include_router(cards_router)
 app.include_router(capabilities_router)
 app.include_router(generate_router, tags=["generate"])
 app.include_router(generated_router)
+app.include_router(stickers_router)
 app.include_router(printer_router)
 app.include_router(wifi_router)
 app.include_router(bt_router)
