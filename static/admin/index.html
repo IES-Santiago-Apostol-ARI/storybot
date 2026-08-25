@@ -320,6 +320,27 @@
             </div>
         </div>
 
+        <div id="sticker-modal" class="modal-overlay" hidden>
+            <div class="modal-content promote-modal sticker-modal">
+                <h3>Pegatina IA</h3>
+                <p id="sticker-story-title" class="sticker-story-title"></p>
+                <p class="sticker-note">Esta imagen se genera aparte y no sustituye a la portada de la historia.</p>
+                <label>
+                    Descripción para la imagen (opcional)
+                    <input type="text" id="sticker-hint" maxlength="200" placeholder="Por defecto, el título de la historia">
+                </label>
+                <p id="sticker-status" class="sticker-status" hidden></p>
+                <div id="sticker-preview-wrap" class="sticker-preview-wrap" hidden>
+                    <img id="sticker-preview" alt="Imagen generada por la IA">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" id="sticker-close">Cerrar</button>
+                    <button type="button" class="btn btn-secondary" id="sticker-print" hidden>Imprimir</button>
+                    <button type="button" class="btn btn-primary" id="sticker-generate">Generar imagen</button>
+                </div>
+            </div>
+        </div>
+
         <div id="wifi-connect-modal" class="modal-overlay" hidden>
             <div class="modal-content wifi-modal">
                 <h3 id="wifi-modal-ssid">Conectar a red</h3>

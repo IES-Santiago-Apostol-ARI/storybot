@@ -802,6 +802,15 @@ function createStoryCard(story) {
     editButton.onclick = () => enterEditMode(story);
     actions.appendChild(editButton);
 
+    if (window.aiEnabled) {
+        const stickerButton = document.createElement('button');
+        stickerButton.className = 'btn btn-secondary';
+        stickerButton.textContent = 'Pegatina IA';
+        stickerButton.style.cssText = 'padding: 0.5rem 0.75rem; font-size: 14px;';
+        stickerButton.onclick = () => openStickerModal(story);
+        actions.appendChild(stickerButton);
+    }
+
     // Assign/Unassign NFC button
     const nfcButton = document.createElement('button');
     nfcButton.className = story.nfc_uid ? 'btn btn-success' : 'btn btn-warning';
@@ -1498,6 +1507,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (promoteForm) promoteForm.addEventListener('submit', submitPromote);
     const promoteCancel = document.getElementById('promote-cancel');
     if (promoteCancel) promoteCancel.addEventListener('click', closePromoteModal);
+    const stickerClose = document.getElementById('sticker-close');
+    if (stickerClose) stickerClose.addEventListener('click', closeStickerModal);
+    const stickerGenerate = document.getElementById('sticker-generate');
+    if (stickerGenerate) stickerGenerate.addEventListener('click', generateSticker);
+    const stickerPrint = document.getElementById('sticker-print');
+    if (stickerPrint) stickerPrint.addEventListener('click', printSticker);
     if (window.aiEnabled) { loadGeneratedStories(); }
     initWifiSection();
     initBtSection();
@@ -1680,25 +1695,7 @@ async function submitPromote(event) {
 }
 
 function openPrintPreview(storyId) {
-    const url = '/static/generated/' + encodeURIComponent(storyId) + '/cover-print.png';
-    const win = window.open('', '_blank');
-    if (!win) {
-        showMessage('Habilita las ventanas emergentes para imprimir.', 'error');
-        return;
-    }
-    win.document.write(
-        '<!doctype html><html><head><meta charset="utf-8">' +
-        '<title>Imprimir portada</title>' +
-        '<style>' +
-        'html,body{margin:0;padding:0;background:#fff;}' +
-        'body{display:flex;justify-content:center;align-items:center;min-height:100vh;}' +
-        'img{max-width:100%;max-height:100vh;display:block;}' +
-        '@media print{@page{margin:0;}body{min-height:auto;}}' +
-        '</style></head><body>' +
-        '<img src="' + url + '" alt="Portada" onload="window.focus();window.print();">' +
-        '</body></html>'
-    );
-    win.document.close();
+    openPrintWindow('/static/generated/' + encodeURIComponent(storyId) + '/cover-print.png');
 }
 
 // Warn about unsaved changes on page navigation
@@ -2579,4 +2576,159 @@ function initBtSection() {
 
     // Populate the header icon once while the section is still collapsed.
     fetchBtStatus();
+}
+
+// === Pegatina IA para historias subidas ===
+
+let stickerStoryId = null;
+let stickerPrintUrl = null;
+let stickerBusy = false;
+
+function openStickerModal(story) {
+    stickerStoryId = story.id;
+    stickerPrintUrl = null;
+    const title = document.getElementById('sticker-story-title');
+    if (title) title.textContent = story.title;
+    const hint = document.getElementById('sticker-hint');
+    if (hint) hint.value = '';
+    const status = document.getElementById('sticker-status');
+    if (status) {
+        status.textContent = '';
+        status.classList.remove('error');
+        status.hidden = true;
+    }
+    const previewWrap = document.getElementById('sticker-preview-wrap');
+    if (previewWrap) previewWrap.hidden = true;
+    const printButton = document.getElementById('sticker-print');
+    if (printButton) printButton.hidden = true;
+    const generateButton = document.getElementById('sticker-generate');
+    if (generateButton) generateButton.disabled = false;
+    const modal = document.getElementById('sticker-modal');
+    if (modal) modal.hidden = false;
+    loadExistingSticker(story.id);
+}
+
+function closeStickerModal() {
+    const modal = document.getElementById('sticker-modal');
+    if (modal) modal.hidden = true;
+    stickerStoryId = null;
+    stickerPrintUrl = null;
+}
+
+async function loadExistingSticker(storyId) {
+    try {
+        const response = await fetch('/api/stories/' + encodeURIComponent(storyId) + '/sticker');
+        if (response.status === 404) return;
+        if (!response.ok) return;
+        const data = await response.json();
+        if (stickerStoryId !== storyId) return;
+        showStickerImage(data.preview_url, data.print_url);
+    } catch (error) {
+        console.error('loadExistingSticker failed:', error);
+    }
+}
+
+function showStickerImage(previewUrl, printUrl) {
+    const preview = document.getElementById('sticker-preview');
+    if (preview) preview.src = previewUrl + '?t=' + Date.now();
+    stickerPrintUrl = printUrl;
+    const previewWrap = document.getElementById('sticker-preview-wrap');
+    if (previewWrap) previewWrap.hidden = false;
+    const printButton = document.getElementById('sticker-print');
+    if (printButton) printButton.hidden = false;
+}
+
+async function generateSticker() {
+    if (stickerBusy) return;
+    stickerBusy = true;
+    const requestedId = stickerStoryId;
+    const generateButton = document.getElementById('sticker-generate');
+    if (generateButton) generateButton.disabled = true;
+    setStickerStatus('Generando imagen… puede tardar hasta un minuto.', false);
+    try {
+        const hintInput = document.getElementById('sticker-hint');
+        const hint = hintInput ? hintInput.value.trim() : '';
+        const response = await fetch('/api/stories/' + encodeURIComponent(requestedId) + '/sticker', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hint: hint || null }),
+        });
+        if (!response.ok) {
+            setStickerStatus('Error al generar la imagen (HTTP ' + response.status + ').', true);
+            return;
+        }
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const parts = buffer.split('\n\n');
+            buffer = parts.pop();
+            for (const part of parts) {
+                for (const line of part.split('\n')) {
+                    if (!line.startsWith('data: ')) continue;
+                    let event;
+                    try { event = JSON.parse(line.slice(6)); } catch { continue; }
+                    if (requestedId !== stickerStoryId) continue;
+                    if (event.sticker_started) {
+                        setStickerStatus('Generando imagen…', false);
+                    } else if (event.sticker_ready) {
+                        showStickerImage(event.sticker_ready.preview_url, event.sticker_ready.print_url);
+                        setStickerStatus('Imagen lista.', false);
+                    } else if (event.sticker_failed) {
+                        setStickerStatus('Error: ' + (event.sticker_failed.reason || 'desconocido'), true);
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        console.error('generateSticker failed:', error);
+        if (requestedId === stickerStoryId) {
+            setStickerStatus('Error de conexión al generar la imagen.', true);
+        }
+    } finally {
+        stickerBusy = false;
+        if (generateButton) generateButton.disabled = false;
+    }
+}
+
+function setStickerStatus(text, isError) {
+    const status = document.getElementById('sticker-status');
+    if (!status) return;
+    status.textContent = text;
+    if (isError) {
+        status.classList.add('error');
+    } else {
+        status.classList.remove('error');
+    }
+    status.hidden = false;
+}
+
+function printSticker() {
+    if (stickerPrintUrl) {
+        openPrintWindow(stickerPrintUrl);
+    }
+}
+
+function openPrintWindow(url) {
+    const win = window.open('', '_blank');
+    if (!win) {
+        showMessage('Habilita las ventanas emergentes para imprimir.', 'error');
+        return;
+    }
+    win.document.write(
+        '<!doctype html><html><head><meta charset="utf-8">' +
+        '<title>Imprimir portada</title>' +
+        '<style>' +
+        'html,body{margin:0;padding:0;background:#fff;}' +
+        'body{display:flex;justify-content:center;align-items:center;min-height:100vh;}' +
+        'img{max-width:100%;max-height:100vh;display:block;}' +
+        '@media print{@page{margin:0;}body{min-height:auto;}}' +
+        '</style></head><body>' +
+        '<img src="' + url + '" alt="Portada" onload="window.focus();window.print();">' +
+        '</body></html>'
+    );
+    win.document.close();
 }

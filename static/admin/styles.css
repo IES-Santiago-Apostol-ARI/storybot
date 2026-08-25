@@ -1147,3 +1147,41 @@ input[type="color"] {
         transform: rotate(360deg);
     }
 }
+
+/* Pegatina IA para historias subidas */
+.modal-content.sticker-modal {
+    width: min(90vw, 460px);
+}
+
+.sticker-story-title {
+    font-weight: 600;
+    margin: 0 0 0.25rem;
+}
+
+.sticker-note {
+    font-size: 13px;
+    color: var(--color-text-muted, #666);
+    margin: 0 0 1rem;
+}
+
+.sticker-status {
+    margin: 0 0 0.75rem;
+    font-size: 14px;
+}
+
+.sticker-status.error {
+    color: var(--color-danger, #c0392b);
+}
+
+.sticker-preview-wrap {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 1rem;
+}
+
+#sticker-preview {
+    max-width: 100%;
+    max-height: 40vh;
+    border-radius: 8px;
+    border: 1px solid var(--color-border, #ddd);
+}
