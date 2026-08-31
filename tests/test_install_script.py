@@ -1,4 +1,5 @@
 """Phase 21 install script source-assertion tests (DEP-01)."""
+
 import re
 from pathlib import Path
 
@@ -25,15 +26,15 @@ class TestInstallFlags:
 
     def test_ai_flag_case_exists(self, script_text):
         """Script contains '--ai)' case in the argument parser."""
-        assert "--ai)" in script_text, (
-            "Missing --ai) case in argument parser case block"
-        )
+        assert (
+            "--ai)" in script_text
+        ), "Missing --ai) case in argument parser case block"
 
     def test_no_ai_flag_case_exists(self, script_text):
         """Script contains '--no-ai)' case in the argument parser."""
-        assert "--no-ai)" in script_text, (
-            "Missing --no-ai) case in argument parser case block"
-        )
+        assert (
+            "--no-ai)" in script_text
+        ), "Missing --no-ai) case in argument parser case block"
 
     def test_ai_flag_variable_declared(self, script_text):
         """Script declares AI_FLAG variable initialized to empty string."""
@@ -47,15 +48,11 @@ class TestAutoDetect:
 
     def test_nvidia_smi_probe_exists(self, script_text):
         """Script contains nvidia-smi for GPU detection."""
-        assert "nvidia-smi" in script_text, (
-            "Missing nvidia-smi GPU detection probe"
-        )
+        assert "nvidia-smi" in script_text, "Missing nvidia-smi GPU detection probe"
 
     def test_dev_nvidia_fallback_exists(self, script_text):
         """Script contains /dev/nvidia fallback detection."""
-        assert "/dev/nvidia" in script_text, (
-            "Missing /dev/nvidia* fallback detection"
-        )
+        assert "/dev/nvidia" in script_text, "Missing /dev/nvidia* fallback detection"
 
     def test_ai_mode_variable_set(self, script_text):
         """Script contains AI_MODE=true and AI_MODE=false assignments."""
@@ -69,16 +66,16 @@ class TestEnvFileWrite:
     def test_env_file_write_ai_enabled(self, script_text):
         """Script writes STORYBOT_AI to .env with the AI-enabled value (1)."""
         # The script writes STORYBOT_AI=$AI_VALUE, where AI_VALUE is 1 in AI mode.
-        assert "STORYBOT_AI=$AI_VALUE" in script_text, (
-            "Missing STORYBOT_AI=$AI_VALUE write to .env"
-        )
+        assert (
+            "STORYBOT_AI=$AI_VALUE" in script_text
+        ), "Missing STORYBOT_AI=$AI_VALUE write to .env"
         assert "AI_VALUE=1" in script_text, "Missing AI_VALUE=1 (AI-enabled)"
 
     def test_env_file_write_ai_disabled(self, script_text):
         """Script writes STORYBOT_AI to .env with the AI-disabled value (0)."""
-        assert "STORYBOT_AI=$AI_VALUE" in script_text, (
-            "Missing STORYBOT_AI=$AI_VALUE write to .env"
-        )
+        assert (
+            "STORYBOT_AI=$AI_VALUE" in script_text
+        ), "Missing STORYBOT_AI=$AI_VALUE write to .env"
         assert "AI_VALUE=0" in script_text, "Missing AI_VALUE=0 (AI-disabled)"
 
     def test_env_file_chown(self, script_text):
@@ -95,16 +92,16 @@ class TestServiceFile:
         """service file contains the templated EnvironmentFile directive."""
         # The service is a template; deploy/install.sh substitutes __INSTALL_DIR__
         # (from INSTALL_USER/INSTALL_DIR in .env) at install time.
-        assert "EnvironmentFile=-__INSTALL_DIR__/.env" in service_text, (
-            "Missing EnvironmentFile=-__INSTALL_DIR__/.env directive"
-        )
+        assert (
+            "EnvironmentFile=-__INSTALL_DIR__/.env" in service_text
+        ), "Missing EnvironmentFile=-__INSTALL_DIR__/.env directive"
 
     def test_environment_file_has_dash_prefix(self, service_text):
         """EnvironmentFile uses the optional dash prefix for missing-file tolerance."""
         match = re.search(r"EnvironmentFile=-", service_text)
-        assert match, (
-            "EnvironmentFile directive missing dash (-) prefix for optional file"
-        )
+        assert (
+            match
+        ), "EnvironmentFile directive missing dash (-) prefix for optional file"
 
     def test_xdg_runtime_dir_is_set(self, service_text):
         """service exports XDG_RUNTIME_DIR so pactl can reach the user PipeWire.
@@ -136,9 +133,9 @@ class TestServiceFile:
                 r"sed(?:[^\n]*\\\n)*[^\n]*deploy/storybot\.service[^\n]*", script_text
             )
         assert render, "Could not find the storybot.service render command"
-        assert "__USER_UID__" in render.group(0), (
-            "install.sh renders storybot.service without substituting __USER_UID__"
-        )
+        assert "__USER_UID__" in render.group(
+            0
+        ), "install.sh renders storybot.service without substituting __USER_UID__"
 
 
 class TestDetectionOrder:
@@ -172,9 +169,9 @@ class TestDetectionOrder:
         ai_display_pos = script_text.find("AI mode:")
         assert banner_pos > 0, "Header banner not found"
         assert ai_display_pos > 0, "AI mode display not found in header banner"
-        assert ai_display_pos > banner_pos, (
-            "AI mode display must appear after installation script header"
-        )
+        assert (
+            ai_display_pos > banner_pos
+        ), "AI mode display must appear after installation script header"
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +193,6 @@ def _find_ai_block(text, start_from=0):
     depth = 0
     i = idx
     while i < len(text):
-        line_start = text.rfind("\n", 0, i) + 1
         rest_of_line = text[i:].split("\n", 1)[0].strip()
         if rest_of_line.startswith("if ") or rest_of_line == "if":
             depth += 1
@@ -228,9 +224,9 @@ class TestArchGate:
 
     def test_aarch64_exit_removed(self, script_text):
         """Script no longer contains the old exit-on-non-aarch64 message."""
-        assert "This script is for Jetson (aarch64) only" not in script_text, (
-            "Old aarch64-only exit message still present -- should be removed"
-        )
+        assert (
+            "This script is for Jetson (aarch64) only" not in script_text
+        ), "Old aarch64-only exit message still present -- should be removed"
 
     def test_no_architecture_restriction(self, script_text):
         """Script no longer uses uname -m as a hard architecture gate that exits.
@@ -260,15 +256,11 @@ class TestAIConditionals:
         """sudoers.d/storybot-llama is inside an AI_MODE == true block."""
         assert _is_inside_ai_block(
             script_text, "sudoers.d/storybot-llama"
-        ), (
-            "sudoers entry for llama-server must be inside an AI_MODE == true block"
-        )
+        ), "sudoers entry for llama-server must be inside an AI_MODE == true block"
 
     def test_model_download_gated_by_ai(self, script_text):
         """Step 3 model download is gated by AI_MODE (not just DEV_MODE)."""
-        assert _is_inside_ai_block(
-            script_text, "download-models.sh"
-        ), (
+        assert _is_inside_ai_block(script_text, "download-models.sh"), (
             "TTS model download (download-models.sh) must be inside "
             "an AI_MODE == true conditional block"
         )
@@ -279,26 +271,21 @@ class TestKioskConditionals:
 
     def test_gdm_autologin_in_ai_block(self, script_text):
         """gdm3/custom.conf reference is inside an AI_MODE == true block."""
-        assert _is_inside_ai_block(script_text, "gdm3/custom.conf"), (
-            "GDM3 autologin (Step 8) must be inside an AI_MODE == true block"
-        )
+        assert _is_inside_ai_block(
+            script_text, "gdm3/custom.conf"
+        ), "GDM3 autologin (Step 8) must be inside an AI_MODE == true block"
 
     def test_firefox_kiosk_in_ai_block(self, script_text):
         """storybot-kiosk.desktop is inside an AI_MODE == true block."""
-        assert _is_inside_ai_block(
-            script_text, "storybot-kiosk.desktop"
-        ), (
+        assert _is_inside_ai_block(script_text, "storybot-kiosk.desktop"), (
             "Firefox kiosk autostart (Step 9) must be inside an "
             "AI_MODE == true block"
         )
 
     def test_screen_settings_in_ai_block(self, script_text):
         """storybot-screen-setup.desktop is inside an AI_MODE == true block."""
-        assert _is_inside_ai_block(
-            script_text, "storybot-screen-setup.desktop"
-        ), (
-            "Screen-never-blanks (Step 10) must be inside an "
-            "AI_MODE == true block"
+        assert _is_inside_ai_block(script_text, "storybot-screen-setup.desktop"), (
+            "Screen-never-blanks (Step 10) must be inside an " "AI_MODE == true block"
         )
 
 
@@ -306,9 +293,7 @@ class TestKioskReadinessWait:
     """Kiosk Firefox must wait for the backend, not race it with a sleep."""
 
     def _kiosk_exec_line(self, script_text):
-        match = re.search(
-            r'^Exec=.*firefox.*$', script_text, flags=re.MULTILINE
-        )
+        match = re.search(r"^Exec=.*firefox.*$", script_text, flags=re.MULTILINE)
         assert match, "No Exec= line launching firefox found in install.sh"
         return match.group(0)
 
@@ -342,9 +327,7 @@ class TestCommonSteps:
 
     def test_storybot_service_not_in_ai_block(self, script_text):
         """cp storybot.service is NOT inside an AI_MODE conditional."""
-        assert not _is_inside_ai_block(
-            script_text, "storybot.service"
-        ), (
+        assert not _is_inside_ai_block(script_text, "storybot.service"), (
             "storybot.service install should NOT be inside an AI_MODE block -- "
             "it is a common step for all devices"
         )
@@ -368,9 +351,7 @@ class TestSuperFirmware:
 
     def test_enable_super_firmware_script_exists(self):
         """deploy/enable-super-firmware.sh exists."""
-        assert self.SUPER_SCRIPT.exists(), (
-            "Missing deploy/enable-super-firmware.sh"
-        )
+        assert self.SUPER_SCRIPT.exists(), "Missing deploy/enable-super-firmware.sh"
 
     def test_super_script_stages_capsule(self, super_script_text):
         """Script stages the super capsule for UEFI capsule-on-disk."""
@@ -393,9 +374,9 @@ class TestSuperFirmware:
     def test_install_warns_to_run_super_script(self, script_text):
         """install.sh warns (in capitals) to run enable-super-firmware.sh."""
         assert "enable-super-firmware.sh" in script_text
-        assert re.search(r"WARNING[^a-z]*SUPER", script_text), (
-            "Missing capital-letters warning about super firmware"
-        )
+        assert re.search(
+            r"WARNING[^a-z]*SUPER", script_text
+        ), "Missing capital-letters warning about super firmware"
 
 
 class TestBootloaderHold:
@@ -408,9 +389,7 @@ class TestBootloaderHold:
 
     def test_install_holds_nvidia_l4t_bootloader(self, script_text):
         """install.sh pins nvidia-l4t-bootloader so apt cannot reflash QSPI."""
-        assert re.search(
-            r"apt-mark\s+hold\s+nvidia-l4t-bootloader", script_text
-        ), (
+        assert re.search(r"apt-mark\s+hold\s+nvidia-l4t-bootloader", script_text), (
             "install.sh must run 'apt-mark hold nvidia-l4t-bootloader' -- "
             "otherwise a later apt dist-upgrade reverts the patched UEFI and "
             "the device stops booting from NVMe on cold power-on"
@@ -420,7 +399,7 @@ class TestBootloaderHold:
         """The hold only runs where the package exists (Jetson, not x86 dev)."""
         match = re.search(r"apt-mark\s+hold\s+nvidia-l4t-bootloader", script_text)
         assert match, "hold not found"
-        preceding = script_text[max(0, match.start() - 500):match.start()]
+        preceding = script_text[max(0, match.start() - 500) : match.start()]
         assert "dpkg" in preceding, (
             "The apt-mark hold must be guarded by a dpkg presence check for "
             "nvidia-l4t-bootloader -- install.sh also runs on the x86 dev "
@@ -478,9 +457,9 @@ class TestCompletionBanner:
         banner_pos = script_text.find("Installation Complete")
         assert banner_pos > 0, "Installation Complete banner not found"
         after_banner = script_text[banner_pos:]
-        assert re.search(r"[Ss]kipped", after_banner), (
-            "Completion banner should list skipped items for stories-only mode"
-        )
+        assert re.search(
+            r"[Ss]kipped", after_banner
+        ), "Completion banner should list skipped items for stories-only mode"
 
 
 # ---------------------------------------------------------------------------
