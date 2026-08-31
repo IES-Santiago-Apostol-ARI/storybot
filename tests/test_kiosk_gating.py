@@ -251,12 +251,6 @@ class TestKioskNfcGating:
         assert go_start != -1, "GO branch not found"
         guard_idx = script_text.find("if (!window.aiEnabled)", go_start)
         # Find showThinkingOverlay() call within GO branch
-        go_end = script_text.find(
-            "return;", script_text.find("showThinkingOverlay()", go_start)
-        )
-        go_branch = (
-            script_text[go_start:go_end] if go_end != -1 else script_text[go_start:]
-        )
         overlay_call = script_text.find("showThinkingOverlay()", go_start)
         assert overlay_call != -1, "showThinkingOverlay() call not found in GO branch"
         if guard_idx != -1:

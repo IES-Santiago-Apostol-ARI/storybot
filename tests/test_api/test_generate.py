@@ -9,16 +9,15 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.datastructures import State
 
+from app.main import app
+from app.services.story_generator import StoryGenerator
+from app.services.tts_pipeline import TTSPipeline
+
 
 async def _async_gen(events):
     """Convert a list of events into an async generator (for mocking)."""
     for e in events:
         yield e
-
-
-from app.main import app
-from app.services.story_generator import StoryGenerator
-from app.services.tts_pipeline import TTSPipeline
 
 
 @pytest.fixture
@@ -253,7 +252,9 @@ class TestGenerateStory:
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers["content-type"]
 
-        lines = [l for l in resp.text.strip().split("\n") if l.startswith("data: ")]
+        lines = [
+            line for line in resp.text.strip().split("\n") if line.startswith("data: ")
+        ]
         assert len(lines) >= 2
         first = json.loads(lines[0][6:])
         assert first["text"] == "Hola"
@@ -274,7 +275,9 @@ class TestGenerateStory:
         )
 
         assert resp.status_code == 200
-        lines = [l for l in resp.text.strip().split("\n") if l.startswith("data: ")]
+        lines = [
+            line for line in resp.text.strip().split("\n") if line.startswith("data: ")
+        ]
         first = json.loads(lines[0][6:])
         assert "error" in first
         assert first["done"] is True
@@ -378,8 +381,10 @@ class TestGenerateStoryWithAudio:
             self._restore_dir(ctx)
 
         assert resp.status_code == 200
-        lines = [l for l in resp.text.strip().split("\n") if l.startswith("data: ")]
-        events = [json.loads(l[6:]) for l in lines]
+        lines = [
+            line for line in resp.text.strip().split("\n") if line.startswith("data: ")
+        ]
+        events = [json.loads(line[6:]) for line in lines]
 
         # Find audio_ready events
         audio_events = [e for e in events if "audio_ready" in e]
@@ -412,8 +417,10 @@ class TestGenerateStoryWithAudio:
         finally:
             self._restore_dir(ctx)
 
-        lines = [l for l in resp.text.strip().split("\n") if l.startswith("data: ")]
-        events = [json.loads(l[6:]) for l in lines]
+        lines = [
+            line for line in resp.text.strip().split("\n") if line.startswith("data: ")
+        ]
+        events = [json.loads(line[6:]) for line in lines]
         audio_events = [e for e in events if "audio_ready" in e]
         assert len(audio_events) == 1
 
@@ -440,7 +447,7 @@ class TestGenerateStoryWithAudio:
             mock_story_generator, mock_tts_pipeline, tmp_path
         )
         try:
-            resp = ctx.client.post(
+            ctx.client.post(
                 "/api/generate/story",
                 json={"parameters": [{"category": "personaje", "value": "perro"}]},
             )
@@ -477,8 +484,10 @@ class TestGenerateStoryWithAudio:
         finally:
             self._restore_dir(ctx)
 
-        lines = [l for l in resp.text.strip().split("\n") if l.startswith("data: ")]
-        events = [json.loads(l[6:]) for l in lines]
+        lines = [
+            line for line in resp.text.strip().split("\n") if line.startswith("data: ")
+        ]
+        events = [json.loads(line[6:]) for line in lines]
         audio_events = [e for e in events if "audio_ready" in e]
         assert len(audio_events) == 1
 
@@ -513,8 +522,10 @@ class TestGenerateStoryWithAudio:
         finally:
             self._restore_dir(ctx)
 
-        lines = [l for l in resp.text.strip().split("\n") if l.startswith("data: ")]
-        events = [json.loads(l[6:]) for l in lines]
+        lines = [
+            line for line in resp.text.strip().split("\n") if line.startswith("data: ")
+        ]
+        events = [json.loads(line[6:]) for line in lines]
 
         complete_indices = [
             i for i, e in enumerate(events) if e.get("audio_complete") is True
@@ -551,8 +562,10 @@ class TestGenerateStoryWithAudio:
         finally:
             self._restore_dir(ctx)
 
-        lines = [l for l in resp.text.strip().split("\n") if l.startswith("data: ")]
-        events = [json.loads(l[6:]) for l in lines]
+        lines = [
+            line for line in resp.text.strip().split("\n") if line.startswith("data: ")
+        ]
+        events = [json.loads(line[6:]) for line in lines]
         audio_events = [e for e in events if "audio_ready" in e]
         assert len(audio_events) == 1
         assert "error" in audio_events[0]["audio_ready"]
@@ -582,8 +595,10 @@ class TestGenerateStoryWithAudio:
         finally:
             self._restore_dir(ctx)
 
-        lines = [l for l in resp.text.strip().split("\n") if l.startswith("data: ")]
-        events = [json.loads(l[6:]) for l in lines]
+        lines = [
+            line for line in resp.text.strip().split("\n") if line.startswith("data: ")
+        ]
+        events = [json.loads(line[6:]) for line in lines]
         text_events = [e for e in events if e.get("text") is not None]
         assert len(text_events) == 1
         assert text_events[0]["text"] == "Hola. "
@@ -606,8 +621,10 @@ class TestGenerateTruncatedStory:
             )
         finally:
             helper._restore_dir(ctx)
-        lines = [l for l in resp.text.strip().split("\n") if l.startswith("data: ")]
-        return ctx, [json.loads(l[6:]) for l in lines]
+        lines = [
+            line for line in resp.text.strip().split("\n") if line.startswith("data: ")
+        ]
+        return ctx, [json.loads(line[6:]) for line in lines]
 
     def test_truncated_tail_not_synthesized(
         self, mock_story_generator, mock_tts_pipeline, tmp_path
@@ -1057,8 +1074,12 @@ class TestGenerateStreamResilience:
             )
             assert resp.status_code == 200
 
-            lines = [l for l in resp.text.strip().split("\n") if l.startswith("data: ")]
-            events = [json.loads(l[6:]) for l in lines]
+            lines = [
+                line
+                for line in resp.text.strip().split("\n")
+                if line.startswith("data: ")
+            ]
+            events = [json.loads(line[6:]) for line in lines]
             assert events, "stream produced no events"
             last = events[-1]
             assert last.get("error") == "RuntimeError"

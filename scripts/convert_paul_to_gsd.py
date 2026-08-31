@@ -91,21 +91,25 @@ def extract_boundaries(text):
     scope_limits = []
     dnc_m = re.search(r"## DO NOT CHANGE\n(.*?)(?=## SCOPE LIMITS|$)", bnd, re.DOTALL)
     if dnc_m:
-        lines = [l.strip() for l in dnc_m.group(1).strip().split("\n") if l.strip()]
-        do_not_change = [l.lstrip("- ").lstrip("* ") for l in lines]
+        lines = [
+            line.strip() for line in dnc_m.group(1).strip().split("\n") if line.strip()
+        ]
+        do_not_change = [line.lstrip("- ").lstrip("* ") for line in lines]
     sl_m = re.search(r"## SCOPE LIMITS\n(.*?)(?=</boundaries>|$)", bnd, re.DOTALL)
     if sl_m:
-        lines = [l.strip() for l in sl_m.group(1).strip().split("\n") if l.strip()]
-        scope_limits = [l.lstrip("- ").lstrip("* ") for l in lines]
+        lines = [
+            line.strip() for line in sl_m.group(1).strip().split("\n") if line.strip()
+        ]
+        scope_limits = [line.lstrip("- ").lstrip("* ") for line in lines]
     return do_not_change, scope_limits
 
 
 def extract_verification(text):
     v_text = extract_tag_content(text, "verification") or ""
     items = [
-        l.strip().lstrip("- ")
-        for l in v_text.split("\n")
-        if l.strip() and not l.strip().startswith("#")
+        line.strip().lstrip("- ")
+        for line in v_text.split("\n")
+        if line.strip() and not line.strip().startswith("#")
     ]
     return items
 
@@ -113,18 +117,18 @@ def extract_verification(text):
 def extract_success_criteria(text):
     sc_text = extract_tag_content(text, "success_criteria") or ""
     items = [
-        l.strip().lstrip("- ")
-        for l in sc_text.split("\n")
-        if l.strip() and not l.strip().startswith("#")
+        line.strip().lstrip("- ")
+        for line in sc_text.split("\n")
+        if line.strip() and not line.strip().startswith("#")
     ]
     return items
 
 
 def classify_files(files_modified_str):
     lines = [
-        l.strip().strip("- ").strip("'").strip('"')
-        for l in files_modified_str.split("\n")
-        if l.strip()
+        line.strip().strip("- ").strip("'").strip('"')
+        for line in files_modified_str.split("\n")
+        if line.strip()
     ]
     created, modified = [], []
     for f in lines:
@@ -183,17 +187,6 @@ def generate_gsd_plan(paul_text):
     dep_requires = [f"Phase {d}" for d in depends_on] if depends_on else []
     dep_affects = [""]
 
-    created_section = (
-        "\n".join(f'      - path: "{cf}"' for cf in created_files) or "(none)"
-    )
-    modified_section = (
-        "\n".join(
-            f'      - path: "{mf}"\n        changes: ["See task details"]'
-            for mf in modified_files
-        )
-        or "(none)"
-    )
-
     decisions = []
     for tb in tasks_raw:
         parsed = parse_task(tb)
@@ -213,7 +206,9 @@ def generate_gsd_plan(paul_text):
         parsed = parse_task(tb)
         if parsed["name"]:
             task_breakdown += f'\n**Task {i+1}: {parsed["name"]}** ✅\n'
-            action_lines = [l for l in parsed["action"].split("\n") if l.strip()][:5]
+            action_lines = [
+                line for line in parsed["action"].split("\n") if line.strip()
+            ][:5]
             for al in action_lines:
                 task_breakdown += f"- {al}\n"
             task_breakdown += "\n"

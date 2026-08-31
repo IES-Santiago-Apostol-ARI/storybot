@@ -106,7 +106,7 @@ class TestStoryManagerGet:
     ):
         """Test that get_story returns single story or None."""
         # Create story
-        created = story_manager.create_story(**story_create_data)
+        story_manager.create_story(**story_create_data)
 
         # Get story
         story = story_manager.get_story("test-story-1")

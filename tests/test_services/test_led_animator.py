@@ -290,7 +290,6 @@ class TestLedAnimatorMode:
         """
         led_animator.set_mode("playback", color=(255, 0, 0))
         await led_animator.tick_once()
-        color_before_pause = led_animator.get_color()
 
         # Pause — frame should hold steady
         led_animator.set_mode("pause")
@@ -443,7 +442,6 @@ class TestLedAnimatorMode:
         # Advance — should light more pixels
         fake_clock.advance(0.3)
         await led_animator.tick_once()
-        boot_color_2 = led_animator.get_color()
 
         # After wipe duration — should settle to idle
         fake_clock.advance(1.0)

@@ -203,17 +203,17 @@ class TestDetectHardwareTTSVoice:
         monkeypatch.setenv("TESTING", "1")
         hw = HardwareManager()
         with (
-            patch("app.config.ConfigManager") as MockCM,
-            patch("app.services.tts_engine.TTSEngine") as MockTTS,
+            patch("app.config.ConfigManager") as mock_cm,
+            patch("app.services.tts_engine.TTSEngine") as mock_tts,
         ):
-            MockCM.return_value.load.return_value = Settings(
+            mock_cm.return_value.load.return_value = Settings(
                 tts_voice="es_ES-custom-voice",
                 tts_speaker="F",
                 tts_length_scale=1.5,
             )
-            MockTTS.return_value.initialize = AsyncMock()
+            mock_tts.return_value.initialize = AsyncMock()
             await hw.detect_hardware(ai_enabled=True)
-            MockTTS.return_value.initialize.assert_awaited_once_with(
+            mock_tts.return_value.initialize.assert_awaited_once_with(
                 model_name="es_ES-custom-voice",
                 length_scale=1.5,
                 speaker="F",
@@ -229,16 +229,16 @@ class TestDetectHardwareTTSVoice:
         monkeypatch.setenv("TESTING", "1")
         hw = HardwareManager()
         with (
-            patch("app.config.ConfigManager") as MockCM,
-            patch("app.services.tts_engine.TTSEngine") as MockTTS,
+            patch("app.config.ConfigManager") as mock_cm,
+            patch("app.services.tts_engine.TTSEngine") as mock_tts,
         ):
-            MockCM.return_value.load.return_value = Settings(
+            mock_cm.return_value.load.return_value = Settings(
                 tts_length_scale=1.5,
                 tts_speed=1.25,
             )
-            MockTTS.return_value.initialize = AsyncMock()
+            mock_tts.return_value.initialize = AsyncMock()
             await hw.detect_hardware(ai_enabled=True)
-            kwargs = MockTTS.return_value.initialize.await_args.kwargs
+            kwargs = mock_tts.return_value.initialize.await_args.kwargs
             assert kwargs["length_scale"] == pytest.approx(1.2)
         await hw.shutdown()
 
@@ -284,10 +284,10 @@ class TestDetectHardwareAiGated:
     async def test_ai_enabled_false_does_not_call_tts_initialize(self, hw, monkeypatch):
         """TTSEngine.initialize is never called when ai_enabled=False (D-14: no RAM cost)."""
         monkeypatch.setenv("TESTING", "1")
-        with patch("app.services.tts_engine.TTSEngine") as MockTTS:
-            MockTTS.return_value.initialize = AsyncMock()
+        with patch("app.services.tts_engine.TTSEngine") as mock_tts:
+            mock_tts.return_value.initialize = AsyncMock()
             await hw.detect_hardware(ai_enabled=False)
-            MockTTS.assert_not_called()
+            mock_tts.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_ai_enabled_false_still_registers_nfc_led_audio(

@@ -72,7 +72,7 @@ class TestTTSPipelineWrite:
     @pytest.mark.asyncio
     async def test_writes_wav_file(self, pipeline, tmp_path):
         out_dir = tmp_path / "story"
-        meta = await pipeline.synthesize_segment("Hola.", out_dir, index=0)
+        await pipeline.synthesize_segment("Hola.", out_dir, index=0)
 
         wav_path = out_dir / "audio" / "000.wav"
         assert wav_path.exists()
