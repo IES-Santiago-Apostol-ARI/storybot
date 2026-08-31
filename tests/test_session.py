@@ -57,6 +57,125 @@ class TestSessionAddParameter:
         assert result[1]["category"] == "setting"
 
 
+class TestSessionParameterToggle:
+    """Test parameter card toggle behavior (tap same card twice)."""
+
+    def test_same_card_twice_removes_it(self, session: SessionManager):
+        card1 = {
+            "uid": "11:22:33:44",
+            "type": "parameter",
+            "category": "character",
+            "value": "dragon",
+            "emoji": "🐉",
+            "label": "Dragón",
+        }
+        session.add_parameter(card1)
+        result = session.add_parameter(card1)
+
+        assert result == []
+
+    def test_toggle_off_keeps_the_other_parameters_in_order(
+        self, session: SessionManager
+    ):
+        card1 = {
+            "uid": "11:22:33:44",
+            "type": "parameter",
+            "category": "character",
+            "value": "dragon",
+            "emoji": "🐉",
+            "label": "Dragón",
+        }
+        card2 = {
+            "uid": "55:66:77:88",
+            "type": "parameter",
+            "category": "setting",
+            "value": "forest",
+            "emoji": "🌲",
+            "label": "Bosque",
+        }
+        card3 = {
+            "uid": "99:AA:BB:CC",
+            "type": "parameter",
+            "category": "tone",
+            "value": "funny",
+            "emoji": "😄",
+            "label": "Gracioso",
+        }
+        session.add_parameter(card1)
+        session.add_parameter(card2)
+        session.add_parameter(card3)
+        result = session.add_parameter(card2)
+
+        assert len(result) == 2
+        assert result[0]["uid"] == "11:22:33:44"
+        assert result[1]["uid"] == "99:AA:BB:CC"
+
+    def test_retap_after_removal_adds_it_back(self, session: SessionManager):
+        card1 = {
+            "uid": "11:22:33:44",
+            "type": "parameter",
+            "category": "character",
+            "value": "dragon",
+            "emoji": "🐉",
+            "label": "Dragón",
+        }
+        session.add_parameter(card1)
+        session.add_parameter(card1)
+        result = session.add_parameter(card1)
+
+        assert len(result) == 1
+        assert result[0]["uid"] == "11:22:33:44"
+
+    def test_distinct_cards_sharing_a_value_are_independent(
+        self, session: SessionManager
+    ):
+        card1 = {
+            "uid": "11:22:33:44",
+            "type": "parameter",
+            "category": "character",
+            "value": "owl",
+            "emoji": "🦉",
+            "label": "Búho",
+        }
+        card2 = {
+            "uid": "55:66:77:88",
+            "type": "parameter",
+            "category": "character",
+            "value": "owl",
+            "emoji": "🦉",
+            "label": "Búho",
+        }
+        session.add_parameter(card1)
+        result = session.add_parameter(card2)
+
+        assert len(result) == 2
+
+    def test_toggle_off_refreshes_the_session_timeout(self, session: SessionManager):
+        card1 = {
+            "uid": "11:22:33:44",
+            "type": "parameter",
+            "category": "character",
+            "value": "dragon",
+            "emoji": "🐉",
+            "label": "Dragón",
+        }
+        card2 = {
+            "uid": "55:66:77:88",
+            "type": "parameter",
+            "category": "setting",
+            "value": "forest",
+            "emoji": "🌲",
+            "label": "Bosque",
+        }
+        session.add_parameter(card1)
+        session.add_parameter(card2)
+        session.add_parameter(card2)
+
+        result = session.get_session()
+        assert result["is_active"] is True
+        assert len(result["parameters"]) == 1
+
+
 class TestSessionGetSession:
     """Test SessionManager.get_session()."""
 

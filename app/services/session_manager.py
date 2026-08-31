@@ -18,10 +18,18 @@ class SessionManager:
         self._lock = threading.Lock()
 
     def add_parameter(self, card: dict) -> list[dict]:
-        """Add a parameter card to the session. Returns current params."""
+        """Toggle a parameter card by uid.
+
+        Tapping a card whose uid is already in the session removes it;
+        otherwise it is appended. Returns current params.
+        """
         with self._lock:
             self._check_expired()
-            self._params.append(card)
+            uid = card.get("uid")
+            if uid and any(p.get("uid") == uid for p in self._params):
+                self._params = [p for p in self._params if p.get("uid") != uid]
+            else:
+                self._params.append(card)
             self._last_tap = time.time()
             return list(self._params)
 
