@@ -676,13 +676,29 @@ async function handleNfcCardEvent(event) {
             return;
         }
 
-        // Parameter card — add to collection
+        // Parameter card — toggle in the collection: tapping the same card
+        // (same uid) a second time removes it instead of duplicating it.
         if (card_type === 'parameter') {
             if (!window.aiEnabled) { playUISound('tap'); return; }
             if (currentState !== STATES.IDLE && currentState !== STATES.COLLECTING) return;
 
             playUISound('tap');
+            const already = uid ? collectingParams.findIndex(p => p.uid === uid) : -1;
+            if (already !== -1) {
+                collectingParams.splice(already, 1);
+                if (collectingParams.length === 0) {
+                    clearParameterDisplay();
+                    if (currentState === STATES.COLLECTING) {
+                        transitionTo(STATES.IDLE);
+                    }
+                    return;
+                }
+                renderParameterChips();
+                return;
+            }
+
             collectingParams.push({
+                uid,
                 emoji: data.emoji || '🏷️',
                 label: data.label || data.value || '',
                 category: data.category || '',
