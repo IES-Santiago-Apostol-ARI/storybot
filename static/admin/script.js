@@ -50,6 +50,9 @@ const cancelEditBtn = document.getElementById('cancel-edit');
 const clearCoverBtn = document.getElementById('clear-cover');
 const coverActionsDiv = document.getElementById('cover-actions');
 const currentCoverName = document.getElementById('current-cover-name');
+const coverPreviewWrap = document.getElementById('cover-preview-wrap');
+const coverPreviewImg = document.getElementById('cover-preview');
+const coverPlaceholder = document.getElementById('cover-placeholder');
 
 // Emoji Picker State
 let emojiPickerOpen = false;
@@ -501,6 +504,7 @@ function enterEditMode(story) {
         coverActionsDiv.classList.add('hidden');
         currentCoverName.textContent = '';
     }
+    showCoverPreview(story);
 
     updateFormUI();
     scrollToForm();
@@ -524,6 +528,7 @@ function exitEditMode(skipConfirm = false) {
 
     uploadForm.reset();
     coverActionsDiv.classList.add('hidden');
+    coverPreviewWrap.classList.add('hidden');
     currentCoverName.textContent = '';
 
     updateFormUI();
@@ -598,6 +603,35 @@ function clearCover() {
     document.getElementById('cover').value = '';
     currentCoverName.textContent = 'La portada se eliminará al guardar';
     currentCoverName.style.color = 'var(--color-danger)';
+    showCoverPlaceholder();
+}
+
+/**
+ * Show the current cover preview in the edit form
+ * @param {Object} story - Story object being edited
+ */
+function showCoverPreview(story) {
+    if (story.cover_image) {
+        if (coverPreviewImg) {
+            coverPreviewImg.onerror = function () {
+                showCoverPlaceholder();
+            };
+            coverPreviewImg.src = '/static/stories/' + encodeURIComponent(story.id) + '/' + encodeURIComponent(story.cover_image);
+            coverPreviewImg.hidden = false;
+        }
+        if (coverPlaceholder) coverPlaceholder.hidden = true;
+    } else {
+        showCoverPlaceholder();
+    }
+    if (coverPreviewWrap) coverPreviewWrap.classList.remove('hidden');
+}
+
+/**
+ * Show the "no cover" placeholder in the edit form
+ */
+function showCoverPlaceholder() {
+    if (coverPreviewImg) coverPreviewImg.hidden = true;
+    if (coverPlaceholder) coverPlaceholder.hidden = false;
 }
 
 /**

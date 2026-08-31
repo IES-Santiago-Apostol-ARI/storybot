@@ -240,6 +240,31 @@ input[type="color"] {
     font-style: italic;
 }
 
+.cover-preview-wrap {
+    margin-top: var(--space-xs);
+}
+
+.cover-preview {
+    max-width: 180px;
+    height: auto;
+    border-radius: 8px;
+    border: 1px solid var(--color-border, #ddd);
+    display: block;
+}
+
+.cover-placeholder {
+    color: var(--color-text-muted, #6b7280);
+}
+
+.cover-placeholder svg {
+    opacity: 0.5;
+}
+
+.cover-placeholder p {
+    margin: 0.5rem 0 0;
+    font-size: 12px;
+}
+
 /* Form button row for side-by-side buttons */
 .form-buttons {
     display: flex;
