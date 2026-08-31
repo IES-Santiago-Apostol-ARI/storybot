@@ -74,10 +74,11 @@ class TestCoverPreviewHtml:
     def test_preview_wrap_exists_hidden_with_class(self, html_text):
         match = re.search(r'<div[^>]*id="cover-preview-wrap"[^>]*>', html_text)
         assert match, "missing <div id='cover-preview-wrap'>"
+        wrap_tag = match.group(0)
         assert (
-            "cover-preview-wrap" in match.group(0)
+            "cover-preview-wrap" in wrap_tag
         ), "wrap must carry the cover-preview-wrap class"
-        assert "hidden" in match.group(0), "wrap must start hidden"
+        assert "hidden" in wrap_tag, "wrap must start hidden"
 
     def test_preview_img_exists_with_nonempty_alt(self, html_text):
         match = re.search(r'<img[^>]*id="cover-preview"[^>]*>', html_text)
