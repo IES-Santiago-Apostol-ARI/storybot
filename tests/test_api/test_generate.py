@@ -218,16 +218,19 @@ class TestGenerateStoryParamValidation:
         assert params[1]["category"] == "lugar"
         assert params[1]["value"] == "jardín"
 
-        # Verify build_cover_prompt receives equivalent params.
+        # Verify build_cover_prompt receives equivalent params. The pose and
+        # framing are drawn at random per call, so both builds share one rng.
+        from random import Random
+
         from app.services.cover_prompt_builder import build
 
-        positive_after, _ = build(params)
+        positive_after, _ = build(params, rng=Random(0))
 
         expected_params = [
             {"category": "personaje", "value": "gato"},
             {"category": "lugar", "value": "jardín"},
         ]
-        positive_before, _ = build(expected_params)
+        positive_before, _ = build(expected_params, rng=Random(0))
         assert positive_after == positive_before
 
 

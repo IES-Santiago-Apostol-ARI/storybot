@@ -1,7 +1,6 @@
 """Tests for cover generation SSE events — AC-4 + AC-7."""
 
 import json
-import zlib
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -123,11 +122,11 @@ class TestCoverReadyEmitted:
                 assert cover["gen_seconds"] == 9.5
                 break
 
-    def test_seed_is_deterministic_crc32_of_story_id(
+    def test_seed_varies_between_generations(
         self, mock_story_generator, mock_story_manager, mock_tts, tmp_path
     ):
-        """IMPROVEMENTS.md 2.6: same story → same cover must survive a
-        restart, so the seed is crc32(story_id), never hash()."""
+        """Same parameters must not yield the same sticker twice, so the seed
+        is random per generation (like the GPIO image button)."""
         orchestrator = AsyncMock(spec=SwapOrchestrator)
         orchestrator.generate_cover_for_story.return_value = (
             Path("/tmp/preview.png"),
@@ -136,22 +135,35 @@ class TestCoverReadyEmitted:
         )
         app.state.swap_orchestrator = orchestrator
 
+        async def _fresh_stream(*_args, **_kwargs):
+            for event in (
+                {"text": "Un cuento. ", "done": False},
+                {"text": None, "done": True},
+            ):
+                yield event
+
+        # The fixture hands out one already-consumed async generator; re-arm it
+        # so the second request actually reaches cover generation.
+        mock_story_generator.generate_story.return_value = None
+        mock_story_generator.generate_story.side_effect = _fresh_stream
+
+        seeds = []
         generated_dir, original = _setup_dir(tmp_path)
         try:
             client = TestClient(app)
-            resp = client.post(
-                "/api/generate/story",
-                json={"parameters": [{"category": "personaje", "value": "robot"}]},
-            )
+            for _ in range(2):
+                resp = client.post(
+                    "/api/generate/story",
+                    json={"parameters": [{"category": "personaje", "value": "robot"}]},
+                )
+                assert resp.status_code == 200
+                seeds.append(orchestrator.generate_cover_for_story.call_args[0][3])
         finally:
             _restore_dir(original)
             delattr(app.state, "swap_orchestrator")
 
-        assert resp.status_code == 200
-        orchestrator.generate_cover_for_story.assert_awaited_once()
-        args = orchestrator.generate_cover_for_story.call_args[0]
-        story_id, seed = args[0], args[3]
-        assert seed == zlib.crc32(story_id.encode())
+        assert seeds[0] != seeds[1]
+        assert all(0 <= s <= 0xFFFFFFFF for s in seeds)
 
     def test_attach_cover_called_on_success(
         self, mock_story_generator, mock_story_manager, mock_tts, tmp_path

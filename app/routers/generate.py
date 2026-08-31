@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import random
 import sys
 import time
 import uuid
@@ -15,7 +16,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.config import get_settings
 from app.services.atomic_io import write_json_atomic
 from app.services.cover_prompt_builder import build as build_cover_prompt
-from app.services.cover_prompt_builder import story_seed
 from app.services.led_animator import Mode
 from app.services.led_effects import hex_to_rgb
 from app.services.sentence_buffer import SentenceBuffer
@@ -298,7 +298,11 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
         # Cover generation (after story save, audio fully flushed)
         if collected_text and orchestrator and story_manager:
             positive, negative = build_cover_prompt(params)
-            seed = story_seed(story_id)
+            # Random seed (like the GPIO image button and the admin sticker
+            # button) so the same parameters never draw the same sticker
+            # twice. It used to be crc32(story_id), which made a regeneration
+            # of the same story pixel-identical.
+            seed = random.randint(0, 2**32 - 1)
 
             try:
                 # The orchestrator bounds the SD worker internally (WORKER_
