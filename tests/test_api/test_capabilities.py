@@ -59,9 +59,9 @@ class TestCapabilitiesEndpointAiOn:
         with TestClient(app) as client:
             resp = client.get("/api/capabilities")
             # API-01: must return 200
-            assert resp.status_code == 200, (
-                "API-01: GET /api/capabilities must return 200 when AI enabled"
-            )
+            assert (
+                resp.status_code == 200
+            ), "API-01: GET /api/capabilities must return 200 when AI enabled"
             data = resp.json()
             # API-01: all five CapabilityProfile fields present
             assert set(data.keys()) == {
@@ -74,21 +74,21 @@ class TestCapabilitiesEndpointAiOn:
                 "API-01: response keys must equal exactly "
                 "{ai_enabled, tts_available, cover_gen, printer, reason}"
             )
-            assert data["ai_enabled"] is True, (
-                "API-01: ai_enabled must be True when STORYBOT_AI=1"
-            )
-            assert data["tts_available"] is True, (
-                "API-01: tts_available must be True when STORYBOT_AI=1"
-            )
-            assert data["cover_gen"] is True, (
-                "API-01: cover_gen must be True when STORYBOT_AI=1"
-            )
-            assert "printer" in data, (
-                "API-01: printer key must be present in capabilities response"
-            )
-            assert data["reason"] == "env-override:forced-on", (
-                "API-01: reason must be 'env-override:forced-on' when STORYBOT_AI=1"
-            )
+            assert (
+                data["ai_enabled"] is True
+            ), "API-01: ai_enabled must be True when STORYBOT_AI=1"
+            assert (
+                data["tts_available"] is True
+            ), "API-01: tts_available must be True when STORYBOT_AI=1"
+            assert (
+                data["cover_gen"] is True
+            ), "API-01: cover_gen must be True when STORYBOT_AI=1"
+            assert (
+                "printer" in data
+            ), "API-01: printer key must be present in capabilities response"
+            assert (
+                data["reason"] == "env-override:forced-on"
+            ), "API-01: reason must be 'env-override:forced-on' when STORYBOT_AI=1"
 
 
 class TestCapabilitiesEndpointAiOff:
@@ -101,9 +101,9 @@ class TestCapabilitiesEndpointAiOff:
         with TestClient(app) as client:
             resp = client.get("/api/capabilities")
             # API-01: must return 200
-            assert resp.status_code == 200, (
-                "API-01: GET /api/capabilities must return 200 when AI disabled"
-            )
+            assert (
+                resp.status_code == 200
+            ), "API-01: GET /api/capabilities must return 200 when AI disabled"
             data = resp.json()
             # API-01: all five CapabilityProfile fields present
             assert set(data.keys()) == {
@@ -116,18 +116,18 @@ class TestCapabilitiesEndpointAiOff:
                 "API-01: response keys must equal exactly "
                 "{ai_enabled, tts_available, cover_gen, printer, reason}"
             )
-            assert data["ai_enabled"] is False, (
-                "API-01: ai_enabled must be False when STORYBOT_AI=0"
-            )
-            assert data["tts_available"] is False, (
-                "API-01: tts_available must be False when STORYBOT_AI=0"
-            )
-            assert data["cover_gen"] is False, (
-                "API-01: cover_gen must be False when STORYBOT_AI=0"
-            )
-            assert "printer" in data, (
-                "API-01: printer key must be present in capabilities response"
-            )
-            assert data["reason"] == "env-override:forced-off", (
-                "API-01: reason must be 'env-override:forced-off' when STORYBOT_AI=0"
-            )
+            assert (
+                data["ai_enabled"] is False
+            ), "API-01: ai_enabled must be False when STORYBOT_AI=0"
+            assert (
+                data["tts_available"] is False
+            ), "API-01: tts_available must be False when STORYBOT_AI=0"
+            assert (
+                data["cover_gen"] is False
+            ), "API-01: cover_gen must be False when STORYBOT_AI=0"
+            assert (
+                "printer" in data
+            ), "API-01: printer key must be present in capabilities response"
+            assert (
+                data["reason"] == "env-override:forced-off"
+            ), "API-01: reason must be 'env-override:forced-off' when STORYBOT_AI=0"

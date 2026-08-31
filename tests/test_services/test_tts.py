@@ -90,7 +90,9 @@ class TestTTSEngine:
         assert tts_engine.is_mock is False
 
     @pytest.mark.asyncio
-    async def test_tts_engine_with_custom_model_path(self, tts_engine_with_path, tmp_path):
+    async def test_tts_engine_with_custom_model_path(
+        self, tts_engine_with_path, tmp_path
+    ):
         """Test TTS engine with custom model path."""
         assert tts_engine_with_path._model_path == tmp_path
 
@@ -262,7 +264,9 @@ class TestTTSEngine:
 
         # Create mock piper module that raises on load
         mock_piper_module = MagicMock()
-        mock_piper_module.PiperVoice.load.side_effect = RuntimeError("Model load failed")
+        mock_piper_module.PiperVoice.load.side_effect = RuntimeError(
+            "Model load failed"
+        )
 
         with patch.dict(sys.modules, {"piper": mock_piper_module}):
             result = await engine.load_model(model_name)
@@ -311,16 +315,12 @@ class TestSpeakerAndRate:
 
     @pytest.mark.asyncio
     async def test_pick_speaker_fixed_female(self, tmp_path):
-        engine = await self._loaded_engine(
-            tmp_path, self.TWO_SPEAKER_JSON, speaker="F"
-        )
+        engine = await self._loaded_engine(tmp_path, self.TWO_SPEAKER_JSON, speaker="F")
         assert engine.pick_speaker() == 1
 
     @pytest.mark.asyncio
     async def test_pick_speaker_fixed_male(self, tmp_path):
-        engine = await self._loaded_engine(
-            tmp_path, self.TWO_SPEAKER_JSON, speaker="M"
-        )
+        engine = await self._loaded_engine(tmp_path, self.TWO_SPEAKER_JSON, speaker="M")
         assert engine.pick_speaker() == 0
 
     @pytest.mark.asyncio

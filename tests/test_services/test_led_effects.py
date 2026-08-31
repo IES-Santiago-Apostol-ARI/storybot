@@ -10,7 +10,6 @@ LED-15 (error amber), LED-22 (cross-fade), LED-24 (brightness clamp),
 LED-25 (gamma).
 """
 
-
 from app.config import ConfigManager
 from app.services.led_effects import (
     boot_wipe,
@@ -27,6 +26,7 @@ from app.services.led_spi import encode_ws2812
 settings = ConfigManager().load()
 
 # --- LED-10: Playback breathing bounds ---------------------------------
+
 
 class TestBreathe:
     """LED-10: Breathing stays within [TROUGH, PEAK] x color."""
@@ -67,7 +67,9 @@ class TestBreathe:
         fb = breathe(now=1.23, count=21, color=(100, 200, 50))
         assert all(px == fb[0] for px in fb)
 
+
 # --- LED-17: Comet / chase advance -------------------------------------
+
 
 class TestComet:
     """LED-17: Comet advances along the strip."""
@@ -105,7 +107,9 @@ class TestComet:
         far_idx = (head + 10) % 21
         assert fb[far_idx] == (0, 0, 0)
 
+
 # --- LED-20: Proportional progress fill --------------------------------
+
 
 class TestProgress:
     """LED-20: Progress bar fills proportionally."""
@@ -142,7 +146,9 @@ class TestProgress:
         # ceil(5/10 * 21) = ceil(10.5) = 11
         assert lit == 11
 
+
 # --- LED-19: Parameter accumulation ------------------------------------
+
 
 class TestParamFill:
     """LED-19: One pixel per parameter card."""
@@ -170,7 +176,9 @@ class TestParamFill:
         fb = param_fill(now=0.0, count=21, n_params=0)
         assert all(px == (0, 0, 0) for px in fb)
 
+
 # --- LED-18: Boot wipe ------------------------------------------------
+
 
 class TestBootWipe:
     """LED-18: Single-color wipe across all pixels."""
@@ -193,7 +201,9 @@ class TestBootWipe:
         fb = boot_wipe(elapsed=1.5, count=21, color=(0, 255, 0))
         assert all(px == (0, 255, 0) for px in fb)
 
+
 # --- LED-15: Error amber -----------------------------------------------
+
 
 class TestErrorAmber:
     """LED-15: Gentle amber error indication."""
@@ -217,7 +227,9 @@ class TestErrorAmber:
         r, g, b = fb[0]
         assert r < 255 or g < 255, "Error should not be full brightness after fade"
 
+
 # --- LED-16: Idle glow ------------------------------------------------
+
 
 class TestIdleGlow:
     """LED-16: Calm ambient idle glow."""
@@ -246,7 +258,9 @@ class TestIdleGlow:
         fb = idle_glow(now=0.0, count=21)
         assert all(px == fb[0] for px in fb)
 
+
 # --- LED-22: Cross-fade -----------------------------------------------
+
 
 class TestCrossfade:
     """LED-22: Smooth cross-fades between frames."""
@@ -284,7 +298,9 @@ class TestCrossfade:
         assert result[1] == (0, round(255 * 0.5), 0)
         assert result[2] == (0, 0, round(255 * 0.5))
 
+
 # --- LED-24: Brightness clamp (via encoder) ----------------------------
+
 
 class TestBrightnessClamp:
     """LED-24: Brightness cap enforced by encoder."""
@@ -300,9 +316,11 @@ class TestBrightnessClamp:
             order=settings.led_color_order,
         )
         # Should not be all zeros (cap is a fraction, not zero)
-        assert encoded != b'\x00' * len(encoded)
+        assert encoded != b"\x00" * len(encoded)
+
 
 # --- LED-25: Gamma correction (via encoder) ----------------------------
+
 
 class TestGamma:
     """LED-25: Gamma-corrected output via encoder LUT."""
@@ -319,10 +337,11 @@ class TestGamma:
             order=settings.led_color_order,
         )
         # Just verify it produces non-zero output
-        assert encoded != b'\x00' * len(encoded)
+        assert encoded != b"\x00" * len(encoded)
 
 
 # --- IMPROVEMENTS.md 2.2: single hex_to_rgb ----------------------------
+
 
 class TestHexToRgb:
     """One shared hex_to_rgb lives here; generate.py, system.py and

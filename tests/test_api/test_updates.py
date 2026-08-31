@@ -31,13 +31,15 @@ def _mock_update_manager(
 
     # check_update: async method returning dict
     mgr.check_update = AsyncMock(
-        return_value=check_return
-        if check_return is not None
-        else {
-            "update_available": False,
-            "local_commit": "abc1234",
-            "remote_commit": "abc1234",
-        }
+        return_value=(
+            check_return
+            if check_return is not None
+            else {
+                "update_available": False,
+                "local_commit": "abc1234",
+                "remote_commit": "abc1234",
+            }
+        )
     )
     if check_side_effect:
         mgr.check_update = AsyncMock(side_effect=check_side_effect)
@@ -54,9 +56,11 @@ def _mock_update_manager(
 
     # get_version: async method returning dict
     mgr.get_version = AsyncMock(
-        return_value=version_return
-        if version_return is not None
-        else {"version": "v1.0-5-gabc", "commit": "abc1234"}
+        return_value=(
+            version_return
+            if version_return is not None
+            else {"version": "v1.0-5-gabc", "commit": "abc1234"}
+        )
     )
 
     return mgr

@@ -44,6 +44,7 @@ def client(temp_story_manager, monkeypatch):
     monkeypatch.setattr(StoryManager, "GENERATED_DIR", sm.GENERATED_DIR)
     monkeypatch.setattr(StoryManager, "INDEX_FILE", sm.INDEX_FILE)
     from app.dependencies import get_story_manager
+
     app.dependency_overrides = {}
 
     async def override():
@@ -61,12 +62,16 @@ def _seed(generated: Path, story_id: str, n_segments: int = 2):
     audio.mkdir(parents=True)
     for i in range(n_segments):
         _write_silent_wav(audio / f"{i:03d}.wav")
-    (d / "story.json").write_text(json.dumps({
-        "id": story_id,
-        "text": "Había una vez un dragón",
-        "parameters": [{"category": "personaje", "value": "dragón"}],
-        "created_at": "2026-04-27T00:00:00Z",
-    }))
+    (d / "story.json").write_text(
+        json.dumps(
+            {
+                "id": story_id,
+                "text": "Había una vez un dragón",
+                "parameters": [{"category": "personaje", "value": "dragón"}],
+                "created_at": "2026-04-27T00:00:00Z",
+            }
+        )
+    )
 
 
 class TestList:

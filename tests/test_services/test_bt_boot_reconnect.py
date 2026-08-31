@@ -122,7 +122,11 @@ async def test_giveup_routes_wired(fake_clock, fake_sleep, _log_capture):
     manager = _FailingManager(fail_count=999)
 
     result = await run_once(
-        manager, route_to_wired=stub_route_to_wired, sleep=fake_sleep, log=log, now=fake_clock
+        manager,
+        route_to_wired=stub_route_to_wired,
+        sleep=fake_sleep,
+        log=log,
+        now=fake_clock,
     )
 
     assert result == 0

@@ -1,6 +1,5 @@
 """System models for API responses."""
 
-
 from pydantic import BaseModel, Field
 
 

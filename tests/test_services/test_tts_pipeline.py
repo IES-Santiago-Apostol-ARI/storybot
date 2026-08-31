@@ -21,7 +21,17 @@ def _make_fake_wav(duration_samples: int = 2205) -> bytes:
     buf.extend(b"WAVE")
     buf.extend(b"fmt ")
     buf.extend(struct.pack("<I", 16))
-    buf.extend(struct.pack("<HHIIHH", 1, n_channels, framerate, framerate * n_channels * sample_width, n_channels * sample_width, sample_width * 8))
+    buf.extend(
+        struct.pack(
+            "<HHIIHH",
+            1,
+            n_channels,
+            framerate,
+            framerate * n_channels * sample_width,
+            n_channels * sample_width,
+            sample_width * 8,
+        )
+    )
     buf.extend(b"data")
     buf.extend(struct.pack("<I", data_size))
     buf.extend(raw)
@@ -97,7 +107,9 @@ class TestTTSPipelineWrite:
 
 class TestTTSPipelineFailure:
     @pytest.mark.asyncio
-    async def test_synth_failure_returns_error_no_raise(self, failing_pipeline, tmp_path):
+    async def test_synth_failure_returns_error_no_raise(
+        self, failing_pipeline, tmp_path
+    ):
         out_dir = tmp_path / "story"
         meta = await failing_pipeline.synthesize_segment("fail", out_dir, index=0)
 

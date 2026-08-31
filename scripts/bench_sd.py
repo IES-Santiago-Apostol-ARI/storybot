@@ -107,7 +107,9 @@ def _parse_args():
             "(smallest attention buffer). Default: 1."
         ),
     )
-    parser.add_argument("--output", type=Path, default=None, help="Append JSON lines to this file")
+    parser.add_argument(
+        "--output", type=Path, default=None, help="Append JSON lines to this file"
+    )
     parser.add_argument("--image-output-dir", type=Path, default=Path("/tmp"))
     parser.add_argument("--warmup", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
@@ -123,6 +125,7 @@ def _parse_args():
 # ---------------------------------------------------------------------------
 # Prompt loader — reads prompts.md with style preamble + numbered prompts
 # ---------------------------------------------------------------------------
+
 
 def load_prompts(path: Path) -> tuple[str, str, list[dict]]:
     """Parse prompts.md → (style_preamble, negative_prompt, [prompt_entries]).
@@ -171,6 +174,7 @@ def load_prompts(path: Path) -> tuple[str, str, list[dict]]:
 # RSS sampler — background thread reading /proc/self/status
 # ---------------------------------------------------------------------------
 
+
 class RSSSampler:
     def __init__(self):
         self.samples: list[int] = []
@@ -203,6 +207,7 @@ class RSSSampler:
 # ---------------------------------------------------------------------------
 # Pipeline setup
 # ---------------------------------------------------------------------------
+
 
 def _resolve_lineart_lora(root: Path, short_name: str) -> tuple[Path, str | None]:
     """Return (lora_dir, weight_filename_or_None).
@@ -303,6 +308,7 @@ def build_pipeline(
 # Per-prompt generation + post-processing
 # ---------------------------------------------------------------------------
 
+
 def run_generation(
     pipe,
     prompt_text: str,
@@ -353,7 +359,9 @@ def run_generation(
     if output_resolution != gen_resolution:
         image = image.resize((output_resolution, output_resolution), Image.LANCZOS)
 
-    preview_path = image_output_dir / f"bench-sd-prompt-{prompt_id}-{lora_short}-preview.png"
+    preview_path = (
+        image_output_dir / f"bench-sd-prompt-{prompt_id}-{lora_short}-preview.png"
+    )
     image.save(str(preview_path))
 
     print_path: Path | None = None
@@ -362,7 +370,9 @@ def run_generation(
         bw = gray.point(lambda p: 255 if p > threshold else 0).convert(
             "1", dither=Image.Dither.NONE
         )
-        print_path = image_output_dir / f"bench-sd-prompt-{prompt_id}-{lora_short}-print.png"
+        print_path = (
+            image_output_dir / f"bench-sd-prompt-{prompt_id}-{lora_short}-print.png"
+        )
         bw.save(str(print_path))
 
     t_end = time.monotonic()
@@ -399,6 +409,7 @@ def run_generation(
 # Summary aggregation
 # ---------------------------------------------------------------------------
 
+
 def summarize(results: list[dict], lineart_lora: str, threshold: int | None) -> dict:
     latencies = sorted(r["first_image_ms"] for r in results)
     steps = [r["per_step_ms"] for r in results]
@@ -423,6 +434,7 @@ def summarize(results: list[dict], lineart_lora: str, threshold: int | None) -> 
 # Output helper
 # ---------------------------------------------------------------------------
 
+
 def emit(obj: dict, output: Path | None):
     line = json.dumps(obj, ensure_ascii=False)
     print(line, flush=True)
@@ -435,12 +447,16 @@ def emit(obj: dict, output: Path | None):
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main():
     args = _parse_args()
 
     import torch
+
     if not torch.cuda.is_available():
-        print("ERROR: CUDA not available. This benchmark requires a GPU.", file=sys.stderr)
+        print(
+            "ERROR: CUDA not available. This benchmark requires a GPU.", file=sys.stderr
+        )
         sys.exit(1)
 
     lineart_lora_dir, lineart_weight_name = _resolve_lineart_lora(
@@ -477,6 +493,7 @@ def main():
         print(f"Warmup: {args.warmup} generation(s)...", file=sys.stderr)
         for _ in range(args.warmup):
             import torch as _t
+
             _result = pipe(
                 prompt="coloring book page line art of a friendly cat, bold black outlines on white",
                 negative_prompt=negative_prompt,
@@ -494,7 +511,10 @@ def main():
     results: list[dict] = []
 
     for prompt in prompts:
-        print(f"Running prompt-{prompt['id']} with {args.lineart_lora}...", file=sys.stderr)
+        print(
+            f"Running prompt-{prompt['id']} with {args.lineart_lora}...",
+            file=sys.stderr,
+        )
         result = run_generation(
             pipe=pipe,
             prompt_text=prompt["positive_prompt"],

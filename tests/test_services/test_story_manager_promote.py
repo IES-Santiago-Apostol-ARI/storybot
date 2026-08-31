@@ -24,7 +24,9 @@ def story_manager(tmp_path):
     sm.CONTENT_DIR = content
     sm.GENERATED_DIR = generated
     sm.INDEX_FILE = content / "stories.json"
-    sm.INDEX_FILE.write_text(json.dumps({"version": 1, "stories": {}, "nfc_to_story": {}}))
+    sm.INDEX_FILE.write_text(
+        json.dumps({"version": 1, "stories": {}, "nfc_to_story": {}})
+    )
     return sm
 
 
@@ -44,13 +46,15 @@ def _seed_generated(sm: StoryManager, story_id: str, n_segments: int = 2) -> Pat
     for i in range(n_segments):
         _write_silent_wav(audio / f"{i:03d}.wav", frames=22050)
     (d / "story.json").write_text(
-        json.dumps({
-            "id": story_id,
-            "text": "Había una vez",
-            "parameters": [{"category": "personaje", "value": "dragón"}],
-            "created_at": "2026-04-27T00:00:00Z",
-            "cover": {"preview": "cover-preview.png", "print": "cover-print.png"},
-        })
+        json.dumps(
+            {
+                "id": story_id,
+                "text": "Había una vez",
+                "parameters": [{"category": "personaje", "value": "dragón"}],
+                "created_at": "2026-04-27T00:00:00Z",
+                "cover": {"preview": "cover-preview.png", "print": "cover-print.png"},
+            }
+        )
     )
     (d / "cover-preview.png").write_bytes(b"\x89PNG\r\n\x1a\n")
     (d / "cover-print.png").write_bytes(b"\x89PNG\r\n\x1a\n")
@@ -81,21 +85,27 @@ class TestStoryManagerListGenerated:
 class TestStoryManagerDeleteGenerated:
     def test_delete_removes_dir(self, story_manager):
         if not hasattr(story_manager, "delete_generated"):
-            pytest.fail("RED: StoryManager.delete_generated not implemented (Plan 16-02)")
+            pytest.fail(
+                "RED: StoryManager.delete_generated not implemented (Plan 16-02)"
+            )
         d = _seed_generated(story_manager, "uuid-a")
         assert story_manager.delete_generated("uuid-a") is True
         assert not d.exists()
 
     def test_delete_missing_returns_false(self, story_manager):
         if not hasattr(story_manager, "delete_generated"):
-            pytest.fail("RED: StoryManager.delete_generated not implemented (Plan 16-02)")
+            pytest.fail(
+                "RED: StoryManager.delete_generated not implemented (Plan 16-02)"
+            )
         assert story_manager.delete_generated("uuid-missing") is False
 
 
 class TestStoryManagerPromoteGenerated:
     def test_promote_creates_curated_story_with_concatenated_audio(self, story_manager):
         if not hasattr(story_manager, "promote_generated"):
-            pytest.fail("RED: StoryManager.promote_generated not implemented (Plan 16-02)")
+            pytest.fail(
+                "RED: StoryManager.promote_generated not implemented (Plan 16-02)"
+            )
         _seed_generated(story_manager, "uuid-a", n_segments=3)
         new_story = story_manager.promote_generated(
             generated_id="uuid-a",
@@ -120,18 +130,24 @@ class TestStoryManagerPromoteGenerated:
 
     def test_promote_copies_cover(self, story_manager):
         if not hasattr(story_manager, "promote_generated"):
-            pytest.fail("RED: StoryManager.promote_generated not implemented (Plan 16-02)")
+            pytest.fail(
+                "RED: StoryManager.promote_generated not implemented (Plan 16-02)"
+            )
         _seed_generated(story_manager, "uuid-a")
         new_story = story_manager.promote_generated(
             generated_id="uuid-a", title="T", emoji="🐉", led_color="#FF5733"
         )
         curated_dir = story_manager.CONTENT_DIR / new_story.id
         # cover-preview.png copied into curated dir
-        assert (curated_dir / "cover-preview.png").exists() or new_story.cover_image is not None
+        assert (
+            curated_dir / "cover-preview.png"
+        ).exists() or new_story.cover_image is not None
 
     def test_promote_missing_id_raises(self, story_manager):
         if not hasattr(story_manager, "promote_generated"):
-            pytest.fail("RED: StoryManager.promote_generated not implemented (Plan 16-02)")
+            pytest.fail(
+                "RED: StoryManager.promote_generated not implemented (Plan 16-02)"
+            )
         with pytest.raises((FileNotFoundError, ValueError)):
             story_manager.promote_generated(
                 generated_id="nope", title="T", emoji="🐉", led_color="#FF5733"
@@ -166,9 +182,9 @@ class TestStoryManagerPromoteGeneratedConcurrent:
         winners = [o for o in outcomes if isinstance(o, Story)]
         losers = [o for o in outcomes if isinstance(o, FileNotFoundError)]
         assert len(winners) == 1, f"expected exactly one winner, got {len(winners)}"
-        assert len(losers) == 1, (
-            f"expected exactly one FileNotFoundError, got {len(losers)}"
-        )
+        assert (
+            len(losers) == 1
+        ), f"expected exactly one FileNotFoundError, got {len(losers)}"
 
         stories = story_manager.list_stories()
         assert len(stories) == 1

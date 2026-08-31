@@ -8,7 +8,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-pytest.importorskip("app.services.printer_handler", reason="Wave 0 RED stub: implemented in Plan 16-04")
+pytest.importorskip(
+    "app.services.printer_handler", reason="Wave 0 RED stub: implemented in Plan 16-04"
+)
 
 from app.services.printer_handler import (  # noqa: E402
     MockPrinterService,
@@ -22,7 +24,9 @@ class TestMockPrinterService:
     @pytest.mark.asyncio
     async def test_records_last_printed(self, tmp_path):
         png = tmp_path / "cover-print.png"
-        png.write_bytes(b"\x89PNG\r\n\x1a\n")  # PNG magic only — content irrelevant for mock
+        png.write_bytes(
+            b"\x89PNG\r\n\x1a\n"
+        )  # PNG magic only — content irrelevant for mock
         mock = MockPrinterService()
         await mock.print_sticker(png)
         assert mock._last_printed == png
@@ -34,7 +38,11 @@ class TestMockPrinterService:
         mock = MockPrinterService()
         await mock.print_sticker(png)
         captured = capsys.readouterr()
-        events = [json.loads(line) for line in captured.err.strip().split("\n") if line.strip()]
+        events = [
+            json.loads(line)
+            for line in captured.err.strip().split("\n")
+            if line.strip()
+        ]
         assert any(e["event"] == "print_mock" and e["path"] == str(png) for e in events)
 
     def test_is_mock_true(self):
@@ -46,9 +54,11 @@ class TestRealPrinterService:
     async def test_invokes_brother_ql_send(self, tmp_path):
         png = tmp_path / "cover-print.png"
         png.write_bytes(b"\x89PNG\r\n\x1a\n")
-        with patch("app.services.printer_handler.send") as mock_send, \
-             patch("app.services.printer_handler.convert") as mock_convert, \
-             patch("app.services.printer_handler.BrotherQLRaster") as mock_raster:
+        with (
+            patch("app.services.printer_handler.send") as mock_send,
+            patch("app.services.printer_handler.convert") as mock_convert,
+            patch("app.services.printer_handler.BrotherQLRaster") as mock_raster,
+        ):
             mock_raster.return_value = MagicMock(data=b"raw")
             real = RealPrinterService()
             real._available = True  # bypass availability probe in unit test

@@ -275,9 +275,7 @@ class TestAssignNfcAlsoUpdatesCards:
         assert card["type"] == "story"
         assert card["story_id"] == "s1"
 
-    def test_assign_nfc_reassignment_updates_cards(
-        self, story_manager: StoryManager
-    ):
+    def test_assign_nfc_reassignment_updates_cards(self, story_manager: StoryManager):
         """Reassigning NFC removes old card entry, creates new one."""
         story_manager.create_story(
             id="s1",

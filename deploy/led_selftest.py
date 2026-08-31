@@ -91,7 +91,9 @@ def test_walk(w: SpiWriter, cap: float, gamma: float) -> None:
 
 def test_fill(w: SpiWriter, cap: float, gamma: float) -> None:
     n = settings.led_count
-    print("  [fill] cumulative 0..i -> the step where the count stops growing = dead pixel")
+    print(
+        "  [fill] cumulative 0..i -> the step where the count stops growing = dead pixel"
+    )
     for i in range(n):
         frame = [(255, 255, 255)] * (i + 1) + [(0, 0, 0)] * (n - i - 1)
         print(f"    -> first {i + 1} LEDs ON (indices 0..{i})")

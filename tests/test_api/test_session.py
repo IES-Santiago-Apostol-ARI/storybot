@@ -44,13 +44,15 @@ class TestSessionEndpoint:
 
     def test_session_returns_params_after_add(self, app_with_session):
         session_manager.clear()
-        session_manager.add_parameter({
-            "uid": "04:A3:5B:C2:D4:30",
-            "category": "personaje",
-            "value": "dragon",
-            "emoji": "🐉",
-            "label": "Dragón",
-        })
+        session_manager.add_parameter(
+            {
+                "uid": "04:A3:5B:C2:D4:30",
+                "category": "personaje",
+                "value": "dragon",
+                "emoji": "🐉",
+                "label": "Dragón",
+            }
+        )
         try:
             with TestClient(app_with_session) as client:
                 response = client.get("/api/session")

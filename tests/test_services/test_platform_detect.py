@@ -19,8 +19,10 @@ class TestDetectPlatform:
             assert detect_platform() == "jetson"
 
     def test_rpi_when_model_file_matches(self):
-        with patch("app.services.platform_detect._jetson_marker_exists") as mj, \
-             patch("app.services.platform_detect.Path") as mpath:
+        with (
+            patch("app.services.platform_detect._jetson_marker_exists") as mj,
+            patch("app.services.platform_detect.Path") as mpath,
+        ):
             mj.return_value = False
             model = mpath.return_value
             model.is_file.return_value = True
@@ -28,8 +30,10 @@ class TestDetectPlatform:
             assert detect_platform() == "rpi"
 
     def test_rpi_match_is_case_insensitive(self):
-        with patch("app.services.platform_detect._jetson_marker_exists") as mj, \
-             patch("app.services.platform_detect.Path") as mpath:
+        with (
+            patch("app.services.platform_detect._jetson_marker_exists") as mj,
+            patch("app.services.platform_detect.Path") as mpath,
+        ):
             mj.return_value = False
             model = mpath.return_value
             model.is_file.return_value = True
@@ -37,8 +41,10 @@ class TestDetectPlatform:
             assert detect_platform() == "rpi"
 
     def test_generic_when_neither_marker_matches(self):
-        with patch("app.services.platform_detect._jetson_marker_exists") as mj, \
-             patch("app.services.platform_detect.Path") as mpath:
+        with (
+            patch("app.services.platform_detect._jetson_marker_exists") as mj,
+            patch("app.services.platform_detect.Path") as mpath,
+        ):
             mj.return_value = False
             model = mpath.return_value
             model.is_file.return_value = True
@@ -46,8 +52,10 @@ class TestDetectPlatform:
             assert detect_platform() == "generic"
 
     def test_generic_when_model_file_absent(self):
-        with patch("app.services.platform_detect._jetson_marker_exists") as mj, \
-             patch("app.services.platform_detect.Path") as mpath:
+        with (
+            patch("app.services.platform_detect._jetson_marker_exists") as mj,
+            patch("app.services.platform_detect.Path") as mpath,
+        ):
             mj.return_value = False
             model = mpath.return_value
             model.is_file.return_value = False
@@ -55,8 +63,10 @@ class TestDetectPlatform:
 
     def test_generic_when_oserror_reading_model(self):
         """D-09: OSError on /proc read is non-fatal → 'generic'."""
-        with patch("app.services.platform_detect._jetson_marker_exists") as mj, \
-             patch("app.services.platform_detect.Path") as mpath:
+        with (
+            patch("app.services.platform_detect._jetson_marker_exists") as mj,
+            patch("app.services.platform_detect.Path") as mpath,
+        ):
             mj.return_value = False
             model = mpath.return_value
             model.is_file.return_value = True

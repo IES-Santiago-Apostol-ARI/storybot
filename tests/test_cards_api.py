@@ -17,7 +17,9 @@ def temp_story_manager(tmp_path):
     stories_dir.mkdir(parents=True)
 
     index_file = stories_dir / "stories.json"
-    index_file.write_text(json.dumps({"version": 2, "stories": {}, "nfc_to_story": {}, "cards": {}}))
+    index_file.write_text(
+        json.dumps({"version": 2, "stories": {}, "nfc_to_story": {}, "cards": {}})
+    )
 
     manager = StoryManager()
     manager.CONTENT_DIR = stories_dir
@@ -43,6 +45,7 @@ def client(temp_story_manager, monkeypatch):
     app.dependency_overrides[get_story_manager] = override_get_story_manager
 
     import app.routers.stories as stories_router_module
+
     original_path = stories_router_module.Path
 
     def mock_path(path_str):
@@ -53,6 +56,7 @@ def client(temp_story_manager, monkeypatch):
     stories_router_module.Path = mock_path
 
     import app.main as main_module
+
     original_main_path = main_module.Path
 
     def mock_main_path(path_str):

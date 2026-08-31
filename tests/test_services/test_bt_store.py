@@ -155,7 +155,11 @@ class TestBtDeviceStore:
     def test_default_path_resolves_to_content_bt_devices_json(self):
         """Default path mirrors ConfigManager: project_root/content/bt_devices.json."""
         store = BtDeviceStore()
-        expected = Path(__file__).resolve().parent.parent.parent / "content" / "bt_devices.json"
+        expected = (
+            Path(__file__).resolve().parent.parent.parent
+            / "content"
+            / "bt_devices.json"
+        )
         assert store.path == expected
 
     def test_source_uses_os_replace(self):

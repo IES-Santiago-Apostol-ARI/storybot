@@ -101,7 +101,9 @@ class TestRealServiceEdgeToQueue:
         mock_jetson = MagicMock()
         mock_jetson.GPIO = mock_gpio
 
-        with patch.dict("sys.modules", {"Jetson": mock_jetson, "Jetson.GPIO": mock_gpio}):
+        with patch.dict(
+            "sys.modules", {"Jetson": mock_jetson, "Jetson.GPIO": mock_gpio}
+        ):
             from app.services.gpio_handler import RealGPIOButtonService
 
             service = RealGPIOButtonService()

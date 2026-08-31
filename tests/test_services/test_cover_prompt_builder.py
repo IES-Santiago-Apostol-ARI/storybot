@@ -43,15 +43,11 @@ class TestSubstitutionPatterns:
         assert "in a simple garden" in positive
 
     def test_objeto_gets_holding_prefix(self):
-        positive, _ = build(
-            _params(("personaje", "robot"), ("objeto", "flower"))
-        )
+        positive, _ = build(_params(("personaje", "robot"), ("objeto", "flower")))
         assert "holding/with a simple flower" in positive
 
     def test_emocion_gets_looking_prefix(self):
-        positive, _ = build(
-            _params(("personaje", "robot"), ("emoción", "happy"))
-        )
+        positive, _ = build(_params(("personaje", "robot"), ("emoción", "happy")))
         assert "looking happy" in positive
 
     def test_problema_is_skipped(self):
@@ -125,9 +121,7 @@ class TestTokenBudgetEnforcement:
 
 class TestEdgeCases:
     def test_unknown_category_ignored(self):
-        positive, _ = build(
-            _params(("personaje", "robot"), ("unknown", "ignored"))
-        )
+        positive, _ = build(_params(("personaje", "robot"), ("unknown", "ignored")))
         assert "ignored" not in positive
         assert "cute cartoon robot" in positive
 

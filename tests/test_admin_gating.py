@@ -1,4 +1,5 @@
 """Phase 20 admin gating source-assertion tests (ADM-06..10)."""
+
 import re
 from pathlib import Path
 
@@ -46,31 +47,29 @@ class TestAdminCapabilityFetch:
 
     def test_fetch_targets_capabilities_endpoint(self, script_text):
         """fetchCapabilities calls GET /api/capabilities."""
-        assert "/api/capabilities" in script_text, (
-            "Script does not reference /api/capabilities endpoint"
-        )
+        assert (
+            "/api/capabilities" in script_text
+        ), "Script does not reference /api/capabilities endpoint"
 
     def test_fetch_has_timeout(self, script_text):
         """fetchCapabilities uses AbortController with 1500ms timeout."""
-        assert "AbortController" in script_text, (
-            "Missing AbortController for fetch timeout"
-        )
+        assert (
+            "AbortController" in script_text
+        ), "Missing AbortController for fetch timeout"
         timeout_match = re.search(
             r"setTimeout\s*\(\s*\(\)\s*=>\s*controller\.abort\s*\(\s*\)\s*,\s*(\d+)\s*\)",
             script_text,
         )
         assert timeout_match, "Missing setTimeout -> controller.abort() pattern"
         timeout_ms = int(timeout_match.group(1))
-        assert timeout_ms == 1500, (
-            f"Expected 1500ms timeout, got {timeout_ms}ms"
-        )
+        assert timeout_ms == 1500, f"Expected 1500ms timeout, got {timeout_ms}ms"
 
     def test_fail_closed_initial_and_catch(self, script_text):
         """window.aiEnabled = false appears at least twice (initial + catch)."""
         count = script_text.count("window.aiEnabled = false")
-        assert count >= 2, (
-            f"Expected >= 2 occurrences of 'window.aiEnabled = false', got {count}"
-        )
+        assert (
+            count >= 2
+        ), f"Expected >= 2 occurrences of 'window.aiEnabled = false', got {count}"
 
     def test_success_assignment_strict_boolean(self, script_text):
         """On success, window.aiEnabled is set via strict boolean comparison."""
@@ -120,9 +119,9 @@ class TestAdminCapabilityFetch:
     def test_no_retry_loop(self, script_text):
         """fetchCapabilities appears exactly 2 times (definition + call)."""
         count = script_text.count("fetchCapabilities")
-        assert count == 2, (
-            f"Expected fetchCapabilities to appear exactly 2 times, got {count}"
-        )
+        assert (
+            count == 2
+        ), f"Expected fetchCapabilities to appear exactly 2 times, got {count}"
 
     def test_capabilities_endpoint_alive(self):
         """GET /api/capabilities returns 200 with boolean ai_enabled."""
@@ -139,9 +138,9 @@ class TestAdminCapabilityFetch:
 
     def test_badge_html_placeholder_exists(self, html_text):
         """index.html contains span with class capability-badge."""
-        assert "capability-badge" in html_text, (
-            "index.html missing capability-badge class"
-        )
+        assert (
+            "capability-badge" in html_text
+        ), "index.html missing capability-badge class"
 
     def test_badge_position_between_h1_and_status_icons(self, html_text):
         """Badge appears after </h1> and before class='status-icons'."""
@@ -164,23 +163,23 @@ class TestAdminCapabilityFetch:
 
     def test_js_writes_modo_completo(self, script_text):
         """Script contains literal 'Modo: Completo' string."""
-        assert "Modo: Completo" in script_text, (
-            "Script missing 'Modo: Completo' literal"
-        )
+        assert (
+            "Modo: Completo" in script_text
+        ), "Script missing 'Modo: Completo' literal"
 
     def test_js_writes_modo_basico(self, script_text):
         """Script contains literal 'Modo: Basico (sin IA)' string."""
-        assert "Modo: Basico (sin IA)" in script_text, (
-            "Script missing 'Modo: Basico (sin IA)' literal"
-        )
+        assert (
+            "Modo: Basico (sin IA)" in script_text
+        ), "Script missing 'Modo: Basico (sin IA)' literal"
 
     # -- CSS -------------------------------------------------------------
 
     def test_badge_css_rule_exists(self, css_text):
         """styles.css contains .capability-badge rule."""
-        assert ".capability-badge" in css_text, (
-            "styles.css missing .capability-badge rule"
-        )
+        assert (
+            ".capability-badge" in css_text
+        ), "styles.css missing .capability-badge rule"
 
 
 def _extract_dcl_body(text):
@@ -231,12 +230,12 @@ class TestAdminSectionGating:
                     end = i
                     break
         gated_content = gate_body[:end]
-        assert "cards-section" in gated_content, (
-            "cards-section not referenced inside if (!window.aiEnabled) block"
-        )
-        assert "classList.add('hidden')" in gated_content, (
-            "classList.add('hidden') not found inside if (!window.aiEnabled) block"
-        )
+        assert (
+            "cards-section" in gated_content
+        ), "cards-section not referenced inside if (!window.aiEnabled) block"
+        assert (
+            "classList.add('hidden')" in gated_content
+        ), "classList.add('hidden') not found inside if (!window.aiEnabled) block"
 
     def test_cards_section_gating_conditional(self, script_text):
         """cards-section hide appears inside an if (!window.aiEnabled) block."""
@@ -246,11 +245,13 @@ class TestAdminSectionGating:
         # Find cards-section with classList.add('hidden') after the gate
         search_area = dcl_body[gate_idx:]
         cards_hide_idx = search_area.find("cards-section")
-        assert cards_hide_idx > 0, "cards-section not found after if (!window.aiEnabled)"
+        assert (
+            cards_hide_idx > 0
+        ), "cards-section not found after if (!window.aiEnabled)"
         # The cards-section must appear before the closing brace of the if block
-        assert "classList.add('hidden')" in search_area[: cards_hide_idx + 200], (
-            "cards-section does not have classList.add('hidden') in gated block"
-        )
+        assert (
+            "classList.add('hidden')" in search_area[: cards_hide_idx + 200]
+        ), "cards-section does not have classList.add('hidden') in gated block"
 
     # -- ADM-08: Generated section hidden --------------------------------
 
@@ -273,9 +274,9 @@ class TestAdminSectionGating:
                     end = i
                     break
         gated_content = gate_body[:end]
-        assert "generated-section" in gated_content, (
-            "generated-section not referenced inside if (!window.aiEnabled) block"
-        )
+        assert (
+            "generated-section" in gated_content
+        ), "generated-section not referenced inside if (!window.aiEnabled) block"
         assert "classList.add('hidden')" in gated_content
 
     def test_generated_section_gating_conditional(self, script_text):
@@ -285,12 +286,12 @@ class TestAdminSectionGating:
         assert gate_idx > 0, "if (!window.aiEnabled) block not found in DCL handler"
         search_area = dcl_body[gate_idx:]
         gen_hide_idx = search_area.find("generated-section")
-        assert gen_hide_idx > 0, (
-            "generated-section not found after if (!window.aiEnabled)"
-        )
-        assert "classList.add('hidden')" in search_area[: gen_hide_idx + 200], (
-            "generated-section does not have classList.add('hidden') in gated block"
-        )
+        assert (
+            gen_hide_idx > 0
+        ), "generated-section not found after if (!window.aiEnabled)"
+        assert (
+            "classList.add('hidden')" in search_area[: gen_hide_idx + 200]
+        ), "generated-section does not have classList.add('hidden') in gated block"
 
     # -- ADM-09: Buttons hidden individually -----------------------------
 
@@ -300,12 +301,12 @@ class TestAdminSectionGating:
         gate_idx = dcl_body.find("if (!window.aiEnabled)")
         assert gate_idx > 0
         search_area = dcl_body[gate_idx:]
-        assert "register-parameter-btn" in search_area, (
-            "register-parameter-btn not found in gating block"
-        )
-        assert "classList.add('hidden')" in search_area, (
-            "classList.add('hidden') not found in gating block"
-        )
+        assert (
+            "register-parameter-btn" in search_area
+        ), "register-parameter-btn not found in gating block"
+        assert (
+            "classList.add('hidden')" in search_area
+        ), "classList.add('hidden') not found in gating block"
 
     def test_register_go_btn_hidden(self, script_text):
         """register-go-btn gets classList.add('hidden') in gating block."""
@@ -313,9 +314,9 @@ class TestAdminSectionGating:
         gate_idx = dcl_body.find("if (!window.aiEnabled)")
         assert gate_idx > 0
         search_area = dcl_body[gate_idx:]
-        assert "register-go-btn" in search_area, (
-            "register-go-btn not found in gating block"
-        )
+        assert (
+            "register-go-btn" in search_area
+        ), "register-go-btn not found in gating block"
         assert "classList.add('hidden')" in search_area
 
     # -- D-09: Skipped fetches -------------------------------------------
@@ -324,7 +325,9 @@ class TestAdminSectionGating:
         """loadCards() call in DCL handler is wrapped in if (window.aiEnabled)."""
         dcl_body = _extract_dcl_body(script_text)
         ai_check_idx = dcl_body.find("if (window.aiEnabled)")
-        assert ai_check_idx > 0, "if (window.aiEnabled) wrapper not found in DCL handler"
+        assert (
+            ai_check_idx > 0
+        ), "if (window.aiEnabled) wrapper not found in DCL handler"
         # Find loadCards() call (not the function definition)
         load_cards_idx = dcl_body.find("loadCards()")
         assert load_cards_idx > 0, "loadCards() not found in DCL handler"
@@ -348,7 +351,9 @@ class TestAdminSectionGating:
                 break
             wrappers.append(idx)
             search_from = idx + 1
-        assert len(wrappers) >= 1, "if (window.aiEnabled) wrapper not found in DCL handler"
+        assert (
+            len(wrappers) >= 1
+        ), "if (window.aiEnabled) wrapper not found in DCL handler"
         load_gen_idx = dcl_body.find("loadGeneratedStories()")
         assert load_gen_idx > 0, "loadGeneratedStories() not found in DCL handler"
         # At least one wrapper must be before loadGeneratedStories()
@@ -357,9 +362,9 @@ class TestAdminSectionGating:
             if w < load_gen_idx:
                 found = True
                 break
-        assert found, (
-            "No if (window.aiEnabled) wrapper found before loadGeneratedStories()"
-        )
+        assert (
+            found
+        ), "No if (window.aiEnabled) wrapper found before loadGeneratedStories()"
 
     # -- Regression anchors -----------------------------------------------
 
@@ -372,9 +377,9 @@ class TestAdminSectionGating:
         fetch_idx = dcl_body.find("await fetchCapabilities(")
         assert fetch_idx > 0
         between = dcl_body[fetch_idx:load_stories_idx]
-        assert "if (window.aiEnabled)" not in between, (
-            "loadStories() appears to be wrapped in if (window.aiEnabled) -- must be unconditional"
-        )
+        assert (
+            "if (window.aiEnabled)" not in between
+        ), "loadStories() appears to be wrapped in if (window.aiEnabled) -- must be unconditional"
 
     def test_no_defensive_check_in_start_card_registration(self, script_text):
         """startCardRegistration function body does NOT contain window.aiEnabled (D-10)."""
@@ -394,9 +399,9 @@ class TestAdminSectionGating:
                     end = i
                     break
         func_body = func_body_start[:end]
-        assert "window.aiEnabled" not in func_body, (
-            "startCardRegistration contains window.aiEnabled check -- violates D-10 (YAGNI)"
-        )
+        assert (
+            "window.aiEnabled" not in func_body
+        ), "startCardRegistration contains window.aiEnabled check -- violates D-10 (YAGNI)"
 
     def test_status_polling_not_gated(self, script_text):
         """startStatusPolling() is NOT wrapped in if (window.aiEnabled)."""
@@ -428,9 +433,9 @@ class TestAdminSectionGating:
             wrapper_ranges.append((wrapper_start, end))
             search_from = wrapper_start + 1
         for start, end in wrapper_ranges:
-            assert not (start < status_idx < end), (
-                "startStatusPolling() is inside an if (window.aiEnabled) wrapper -- must be unconditional"
-            )
+            assert not (
+                start < status_idx < end
+            ), "startStatusPolling() is inside an if (window.aiEnabled) wrapper -- must be unconditional"
 
     def test_four_hidden_targets_in_gating_block(self, script_text):
         """The if (!window.aiEnabled) block has >= 4 classList.add('hidden') calls."""
@@ -452,6 +457,6 @@ class TestAdminSectionGating:
                     break
         gated_content = gate_body[:end]
         count = gated_content.count("classList.add('hidden')")
-        assert count >= 4, (
-            f"Expected >= 4 classList.add('hidden') in gating block, got {count}"
-        )
+        assert (
+            count >= 4
+        ), f"Expected >= 4 classList.add('hidden') in gating block, got {count}"

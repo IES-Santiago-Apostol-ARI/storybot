@@ -221,11 +221,13 @@ class TestLedAnimatorContract:
         assert len(new._writer.frames) == 1
         assert len(old._writer.frames) == 1  # old driver untouched after re-point
 
+
 # ============================================================
 # Phase 33 RED tests — engine extensions (set_mode, set_health)
 # These reference not-yet-existing APIs and are expected to FAIL
 # until plan 03 lands.
 # ============================================================
+
 
 class TestLedAnimatorMode:
     """Phase 33 engine extension tests (RED until plan 03)."""
@@ -255,7 +257,9 @@ class TestLedAnimatorMode:
         assert led_animator.get_color() == (0, 0, 255)
 
     @pytest.mark.asyncio
-    async def test_idle_static_no_rewrite(self, led_animator, mock_led_service, fake_clock):
+    async def test_idle_static_no_rewrite(
+        self, led_animator, mock_led_service, fake_clock
+    ):
         """LED-16: Idle mode is static — dirty-check suppresses bus traffic.
 
         Set idle mode; tick many times; assert _write.call_count == 1
@@ -366,7 +370,9 @@ class TestLedAnimatorMode:
         playback_color = led_animator.get_color()
 
         # Beacon should be different from idle (suppressed in playback)
-        assert playback_color != idle_with_beacon, "Beacon should be suppressed in playback"
+        assert (
+            playback_color != idle_with_beacon
+        ), "Beacon should be suppressed in playback"
 
         # Return to idle — beacon reappears
         led_animator.set_mode("idle")
@@ -447,9 +453,11 @@ class TestLedAnimatorMode:
         # Should have changed from boot to idle
         assert settled_color != boot_color_1, "Should settle from boot to idle"
 
+
 # ============================================================
 # Phase 35-03 RED tests — rainbow one-shot LED effect (ANIM-01/02)
 # ============================================================
+
 
 class TestLedAnimatorRainbow:
     """Rainbow one-shot overlay lifecycle tests (RED until plan 35-03)."""
@@ -486,7 +494,9 @@ class TestLedAnimatorRainbow:
         fake_clock.advance(0.6)  # well past 500ms
         await led_animator.tick_once()
         after_rainbow = led_animator.get_color()
-        assert after_rainbow == base_color, "Base color should resume after rainbow expires"
+        assert (
+            after_rainbow == base_color
+        ), "Base color should resume after rainbow expires"
 
     @pytest.mark.asyncio
     async def test_rainbow_returns_to_base(self, led_animator, fake_clock):
@@ -509,6 +519,8 @@ class TestLedAnimatorRainbow:
         await led_animator.tick_once()
 
         # Overlay should be cleared
-        assert led_animator._overlay_fn is None, "_overlay_fn should be None after expiry"
+        assert (
+            led_animator._overlay_fn is None
+        ), "_overlay_fn should be None after expiry"
         # Color should return to base
         assert led_animator.get_color() == base_color, "Color should return to base"

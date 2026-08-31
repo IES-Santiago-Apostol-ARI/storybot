@@ -18,14 +18,14 @@ def nfc_available() -> bool:
     """Check if NFC hardware is available (pyscard + pcscd running)."""
     try:
         from smartcard.System import readers
+
         return bool(readers())
     except Exception:
         return False
 
 
 skip_if_no_nfc = pytest.mark.skipif(
-    not nfc_available(),
-    reason="pcscd not running or no NFC reader detected"
+    not nfc_available(), reason="pcscd not running or no NFC reader detected"
 )
 
 
@@ -106,7 +106,9 @@ class TestMockNFCService:
         assert not mock_nfc_service.is_polling
 
     @pytest.mark.asyncio
-    async def test_mock_nfc_service_simulate_tap_without_callback(self, mock_nfc_service):
+    async def test_mock_nfc_service_simulate_tap_without_callback(
+        self, mock_nfc_service
+    ):
         """Test simulate_tap does nothing without callback."""
         # Should not raise
         mock_nfc_service.simulate_tap("AA:BB:CC:DD")
@@ -123,9 +125,7 @@ class TestMockNFCService:
         assert mock_nfc_service.is_polling is False
 
     @pytest.mark.asyncio
-    async def test_mock_stop_polling_accepts_callback_like_real(
-        self, mock_nfc_service
-    ):
+    async def test_mock_stop_polling_accepts_callback_like_real(self, mock_nfc_service):
         """IMPROVEMENTS.md 1.3: /api/nfc/read's finally calls
         stop_polling(card_callback); the mock must accept the same signature
         as RealNFCService or every SSE disconnect raises TypeError on devices
@@ -206,7 +206,9 @@ class TestRealNFCService:
         assert status["error_message"] is None
 
     @pytest.mark.asyncio
-    async def test_real_nfc_service_get_status_available_polling(self, real_nfc_service):
+    async def test_real_nfc_service_get_status_available_polling(
+        self, real_nfc_service
+    ):
         """Test get_status when available and polling."""
         real_nfc_service._available = True
         real_nfc_service._polling = True
@@ -214,7 +216,9 @@ class TestRealNFCService:
         assert status["status"] == "ok"
 
     @pytest.mark.asyncio
-    async def test_real_nfc_service_start_polling_without_hardware(self, real_nfc_service):
+    async def test_real_nfc_service_start_polling_without_hardware(
+        self, real_nfc_service
+    ):
         """Test start_polling registers callback silently without hardware."""
         # Force _available to False to test this code path
         real_nfc_service._available = False
@@ -226,7 +230,9 @@ class TestRealNFCService:
         assert callback in real_nfc_service._callbacks
 
     @pytest.mark.asyncio
-    async def test_real_nfc_service_start_polling_already_polling(self, real_nfc_service):
+    async def test_real_nfc_service_start_polling_already_polling(
+        self, real_nfc_service
+    ):
         """Test start_polling returns early if already polling."""
         real_nfc_service._available = True
         real_nfc_service._polling = True
@@ -278,7 +284,9 @@ class TestRealNFCService:
 
     @pytest.mark.asyncio
     @skip_if_no_nfc
-    async def test_real_nfc_service_start_polling_creates_thread(self, real_nfc_service):
+    async def test_real_nfc_service_start_polling_creates_thread(
+        self, real_nfc_service
+    ):
         """Test start_polling registers callback and starts CardMonitor."""
         assert real_nfc_service._available is True
 
@@ -384,9 +392,7 @@ class TestMonitorStartRace:
                 except Exception as e:
                     errors.append(e)
 
-            with mock.patch.object(
-                card_monitoring, "CardMonitor", CountingCardMonitor
-            ):
+            with mock.patch.object(card_monitoring, "CardMonitor", CountingCardMonitor):
                 threads = [
                     threading.Thread(target=retry_path),
                     threading.Thread(target=polling_path),
@@ -413,9 +419,7 @@ class TestMonitorStartRace:
         asyncio.run(service.shutdown())
         # retry-loop body after shutdown
         if service._claim_monitor_start():
-            with mock.patch.object(
-                card_monitoring, "CardMonitor", CountingCardMonitor
-            ):
+            with mock.patch.object(card_monitoring, "CardMonitor", CountingCardMonitor):
                 service._start_monitor()
         assert calls == []
 

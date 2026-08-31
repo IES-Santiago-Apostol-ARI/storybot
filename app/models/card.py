@@ -42,18 +42,10 @@ class CardCreateRequest(BaseModel):
 
     uid: str = Field(..., min_length=1, description="NFC card UID")
     type: CardType = Field(..., description="Card type (parameter or go)")
-    category: str | None = Field(
-        None, description="Category (required for parameter)"
-    )
-    value: str | None = Field(
-        None, description="Value (required for parameter)"
-    )
-    emoji: str | None = Field(
-        None, description="Emoji (required for parameter)"
-    )
-    label: str | None = Field(
-        None, description="Label (required for parameter)"
-    )
+    category: str | None = Field(None, description="Category (required for parameter)")
+    value: str | None = Field(None, description="Value (required for parameter)")
+    emoji: str | None = Field(None, description="Emoji (required for parameter)")
+    label: str | None = Field(None, description="Label (required for parameter)")
 
 
 class CardsListResponse(BaseModel):

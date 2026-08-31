@@ -15,6 +15,7 @@ from app.main import app
 # A1 measure-once budget: 0.5s for a single /led round-trip while animating
 LATENCY_BUDGET_S = 0.5
 
+
 class TestLEDLatency:
     def test_led_request_responsive_while_animating(self):
         """

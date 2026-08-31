@@ -20,6 +20,7 @@ import requests
 # Prompt loader — reads prompts.md with system preamble + numbered prompts
 # ---------------------------------------------------------------------------
 
+
 def load_prompts(path: Path) -> tuple[str, list[dict]]:
     """Parse prompts.md → (system_preamble, [prompt_entries]).
 
@@ -39,7 +40,10 @@ def load_prompts(path: Path) -> tuple[str, list[dict]]:
         # Extract user message from code block after **User message:**
         m = re.search(r"\*\*User message:\*\*\s*```[^\n]*\n(.*?)```", body, re.DOTALL)
         if not m:
-            print(f"WARNING: prompt-{num} has no **User message:** code block, skipping", file=sys.stderr)
+            print(
+                f"WARNING: prompt-{num} has no **User message:** code block, skipping",
+                file=sys.stderr,
+            )
             continue
         user_msg = m.group(1).strip()
         prompts.append({"id": num, "user_message": user_msg})
@@ -51,6 +55,7 @@ def load_prompts(path: Path) -> tuple[str, list[dict]]:
 # ---------------------------------------------------------------------------
 # RSS sampler — background thread reading /proc/<pid>/status
 # ---------------------------------------------------------------------------
+
 
 class RSSSampler:
     def __init__(self, pid: int):
@@ -116,6 +121,7 @@ def find_llama_server_pid() -> int | None:
 # ---------------------------------------------------------------------------
 # Single benchmark run
 # ---------------------------------------------------------------------------
+
 
 def run_benchmark(
     prompt: dict,
@@ -229,7 +235,9 @@ def run_benchmark(
 
     return {
         "prompt_id": prompt["id"],
-        "first_token_ms": round(first_token_ms, 1) if first_token_ms is not None else None,
+        "first_token_ms": (
+            round(first_token_ms, 1) if first_token_ms is not None else None
+        ),
         "tokens_per_sec": round(tokens_per_sec, 2),
         "peak_ram_mb": round(peak_ram_mb, 1),
         "completion_tokens": completion_tokens,
@@ -244,8 +252,11 @@ def run_benchmark(
 # Summary aggregation
 # ---------------------------------------------------------------------------
 
+
 def summarize(results: list[dict]) -> dict:
-    first_tokens = [r["first_token_ms"] for r in results if r["first_token_ms"] is not None]
+    first_tokens = [
+        r["first_token_ms"] for r in results if r["first_token_ms"] is not None
+    ]
     first_tokens.sort()
     rates = [r["tokens_per_sec"] for r in results]
     rams = [r["peak_ram_mb"] for r in results]
@@ -267,19 +278,35 @@ def summarize(results: list[dict]) -> dict:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="Benchmark llama-server OpenAI-compat streaming endpoint."
     )
-    parser.add_argument("--prompts", required=True, type=Path, help="Path to prompts.md")
-    parser.add_argument("--host", default="http://127.0.0.1:8080", help="llama-server host URL")
-    parser.add_argument("--model", default="qwen35-4b-local", help="Model alias (matches --alias)")
+    parser.add_argument(
+        "--prompts", required=True, type=Path, help="Path to prompts.md"
+    )
+    parser.add_argument(
+        "--host", default="http://127.0.0.1:8080", help="llama-server host URL"
+    )
+    parser.add_argument(
+        "--model", default="qwen35-4b-local", help="Model alias (matches --alias)"
+    )
     parser.add_argument("--temperature", type=float, default=0.8)
     parser.add_argument("--top-p", type=float, default=0.95)
     parser.add_argument("--max-tokens", type=int, default=600)
-    parser.add_argument("--warmup", type=int, default=1, help="Number of warmup requests (discarded)")
-    parser.add_argument("--prompt-ids", type=str, default=None, help="Comma-separated prompt IDs to run (e.g. '3'). Default: all")
-    parser.add_argument("--output", type=Path, default=None, help="Append JSON lines to this file")
+    parser.add_argument(
+        "--warmup", type=int, default=1, help="Number of warmup requests (discarded)"
+    )
+    parser.add_argument(
+        "--prompt-ids",
+        type=str,
+        default=None,
+        help="Comma-separated prompt IDs to run (e.g. '3'). Default: all",
+    )
+    parser.add_argument(
+        "--output", type=Path, default=None, help="Append JSON lines to this file"
+    )
 
     args = parser.parse_args()
 
@@ -293,21 +320,33 @@ def main():
         prompts = [p for p in prompts if p["id"] in ids]
         print(f"Filtered to {len(prompts)} prompt(s): {ids}", file=sys.stderr)
 
-    print(f"Loaded {len(prompts)} prompts. System preamble: {len(system_preamble)} chars.", file=sys.stderr)
+    print(
+        f"Loaded {len(prompts)} prompts. System preamble: {len(system_preamble)} chars.",
+        file=sys.stderr,
+    )
 
     pid = find_llama_server_pid()
     if pid:
         print(f"llama-server pid: {pid}", file=sys.stderr)
     else:
-        print("WARNING: Could not find llama-server pid. RAM tracking disabled.", file=sys.stderr)
+        print(
+            "WARNING: Could not find llama-server pid. RAM tracking disabled.",
+            file=sys.stderr,
+        )
 
     # Warmup
     if args.warmup > 0 and prompts:
         print(f"Warmup: {args.warmup} request(s)...", file=sys.stderr)
         for _ in range(args.warmup):
             run_benchmark(
-                prompts[0], system_preamble, args.host, args.model,
-                args.temperature, args.top_p, args.max_tokens, pid,
+                prompts[0],
+                system_preamble,
+                args.host,
+                args.model,
+                args.temperature,
+                args.top_p,
+                args.max_tokens,
+                pid,
             )
 
     results: list[dict] = []
@@ -315,15 +354,25 @@ def main():
     for prompt in prompts:
         print(f"Running prompt-{prompt['id']}...", file=sys.stderr)
         result = run_benchmark(
-            prompt, system_preamble, args.host, args.model,
-            args.temperature, args.top_p, args.max_tokens, pid,
+            prompt,
+            system_preamble,
+            args.host,
+            args.model,
+            args.temperature,
+            args.top_p,
+            args.max_tokens,
+            pid,
         )
         results.append(result)
         line = json.dumps(result, ensure_ascii=False)
         print(line, flush=True)
         if args.output:
             args.output.write_text(
-                args.output.read_text() + line + "\n" if args.output.exists() else line + "\n",
+                (
+                    args.output.read_text() + line + "\n"
+                    if args.output.exists()
+                    else line + "\n"
+                ),
                 encoding="utf-8",
             )
 

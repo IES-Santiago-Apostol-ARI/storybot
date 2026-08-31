@@ -29,4 +29,6 @@ def test_bridge_file_is_valid_wav_when_present(idx):
         assert wf.getnframes() > 0
         assert wf.getnchannels() == 1, "Piper output must be mono"
         duration = wf.getnframes() / wf.getframerate()
-        assert duration <= 3.5, f"D-04 discretion: clip {idx} should be ≤ 3.0s (3.5s slack), got {duration:.2f}s"
+        assert (
+            duration <= 3.5
+        ), f"D-04 discretion: clip {idx} should be ≤ 3.0s (3.5s slack), got {duration:.2f}s"

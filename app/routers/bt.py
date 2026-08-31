@@ -74,12 +74,18 @@ async def get_status(request: Request) -> dict:
     monitor = getattr(request.app.state, "bt_monitor", None)
     if monitor:
         m_status = monitor.status()
-        status_dict.update({
-            "sink": m_status.get("sink", status_dict["sink"]),
-            "health_state": m_status.get("health_state", status_dict["health_state"]),
-            "device_name": m_status.get("device_name", status_dict["device_name"]),
-            "connected_mac": m_status.get("device_mac", status_dict["connected_mac"]),
-        })
+        status_dict.update(
+            {
+                "sink": m_status.get("sink", status_dict["sink"]),
+                "health_state": m_status.get(
+                    "health_state", status_dict["health_state"]
+                ),
+                "device_name": m_status.get("device_name", status_dict["device_name"]),
+                "connected_mac": m_status.get(
+                    "device_mac", status_dict["connected_mac"]
+                ),
+            }
+        )
 
     return status_dict
 
