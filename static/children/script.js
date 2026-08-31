@@ -233,6 +233,13 @@ function transitionTo(newState, story = null) {
                 stopProgressTracking();
                 break;
             case STATES.IDLE:
+                // Back at idle nothing can still be generating: release the
+                // in-flight generation so the GO card keeps working. Any path
+                // that drops to idle mid-generation (audio failure, a
+                // pre-recorded story, the interrupt button) used to strand
+                // _generationActive=true and kill the GO card for good.
+                cancelGeneration();
+
                 // Phase 16 D-06: reset cover buffer for next generation.
                 bufferedCoverUrl = null;
 
@@ -980,10 +987,29 @@ const generationAudioQueue = (() => {
 
 // --- SSE generation consumer ---
 let _generationActive = false;
+let _generationAbort = null;
+
+// A generation that never reaches generationAudioQueue.onComplete — the child
+// taps a pre-recorded story mid-generation, or presses the interrupt button —
+// used to leave _generationActive stuck true, and every later GO card returned
+// on the guard in startGeneration. The kiosk still drew and cleared the chips,
+// so it looked alive while unable to generate anything ever again.
+function cancelGeneration() {
+    if (!_generationActive) return;
+    if (_generationAbort) {
+        try { _generationAbort.abort(); } catch (_) { /* already settled */ }
+    }
+    _generationAbort = null;
+    generationAudioQueue.reset();
+    const overlay = document.getElementById('thinking-overlay');
+    if (overlay) overlay.classList.remove('visible');
+    _generationActive = false;
+}
 
 async function startGeneration(parameters) {
     if (_generationActive) return;
     _generationActive = true;
+    _generationAbort = new AbortController();
 
     generationAudioQueue.begin();
 
@@ -1013,6 +1039,7 @@ async function startGeneration(parameters) {
 
     generationAudioQueue.onComplete(() => {
         _generationActive = false;
+        _generationAbort = null;
         transitionTo(STATES.THANKYOU);
     });
 
@@ -1040,6 +1067,7 @@ async function startGeneration(parameters) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ parameters }),
+            signal: _generationAbort.signal,
         });
 
         if (!response.ok) {
@@ -1103,6 +1131,7 @@ async function startGeneration(parameters) {
                         generationAudioQueue.reset();
                         if (overlay) overlay.classList.remove('visible');
                         _generationActive = false;
+                        _generationAbort = null;
                         transitionTo(STATES.IDLE);
                         return;
                     }
@@ -1114,10 +1143,12 @@ async function startGeneration(parameters) {
         generationAudioQueue.markStreamComplete();
     } catch (err) {
         cancelBridge();
+        if (!_generationActive) return;  // cancelGeneration() already cleaned up
         console.error('Generation fetch error:', err);
         generationAudioQueue.reset();
         if (overlay) overlay.classList.remove('visible');
         _generationActive = false;
+        _generationAbort = null;
         transitionTo(STATES.IDLE);
     }
 }
