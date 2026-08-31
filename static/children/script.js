@@ -356,7 +356,19 @@ function renderStoryGrid() {
 }
 
 function playStory(story) {
+    // A pre-recorded story cancels any parameter collection in progress: its
+    // chips don't apply to it, and COLLECTING would otherwise make the guard
+    // below swallow the tap and leave the kiosk stuck.
+    if (currentState === STATES.COLLECTING) {
+        lastGenerationParams = [];
+        transitionTo(STATES.IDLE);
+    }
+
     if (currentState !== STATES.IDLE) return;
+
+    // Chips preserved after a generated story (D-09) don't survive a
+    // pre-recorded one either.
+    clearParameterDisplay();
 
     // Immediately mark as playing to prevent duplicate NFC events
     currentState = STATES.PLAYING;

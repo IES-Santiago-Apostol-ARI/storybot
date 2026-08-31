@@ -1,7 +1,8 @@
 """Kiosk parameter-card toggle source-assertion tests.
 
 Tapping a parameter card a second time (same uid) must remove its chip
-from the collection instead of pushing a duplicate.
+from the collection instead of pushing a duplicate. The file also covers
+the reset performed when playing a pre-recorded story.
 """
 
 import re
@@ -40,6 +41,12 @@ def _balanced_body(text, header):
 def param_branch(script_text):
     """Body of the `if (card_type === 'parameter') {` branch."""
     return _balanced_body(script_text, "if (card_type === 'parameter') {")
+
+
+@pytest.fixture(scope="module")
+def play_story(script_text):
+    """Body of `function playStory(story) {`."""
+    return _balanced_body(script_text, "function playStory(story) {")
 
 
 class TestKioskParamToggle:
@@ -110,3 +117,59 @@ class TestKioskParamToggle:
         ):
             body = _balanced_body(script_text, header)
             assert "splice(" not in body, f"Branch {header!r} must not contain splice("
+
+
+class TestStoryCancelsParameterCollection:
+    """A pre-recorded story cancels an in-progress parameter collection.
+
+    Playing a stored story while COLLECTING must reset the collection and
+    return to IDLE before the idle guard, so the story actually plays
+    instead of the tap being swallowed.
+    """
+
+    def test_play_story_leaves_collecting_before_the_idle_guard(self, play_story):
+        """The COLLECTING reset precedes the idle guard in playStory."""
+        collecting_header = "if (currentState === STATES.COLLECTING) {"
+        assert (
+            collecting_header in play_story
+        ), "playStory must handle the COLLECTING state"
+        collecting_body = _balanced_body(play_story, collecting_header)
+        transition_idx = collecting_body.find("transitionTo(STATES.IDLE)")
+        assert (
+            transition_idx != -1
+        ), "COLLECTING case must call transitionTo(STATES.IDLE)"
+        guard_idx = play_story.find("if (currentState !== STATES.IDLE) return;")
+        assert guard_idx != -1, "Idle guard missing from playStory"
+        collecting_idx = play_story.find(collecting_header)
+        assert collecting_idx < guard_idx, (
+            f"COLLECTING reset at {collecting_idx} must precede the idle "
+            f"guard at {guard_idx}"
+        )
+
+    def test_play_story_clears_the_parameter_chips(self, play_story):
+        """playStory calls clearParameterDisplay()."""
+        assert (
+            "clearParameterDisplay()" in play_story
+        ), "playStory must call clearParameterDisplay()"
+
+    def test_play_story_drops_the_preserved_generation_params(self, play_story):
+        """playStory resets lastGenerationParams so D-09 cannot restore chips."""
+        assert (
+            "lastGenerationParams = []" in play_story
+        ), "playStory must set lastGenerationParams = []"
+
+    def test_idle_guard_survives(self, play_story):
+        """The idle guard is still present (protects taps during PLAYING)."""
+        assert (
+            "if (currentState !== STATES.IDLE) return;" in play_story
+        ), "Idle guard must remain in playStory"
+
+    def test_nfc_story_branch_still_resets(self, script_text):
+        """Regression: the NFC story branch still performs its reset."""
+        body = _balanced_body(script_text, "if (card_type === 'story') {")
+        assert (
+            "clearParameterDisplay()" in body
+        ), "NFC story branch must call clearParameterDisplay()"
+        assert (
+            "lastGenerationParams = []" in body
+        ), "NFC story branch must reset lastGenerationParams"
