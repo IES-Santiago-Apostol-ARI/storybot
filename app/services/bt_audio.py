@@ -97,6 +97,22 @@ def _sink_input_ids(pactl_short_sink_inputs_output: str) -> list[str]:
     return ids
 
 
+async def _pactl_list(what: str) -> str | None:
+    """``pactl list short <what>``; ``None`` when pactl itself could not run.
+
+    A non-zero rc means the pactl connection failed — typically no reachable
+    PipeWire/PulseAudio server — which is NOT the same as "the sink is absent".
+    Collapsing the two makes an environment failure look like a speaker failure
+    and sends every diagnosis the wrong way (2026-08-31 incident). Callers must
+    treat ``None`` (unreachable) differently from an empty listing (absent).
+    """
+    out, err, rc = await _run_pactl("list", "short", what)
+    if rc != 0:
+        _log_event("bt_pactl_unreachable", rc=rc, target=what, stderr=err)
+        return None
+    return out
+
+
 async def _move_all_inputs(sink: str) -> None:
     """Move every live playback stream (sink-input) onto ``sink``.
 
@@ -106,7 +122,9 @@ async def _move_all_inputs(sink: str) -> None:
     Best-effort per input: a stream that vanished between list and move must
     not abort the others or the route.
     """
-    out, _, _ = await _run_pactl("list", "short", "sink-inputs")
+    out = await _pactl_list("sink-inputs")
+    if out is None:
+        return
     for input_id in _sink_input_ids(out):
         _, _, rc = await _run_pactl("move-sink-input", input_id, sink)
         if rc != 0:
@@ -115,7 +133,9 @@ async def _move_all_inputs(sink: str) -> None:
 
 async def _sink_present(sink: str) -> bool:
     """True when ``sink`` appears in ``pactl list short sinks`` (never raises)."""
-    out, _, _ = await _run_pactl("list", "short", "sinks")
+    out = await _pactl_list("sinks")
+    if out is None:
+        return False
     for line in out.splitlines():
         parts = line.split("\t")
         if len(parts) >= 2 and parts[1] == sink:
@@ -172,7 +192,9 @@ async def route_to_wired() -> bool:
     hardcoded — RESEARCH A5 / Anti-pattern line 331), then sets it default. Returns
     ``False`` when no wired sink is found.
     """
-    out, _, _ = await _run_pactl("list", "short", "sinks")
+    out = await _pactl_list("sinks")
+    if out is None:
+        return False
     wired = _first_alsa_sink(out)
     if not wired:
         _log_event("bt_route_failed", reason="no_alsa_sink")

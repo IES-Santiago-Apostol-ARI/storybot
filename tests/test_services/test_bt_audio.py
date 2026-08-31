@@ -318,3 +318,63 @@ async def test_route_to_wired_returns_false_when_no_alsa_sink(monkeypatch):
     monkeypatch.setattr(bt_audio, "_run_pactl", fake_run)
     result = await bt_audio.route_to_wired()
     assert result is False
+
+
+# --- pactl unreachable vs. sink absent ---------------------------------------
+# A non-zero rc on a `pactl list` means the pactl connection failed (e.g. the
+# service unit lost XDG_RUNTIME_DIR and cannot reach PipeWire). Reporting that
+# as "sink_not_ready" points every diagnosis at the speaker instead of the
+# environment, which is what hid the 2026-08-31 outage for a whole story.
+
+
+async def test_sink_present_false_when_pactl_unreachable(monkeypatch):
+    async def fake_run(*args):
+        return ("", "Connection failure: Connection refused", 1)
+
+    monkeypatch.setattr(bt_audio, "_run_pactl", fake_run)
+    assert await bt_audio._sink_present("bluez_output.X.a2dp-sink") is False
+
+
+async def test_sink_present_logs_unreachable_event(monkeypatch, capsys):
+    async def fake_run(*args):
+        return ("", "Connection failure: Connection refused", 1)
+
+    monkeypatch.setattr(bt_audio, "_run_pactl", fake_run)
+    await bt_audio._sink_present("bluez_output.X.a2dp-sink")
+    assert "bt_pactl_unreachable" in capsys.readouterr().err
+
+
+async def test_sink_present_does_not_log_unreachable_on_empty_listing(
+    monkeypatch, capsys
+):
+    """rc == 0 with no matching sink is genuine absence, not an unreachable server."""
+
+    async def fake_run(*args):
+        return ("", "", 0)
+
+    monkeypatch.setattr(bt_audio, "_run_pactl", fake_run)
+    assert await bt_audio._sink_present("bluez_output.X.a2dp-sink") is False
+    assert "bt_pactl_unreachable" not in capsys.readouterr().err
+
+
+async def test_route_to_wired_reports_unreachable_not_missing_sink(monkeypatch, capsys):
+    async def fake_run(*args):
+        return ("", "Connection failure: Connection refused", 1)
+
+    monkeypatch.setattr(bt_audio, "_run_pactl", fake_run)
+    assert await bt_audio.route_to_wired() is False
+    err = capsys.readouterr().err
+    assert "bt_pactl_unreachable" in err
+    assert "no_alsa_sink" not in err
+
+
+async def test_move_all_inputs_skips_moves_when_pactl_unreachable(monkeypatch):
+    calls = []
+
+    async def fake_run(*args):
+        calls.append(args)
+        return ("", "Connection failure: Connection refused", 1)
+
+    monkeypatch.setattr(bt_audio, "_run_pactl", fake_run)
+    await bt_audio._move_all_inputs("bluez_output.X.a2dp-sink")
+    assert not [c for c in calls if c[0] == "move-sink-input"]

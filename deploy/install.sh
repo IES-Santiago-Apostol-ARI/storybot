@@ -418,7 +418,7 @@ echo ""
 echo "Step 6: Installing systemd service..."
 # storybot.service and storybot-rollback.sh are templates: substitute the
 # install user and directory before installing them.
-sed -e "s|__INSTALL_USER__|$INSTALL_USER|g" -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" \
+sed -e "s|__INSTALL_USER__|$INSTALL_USER|g" -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" -e "s|__USER_UID__|$USER_UID|g" \
     "$INSTALL_DIR/deploy/storybot.service" > /etc/systemd/system/storybot.service
 cp "$INSTALL_DIR/deploy/storybot-nfc-reset.service" /etc/systemd/system/
 cp "$INSTALL_DIR/deploy/storybot-reset-nfc.sh" /usr/local/bin/storybot-reset-nfc.sh

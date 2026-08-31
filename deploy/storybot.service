@@ -1,4 +1,4 @@
-# Template: __INSTALL_USER__ and __INSTALL_DIR__ are substituted by
+# Template: __INSTALL_USER__, __INSTALL_DIR__, and __USER_UID__ are substituted by
 # deploy/install.sh (from INSTALL_USER in .env) when this unit is installed.
 [Unit]
 Description=StoryBot FastAPI Server
@@ -14,6 +14,11 @@ WorkingDirectory=__INSTALL_DIR__
 EnvironmentFile=-__INSTALL_DIR__/.env
 Environment="PATH=__INSTALL_DIR__/.venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="PYTHONUNBUFFERED=1"
+# A system unit with User= does not inherit XDG_RUNTIME_DIR, so every pactl
+# call in bt_audio fails with "Connection refused" and BT routing never
+# happens. The %U specifier resolves to the service manager UID (0), not to
+# User=, so the UID is substituted at install time like storybot-bt-boot.
+Environment="XDG_RUNTIME_DIR=/run/user/__USER_UID__"
 ExecStartPre=/usr/bin/udevadm settle
 ExecStartPre=/bin/sleep 4
 ExecStartPre=/usr/local/bin/storybot-rollback.sh

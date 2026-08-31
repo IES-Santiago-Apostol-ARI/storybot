@@ -106,6 +106,40 @@ class TestServiceFile:
             "EnvironmentFile directive missing dash (-) prefix for optional file"
         )
 
+    def test_xdg_runtime_dir_is_set(self, service_text):
+        """service exports XDG_RUNTIME_DIR so pactl can reach the user PipeWire.
+
+        A system unit with User= does not inherit XDG_RUNTIME_DIR, so every
+        pactl call in bt_audio fails with "Connection refused" and BT routing
+        silently never happens. %U expands to the UID of the User= account, so
+        no install-time substitution is needed.
+        """
+        assert 'Environment="XDG_RUNTIME_DIR=/run/user/__USER_UID__"' in service_text, (
+            "Missing XDG_RUNTIME_DIR=/run/user/__USER_UID__ -- pactl cannot "
+            "reach PipeWire"
+        )
+
+    def test_xdg_runtime_dir_is_substituted_by_installer(self, script_text):
+        """install.sh substitutes __USER_UID__ when rendering storybot.service.
+
+        The %U systemd specifier resolves to 0 (the service manager's UID), NOT
+        to the User= account, so it cannot be used here -- the placeholder must
+        be filled in at install time like storybot-bt-boot.service does.
+        """
+        render = re.search(
+            r"sed[^\n]*storybot\.service[^\n]*>[^\n]*/etc/systemd/system/storybot\.service",
+            script_text,
+            re.DOTALL,
+        )
+        if render is None:
+            render = re.search(
+                r"sed(?:[^\n]*\\\n)*[^\n]*deploy/storybot\.service[^\n]*", script_text
+            )
+        assert render, "Could not find the storybot.service render command"
+        assert "__USER_UID__" in render.group(0), (
+            "install.sh renders storybot.service without substituting __USER_UID__"
+        )
+
 
 class TestDetectionOrder:
     """Source-assertion tests for detection ordering (DEP-01)."""
