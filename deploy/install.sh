@@ -169,12 +169,22 @@ fi
 # survives JetPack updates better than editing NVIDIA's conf in place. Gated on
 # the Jetson marker so dev/x86/RPi installs are unaffected.
 if [ -f /etc/nv_tegra_release ]; then
+    # bluetoothd lives in /usr/libexec on Ubuntu 24.04 (JetPack 7) and in
+    # /usr/lib on older images — a wrong path fails the unit with 203/EXEC.
+    BLUETOOTHD=""
+    for candidate in /usr/libexec/bluetooth/bluetoothd /usr/lib/bluetooth/bluetoothd; do
+        if [ -x "$candidate" ]; then BLUETOOTHD="$candidate"; break; fi
+    done
+    if [ -z "$BLUETOOTHD" ]; then
+        echo -e "${RED}bluetoothd not found — is bluez installed?${NC}"
+        exit 1
+    fi
     BT_DROPIN=/etc/systemd/system/bluetooth.service.d/override-a2dp.conf
     mkdir -p "$(dirname "$BT_DROPIN")"
-    cat > "$BT_DROPIN" << 'EOF'
+    cat > "$BT_DROPIN" << EOF
 [Service]
 ExecStart=
-ExecStart=/usr/lib/bluetooth/bluetoothd
+ExecStart=$BLUETOOTHD
 EOF
     chmod 0644 "$BT_DROPIN"
     systemctl daemon-reload
