@@ -41,6 +41,10 @@ MODEL_DIR="$LLAMA_DIR/models/Qwen3.5-4B-GGUF"
 MODEL_FILE="Qwen3.5-4B-Q4_K_M.gguf"
 MODEL_PATH="$MODEL_DIR/$MODEL_FILE"
 SWAPFILE="/var/swapfile"
+# llama.cpp commit a fresh clone is pinned to: the unit's flags are only known
+# to be valid for this build (verified on-device 2026-10-06, JetPack 7.2.1).
+# Upstream renames server flags now and then (--no-mmap became --load-mode).
+LLAMA_COMMIT="abeada335e2e78bd3fe63febafab7e900ce75810"
 REBUILD="${REBUILD:-false}"
 
 if [[ "${1:-}" == "--rebuild" ]]; then
@@ -126,6 +130,7 @@ if [[ -d "$LLAMA_DIR/.git" ]]; then
 else
   echo "  ✓ Cloning llama.cpp..."
   as_user git clone https://github.com/ggml-org/llama.cpp.git "$LLAMA_DIR"
+  as_user git -C "$LLAMA_DIR" checkout --quiet "$LLAMA_COMMIT"
   CLONE_NEW=true
 fi
 
@@ -186,10 +191,16 @@ if [[ "$IS_ROOT" != "true" ]]; then
 elif [[ ! -f "$SERVICE_FILE" ]]; then
   echo "  ⚠  $SERVICE_FILE not found — unit not installed."
 else
-  # Substitute the template placeholders for the target user / home directory.
+  # Substitute the template placeholders for the target user / home directory,
+  # and pick the no-mmap spelling the built binary understands.
+  NO_MMAP_FLAG="--no-mmap"
+  if as_user "$SERVER_BIN" --help 2>&1 | grep -q -- "--load-mode"; then
+    NO_MMAP_FLAG="--load-mode none"
+  fi
   UNIT_TMP="$(mktemp)"
   sed -e "s|__INSTALL_USER__|$TARGET_USER|g" \
       -e "s|__INSTALL_HOME__|/home/$TARGET_USER|g" \
+      -e "s|__NO_MMAP_FLAG__|$NO_MMAP_FLAG|g" \
       "$SERVICE_FILE" > "$UNIT_TMP"
   if cmp -s "$UNIT_TMP" /etc/systemd/system/llama-server.service 2>/dev/null; then
     echo "  ↷ Unit already installed and up to date."
@@ -228,7 +239,7 @@ echo "    -m $MODEL_PATH \\"
 echo "    --alias qwen35-4b-local \\"
 echo "    -t 6 -c 8192 --n-gpu-layers 32 \\"
 echo "    --batch-size 256 --ubatch-size 64 \\"
-echo "    --no-mmap \\"
+echo "    --load-mode none \\"
 echo "    --host 127.0.0.1 --port 8080"
 echo ""
 echo "  # Run benchmark (from storybot repo root):"

@@ -1,5 +1,7 @@
-# Template: __INSTALL_USER__ and __INSTALL_HOME__ are substituted by
-# deploy/install_llama_server.sh when this unit is installed.
+# Template: __INSTALL_USER__, __INSTALL_HOME__ and __NO_MMAP_FLAG__ are
+# substituted by deploy/install_llama_server.sh when this unit is installed.
+# __NO_MMAP_FLAG__ becomes `--load-mode none` or, on llama.cpp builds that
+# predate that option, `--no-mmap` (the script asks the built binary).
 #
 # No --mlock on purpose: locking the ~3.4 GB model into an 8 GB shared-memory
 # board leaves the kernel nothing to reclaim, and display-engine allocations
@@ -20,7 +22,7 @@ ExecStart=__INSTALL_HOME__/llama.cpp/build/bin/llama-server \
   --alias qwen35-4b-local \
   -np 1 -t 6 -c 2048 --n-gpu-layers 99 \
   --batch-size 256 --ubatch-size 64 \
-  --no-mmap --cache-ram 512 \
+  __NO_MMAP_FLAG__ --cache-ram 512 \
   --reasoning off --reasoning-format none \
   --host 127.0.0.1 --port 8080
 Restart=on-failure

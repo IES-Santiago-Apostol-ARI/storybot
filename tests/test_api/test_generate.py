@@ -710,7 +710,7 @@ class TestPhase13Deployment:
         # of KV and lets all 33 layers offload to the GPU.
         assert "-c 2048" in content, "Must contain context size -c 2048"
         assert "--n-gpu-layers 99" in content, "Must offload all layers to GPU"
-        assert "--no-mmap" in content, "Must disable mmap for safety"
+        assert "__NO_MMAP_FLAG__" in content, "Must disable mmap for safety"
         assert "--mlock" in content, "Must enable memory locking"
         assert "--reasoning off" in content, "Must disable reasoning output"
 
