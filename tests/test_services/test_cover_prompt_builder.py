@@ -196,7 +196,7 @@ class TestCategoryNormalization:
 
     def test_capitalised_category_is_recognised(self):
         positive, _ = build(_params(("Personaje", "canguro")), rng=Random(0))
-        assert "cute cartoon canguro" in positive
+        assert "cute cartoon kangaroo" in positive
 
     def test_accentless_emocion_is_recognised(self):
         positive, _ = build(
@@ -206,11 +206,62 @@ class TestCategoryNormalization:
 
     def test_surrounding_whitespace_is_folded(self):
         positive, _ = build(_params(("  LUGAR  ", "castillo")), rng=Random(0))
-        assert "in a simple castillo" in positive
+        assert "in a simple castle" in positive
 
     def test_value_whitespace_is_stripped(self):
         positive, _ = build(_params(("personaje", "  buho  ")), rng=Random(0))
-        assert "cute cartoon buho" in positive
+        assert "cute cartoon owl" in positive
+
+
+class TestSpanishTranslation:
+    """SD 1.5's CLIP encoder is English-only: raw Spanish card values
+    ("una paloma") degraded into junk BPE tokens and the model drew
+    whatever it wanted. Values are translated before reaching the prompt."""
+
+    def test_personaje_is_translated(self):
+        positive, _ = build(_params(("personaje", "paloma")), rng=Random(0))
+        assert "cute cartoon dove" in positive
+        assert "paloma" not in positive
+
+    def test_lugar_is_translated(self):
+        positive, _ = build(
+            _params(("personaje", "robot"), ("lugar", "castillo")), rng=Random(0)
+        )
+        assert "in a simple castle" in positive
+
+    def test_emocion_is_translated(self):
+        positive, _ = build(
+            _params(("personaje", "robot"), ("emoción", "feliz")), rng=Random(0)
+        )
+        assert "looking happy" in positive
+
+    def test_articles_are_dropped(self):
+        positive, _ = build(_params(("personaje", "una paloma")), rng=Random(0))
+        assert "cute cartoon dove" in positive
+        assert "una" not in positive
+
+    def test_adjective_moves_before_the_noun(self):
+        positive, _ = build(
+            _params(("personaje", "robot"), ("lugar", "un castillo grande")),
+            rng=Random(0),
+        )
+        assert "in a simple big castle" in positive
+
+    def test_color_adjective_is_translated(self):
+        positive, _ = build(_params(("personaje", "un dragón azul")), rng=Random(0))
+        assert "cute cartoon blue dragon" in positive
+
+    def test_unknown_word_passes_through(self):
+        positive, _ = build(_params(("personaje", "zorp")), rng=Random(0))
+        assert "cute cartoon zorp" in positive
+
+    def test_function_word_only_value_is_dropped(self):
+        positive, _ = build(_params(("personaje", "el")), rng=Random(0))
+        assert positive == STYLE_PREAMBLE
+
+    def test_accented_and_capitalised_value_is_translated(self):
+        positive, _ = build(_params(("Personaje", "Paloma")), rng=Random(0))
+        assert "cute cartoon dove" in positive
 
 
 class TestMultipleCharacters:
@@ -218,7 +269,7 @@ class TestMultipleCharacters:
         positive, _ = build(
             _params(("personaje", "buho"), ("Personaje", "canguro")), rng=Random(0)
         )
-        assert "buho and canguro" in positive
+        assert "owl and kangaroo" in positive
 
     def test_three_personajes_are_comma_joined(self):
         positive, _ = build(
@@ -229,7 +280,7 @@ class TestMultipleCharacters:
             ),
             rng=Random(0),
         )
-        assert "buho, canguro and robot" in positive
+        assert "owl, kangaroo and robot" in positive
 
     def test_characters_are_capped(self):
         positive, _ = build(

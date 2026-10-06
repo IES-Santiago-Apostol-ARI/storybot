@@ -180,19 +180,20 @@ class GpioDispatcher:
             title = snapshot.get("title", "") or ""
             params = [{"category": "personaje", "value": title}]
 
-        positive, negative = cover_prompt_builder.build(params)
         story_id = snapshot.get("story_id")
         has_own_cover = snapshot.get("has_own_cover", False)
 
         self._image_busy = True
-        asyncio.create_task(
-            self._generate_cover(story_id, positive, negative, has_own_cover)
-        )
+        asyncio.create_task(self._generate_cover(story_id, params, has_own_cover))
 
     async def _generate_cover(
-        self, story_id: str, positive: str, negative: str, has_own_cover: bool = False
+        self, story_id: str, params: list[dict], has_own_cover: bool = False
     ) -> None:
-        """Background task: run the orchestrator, then ack or error-blink.
+        """Background task: build the prompt, run the orchestrator, then ack
+        or error-blink.
+
+        The prompt is built here, not in the button handler, because turning
+        the Spanish card values into English may ask llama-server.
 
         Always regenerates (Task 5): the SD worker overwrites
         ``cover-preview.png`` / ``cover-print.png`` in
@@ -210,6 +211,7 @@ class GpioDispatcher:
         enqueued — the kiosk keeps the original cover visible.
         """
         try:
+            positive, negative = await cover_prompt_builder.build_translated(params)
             seed = random.randint(0, 2**32 - 1)
             preview_path, _print_path, _gen_seconds = (
                 await self._swap_orchestrator.generate_cover_for_story(

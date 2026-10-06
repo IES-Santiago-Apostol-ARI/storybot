@@ -359,7 +359,7 @@ class TestImageEdgeCases:
 
         captured: dict = {}
 
-        def spy_build(params):
+        async def spy_build(params):
             captured["params"] = params
             return ("positive", "negative")
 
@@ -373,7 +373,9 @@ class TestImageEdgeCases:
         d = _dispatcher(swap_orchestrator=orch, playback_holder=holder, now=fake_clock)
 
         with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(gpio_dispatcher.cover_prompt_builder, "build", spy_build)
+            mp.setattr(
+                gpio_dispatcher.cover_prompt_builder, "build_translated", spy_build
+            )
             await d._handle_event("image")
             await _drain_tasks()
 

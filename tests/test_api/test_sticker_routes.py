@@ -227,7 +227,8 @@ class TestPostSticker:
         assert resp.status_code == 200
         args = mock_orchestrator.generate_cover_for_story.call_args[0]
         assert args[0] == STORY_ID
-        assert "dragón azul" in args[1]
+        # Card values are translated ES->EN for the English-only CLIP encoder
+        assert "blue dragon" in args[1]
 
     def test_title_used_without_hint(
         self, mock_story_manager, mock_orchestrator, ai_enabled
@@ -236,7 +237,7 @@ class TestPostSticker:
         resp = client.post(f"/api/stories/{STORY_ID}/sticker", json={})
         assert resp.status_code == 200
         args = mock_orchestrator.generate_cover_for_story.call_args[0]
-        assert "El dragón verde" in args[1]
+        assert "green dragon" in args[1]
 
     def test_no_cover_image_side_effects(
         self, mock_story_manager, mock_orchestrator, ai_enabled

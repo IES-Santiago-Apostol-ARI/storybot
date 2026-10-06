@@ -4,6 +4,9 @@ import random
 import unicodedata
 from pathlib import Path
 
+from app.services import cover_llm_translator
+from app.services.cover_translator import translate, translate_with_coverage
+
 STYLE_HEAD = (
     "children's coloring book page, simple shapes, thick bold outlines, "
     "minimal details, black and white line art, easy coloring page, "
@@ -130,16 +133,52 @@ _KNOWN_CATEGORIES = {"personaje", *_MODIFIER_SUBS}
 _DROP_ORDER = ["lugar", "objeto", "emocion"]
 
 
-def build(params: list[dict], *, rng: random.Random | None = None) -> tuple[str, str]:
+async def build_translated(
+    params: list[dict], *, rng: random.Random | None = None
+) -> tuple[str, str]:
+    """``build()`` with llama-server's help for the words the rules don't know.
+
+    Stories are in Spanish, the image model only reads English. The offline
+    rules translate first; only values with a word they do not know are sent
+    to llama-server, which is still up at this point (it stops only when
+    Stable Diffusion starts). If it is down, busy or answers nonsense, the
+    rules' best effort is used — a cover never fails over translation.
+    """
+    values = [str(p.get("value", "") or "") for p in params]
+    ruled = [translate_with_coverage(v) for v in values]
+    english = [text for text, _ in ruled]
+    unknown = [i for i, (_, complete) in enumerate(ruled) if not complete]
+    if unknown:
+        answers = await cover_llm_translator.translate_values(
+            [values[i] for i in unknown]
+        )
+        for i, answer in zip(unknown, answers):
+            if answer:
+                english[i] = answer
+    translated = [{**p, "value": v} for p, v in zip(params, english)]
+    return build(translated, rng=rng, translate_values=False)
+
+
+def build(
+    params: list[dict],
+    *,
+    rng: random.Random | None = None,
+    translate_values: bool = True,
+) -> tuple[str, str]:
     """Build a CLIP-budget-safe cover prompt from session parameters.
 
-    The pose and the framing are drawn at random on every call, so the same
-    parameters do not produce the same drawing twice.
+    Card values are translated to English first (``cover_translator``) because the
+    SD CLIP encoder does not understand Spanish. The pose and the framing
+    are drawn at random on every call, so the same parameters do not
+    produce the same drawing twice.
 
     Args:
         params: List of parameter dicts with 'category' and 'value' keys.
         rng: Source of the pose/framing choice. Defaults to the ``random``
             module; pass a ``random.Random`` to make a prompt reproducible.
+        translate_values: False when the values are already English
+            (``build_translated``), so they are not run through the Spanish
+            rules a second time.
 
     Returns:
         Tuple of (positive_prompt, negative_prompt).
@@ -149,7 +188,9 @@ def build(params: list[dict], *, rng: random.Random | None = None) -> tuple[str,
     by_category: dict[str, list[str]] = {}
     for p in params:
         cat = _normalize_category(p.get("category", "") or "")
-        val = (p.get("value", "") or "").strip()
+        val = str(p.get("value", "") or "").strip()
+        if translate_values:
+            val = translate(val)
         if cat and val and cat in _KNOWN_CATEGORIES:
             by_category.setdefault(cat, []).append(val)
 

@@ -21,7 +21,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.dependencies import get_story_manager
-from app.services.cover_prompt_builder import build as build_cover_prompt
+from app.services.cover_prompt_builder import build_translated as build_cover_prompt
 from app.services.story_manager import StoryManager
 from app.services.swap_orchestrator import LlamaRelaunchError
 
@@ -133,11 +133,11 @@ async def generate_sticker(
 
     subject = (body.hint or story.title or "").strip()
     if subject:
-        positive, negative = build_cover_prompt(
+        positive, negative = await build_cover_prompt(
             [{"category": "personaje", "value": subject}]
         )
     else:
-        positive, negative = build_cover_prompt([])
+        positive, negative = await build_cover_prompt([])
     # Random seed (like the GPIO image button) so re-presses produce a
     # different image.
     seed = random.randint(0, 2**32 - 1)
