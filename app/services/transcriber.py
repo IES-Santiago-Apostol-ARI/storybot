@@ -10,6 +10,7 @@ must not fight llama-server/SD for the Jetson's unified 8 GB memory.
 
 import asyncio
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -29,6 +30,14 @@ _LOCK = asyncio.Lock()
 
 # Seam for tests (and PATH resolution of a bare "whisper-cli").
 _which = shutil.which
+
+# Where deploy/install_whisper.sh builds whisper.cpp. Used when the configured
+# binary/model do not resolve, so transcription does not depend on per-machine
+# absolute paths in the shipped content/config.json (which an OTA update's
+# `git reset --hard` restores). Same home-relative convention as ~/sd-cover
+# and ~/llama.cpp. Module attribute so tests can point it elsewhere.
+STANDARD_INSTALL_DIR = Path.home() / "whisper.cpp"
+STANDARD_MODEL_NAME = "ggml-small.bin"
 
 
 def _log(event: str, **fields: object) -> None:
@@ -66,18 +75,36 @@ def _resolve_tools() -> tuple[str, str, str] | None:
     settings = get_settings()
     if not settings.transcription_enabled:
         return None
-    whisper_bin = _which(settings.whisper_bin)
+    whisper_bin = _which(settings.whisper_bin) or _standard_bin()
     ffmpeg = _which("ffmpeg")
-    model_ok = Path(settings.whisper_model).exists()
-    if not whisper_bin or not ffmpeg or not model_ok:
+    whisper_model = (
+        settings.whisper_model
+        if Path(settings.whisper_model).exists()
+        else _standard_model()
+    )
+    if not whisper_bin or not ffmpeg or not whisper_model:
         _log(
             "transcribe_unavailable",
             whisper_bin=bool(whisper_bin),
-            whisper_model=model_ok,
+            whisper_model=bool(whisper_model),
             ffmpeg=bool(ffmpeg),
         )
         return None
-    return whisper_bin, settings.whisper_model, ffmpeg
+    return whisper_bin, whisper_model, ffmpeg
+
+
+def _standard_bin() -> str | None:
+    """whisper-cli from the standard install, or None if it is not built."""
+    candidate = STANDARD_INSTALL_DIR / "build" / "bin" / "whisper-cli"
+    if candidate.is_file() and os.access(candidate, os.X_OK):
+        return str(candidate)
+    return None
+
+
+def _standard_model() -> str | None:
+    """The model from the standard install, or None if it is not downloaded."""
+    candidate = STANDARD_INSTALL_DIR / "models" / STANDARD_MODEL_NAME
+    return str(candidate) if candidate.is_file() else None
 
 
 async def transcribe(audio_path: Path | str) -> str | None:

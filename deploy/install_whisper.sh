@@ -4,7 +4,9 @@
 #
 # Builds whisper.cpp CPU-only at ~/whisper.cpp (the app runs whisper-cli with
 # --no-gpu, so CUDA flags would have no effect), downloads the multilingual
-# "small" model and points content/config.json at both.
+# "small" model. Nothing is written to content/config.json: the app finds this
+# standard location by itself (app/services/transcriber.py), so the install
+# survives an OTA update's `git reset --hard`.
 #
 # Usage:
 #   bash deploy/install_whisper.sh        (as the user that runs storybot)
@@ -17,8 +19,6 @@ WHISPER_DIR="$HOME/whisper.cpp"
 WHISPER_BIN="$WHISPER_DIR/build/bin/whisper-cli"
 WHISPER_MODEL_NAME="small"
 WHISPER_MODEL="$WHISPER_DIR/models/ggml-$WHISPER_MODEL_NAME.bin"
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CONFIG_JSON="$REPO_ROOT/content/config.json"
 
 # ── Step 1: Source ──────────────────────────────────────────────────────────
 echo ""
@@ -54,36 +54,6 @@ else
   echo "  ✓ Model downloaded."
 fi
 
-# ── Step 4: Point the app at this build ─────────────────────────────────────
-# The shipped config.json may carry another machine's absolute paths. Rewrite
-# the two whisper keys only when the configured ones do not resolve here.
-echo ""
-echo "Step 4: content/config.json"
-python3 - "$CONFIG_JSON" "$WHISPER_BIN" "$WHISPER_MODEL" "$REPO_ROOT" <<'PY'
-import json
-import shutil
-import sys
-from pathlib import Path
-
-config_path, whisper_bin, whisper_model, repo_root = sys.argv[1:5]
-path = Path(config_path)
-data = json.loads(path.read_text()) if path.exists() else {}
-
-current_bin = data.get("whisper_bin", "whisper-cli")
-current_model = Path(data.get("whisper_model", "models/whisper/ggml-small.bin"))
-if not current_model.is_absolute():
-    current_model = Path(repo_root) / current_model
-
-if shutil.which(current_bin) and current_model.exists():
-    print("  ↷ Configured whisper paths already resolve.")
-else:
-    data["whisper_bin"] = whisper_bin
-    data["whisper_model"] = whisper_model
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-    print(f"  ✓ whisper_bin / whisper_model set in {path}.")
-PY
-
 # ── Verify ──────────────────────────────────────────────────────────────────
 echo ""
 if command -v ffmpeg &>/dev/null; then
@@ -94,4 +64,4 @@ fi
 "$WHISPER_BIN" --help >/dev/null 2>&1 && echo "  ✓ whisper-cli runs."
 
 echo ""
-echo "✓  whisper.cpp setup complete. Restart storybot to pick up the config."
+echo "✓  whisper.cpp setup complete."

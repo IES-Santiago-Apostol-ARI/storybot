@@ -26,7 +26,7 @@ class TestConfigManager:
         """ConfigManager.load() returns Settings with defaults when config.json missing."""
         settings = config_manager.load()
         assert isinstance(settings, Settings)
-        assert settings.led_brightness == 255
+        assert settings.gpio_debounce_ms == 50
         assert settings.audio_volume == 1.0
 
     def test_load_returns_settings_from_file_when_exists(
@@ -35,7 +35,7 @@ class TestConfigManager:
         """ConfigManager.load() returns Settings from file when config.json exists."""
         # Write config file
         config_data = {
-            "led_brightness": 128,
+            "gpio_debounce_ms": 128,
             "audio_volume": 0.5,
             "tts_voice": "es_ES-glow_tenor",
         }
@@ -43,7 +43,7 @@ class TestConfigManager:
 
         settings = config_manager.load()
         assert isinstance(settings, Settings)
-        assert settings.led_brightness == 128
+        assert settings.gpio_debounce_ms == 128
         assert settings.audio_volume == 0.5
         assert settings.tts_voice == "es_ES-glow_tenor"
 
@@ -56,26 +56,26 @@ class TestConfigManager:
         self, config_manager, temp_config_file
     ):
         """ConfigManager.save() writes current settings to config.json."""
-        settings = Settings(led_brightness=200, audio_volume=0.8)
+        settings = Settings(gpio_debounce_ms=200, audio_volume=0.8)
         config_manager.save(settings)
 
         assert temp_config_file.exists()
         data = json.loads(temp_config_file.read_text())
-        assert data["led_brightness"] == 200
+        assert data["gpio_debounce_ms"] == 200
         assert data["audio_volume"] == 0.8
 
     def test_reload_re_reads_config_file(self, config_manager, temp_config_file):
         """ConfigManager.reload() re-reads file and updates settings."""
         # Initial load with defaults
         initial_settings = config_manager.load()
-        assert initial_settings.led_brightness == 255
+        assert initial_settings.gpio_debounce_ms == 50
 
         # Write new config
-        temp_config_file.write_text(json.dumps({"led_brightness": 100}))
+        temp_config_file.write_text(json.dumps({"gpio_debounce_ms": 100}))
 
         # Reload and verify
         reloaded_settings = config_manager.reload()
-        assert reloaded_settings.led_brightness == 100
+        assert reloaded_settings.gpio_debounce_ms == 100
 
 
 class TestTTSSpeechDefaults:
@@ -142,18 +142,18 @@ class TestGetSettings:
         from app import config as config_mod
 
         cfg = tmp_path / "config.json"
-        cfg.write_text(json.dumps({"led_brightness": 200}))
+        cfg.write_text(json.dumps({"gpio_debounce_ms": 200}))
         monkeypatch.setattr(config_mod, "_manager", config_mod.ConfigManager(cfg))
 
         first = config_mod.get_settings()
-        assert first.led_brightness == 200
+        assert first.gpio_debounce_ms == 200
 
-        cfg.write_text(json.dumps({"led_brightness": 7}))
+        cfg.write_text(json.dumps({"gpio_debounce_ms": 7}))
         # Still cached until invalidated
         assert config_mod.get_settings() is first
 
         config_mod.invalidate_settings()
-        assert config_mod.get_settings().led_brightness == 7
+        assert config_mod.get_settings().gpio_debounce_ms == 7
 
     def test_manager_reload_propagates_to_get_settings(self, tmp_path, monkeypatch):
         """admin-style reload on the shared manager reaches get_settings()."""
@@ -162,13 +162,13 @@ class TestGetSettings:
         from app import config as config_mod
 
         cfg = tmp_path / "config.json"
-        cfg.write_text(json.dumps({"led_brightness": 200}))
+        cfg.write_text(json.dumps({"gpio_debounce_ms": 200}))
         monkeypatch.setattr(config_mod, "_manager", config_mod.ConfigManager(cfg))
 
         config_mod.get_settings()
-        cfg.write_text(json.dumps({"led_brightness": 9}))
+        cfg.write_text(json.dumps({"gpio_debounce_ms": 9}))
         config_mod.get_config_manager().reload()
-        assert config_mod.get_settings().led_brightness == 9
+        assert config_mod.get_settings().gpio_debounce_ms == 9
 
 
 class TestNoModuleSettingsSingletons:
@@ -247,7 +247,7 @@ class TestAtomicConfigSave:
 
         monkeypatch.setattr("app.config.write_json_atomic", counting_write)
 
-        settings = Settings(led_brightness=200)
+        settings = Settings(gpio_debounce_ms=200)
         config_manager.save(settings)
 
         assert call_count["n"] == 1
@@ -260,8 +260,8 @@ class TestAtomicConfigSave:
         from app.config import Settings
 
         # Write initial config
-        config_manager.save(Settings(led_brightness=200, tts_voice="custom"))
-        assert config_manager.load().led_brightness == 200
+        config_manager.save(Settings(gpio_debounce_ms=200, tts_voice="custom"))
+        assert config_manager.load().gpio_debounce_ms == 200
 
         # Monkeypatch os.replace to fail mid-save
         import os
@@ -273,9 +273,9 @@ class TestAtomicConfigSave:
 
         # Attempt to save new config — should raise
         with pytest.raises(OSError):
-            config_manager.save(Settings(led_brightness=7))
+            config_manager.save(Settings(gpio_debounce_ms=7))
 
         # Old config must still be intact
         reloaded = config_manager.reload()
-        assert reloaded.led_brightness == 200
+        assert reloaded.gpio_debounce_ms == 200
         assert reloaded.tts_voice == "custom"

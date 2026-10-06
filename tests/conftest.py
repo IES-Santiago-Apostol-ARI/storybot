@@ -15,7 +15,7 @@ os.environ["TESTING"] = "1"
 def temp_config_file():
     """Create a temporary config file for testing."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        f.write('{"led_brightness": 255, "audio_volume": 1.0}')
+        f.write('{"gpio_debounce_ms": 50, "audio_volume": 1.0}')
         temp_path = f.name
     yield Path(temp_path)
     # Cleanup

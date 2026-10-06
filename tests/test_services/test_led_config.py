@@ -1,5 +1,8 @@
 """Tests for Phase 31 LED config fields (LED-03) — all 7 LED tunables present in Settings, stale led_strip_device serial default removed (D-06), content/config.json tolerates the stale key (RESEARCH A4)."""
 
+import json
+from pathlib import Path
+
 from app.config import ConfigManager, Settings
 
 
@@ -38,9 +41,33 @@ class TestLedConfig:
         """Settings no longer contains the stale led_strip_device field (D-06)."""
         assert not hasattr(Settings(), "led_strip_device")
 
-    def test_config_json_stale_key_tolerated(self):
-        """ConfigManager().load() tolerates the stale led_strip_device key in content/config.json (RESEARCH A4)."""
-        # The real ConfigManager defaults to content/config.json, which contains the stale key
+    def test_config_json_stale_key_tolerated(self, tmp_path):
+        """ConfigManager().load() ignores keys that are no longer settings.
+
+        Devices keep whatever config.json they had, so removed settings such as
+        led_strip_device / led_brightness must not break loading (RESEARCH A4).
+        """
+        cfg = tmp_path / "config.json"
+        cfg.write_text(
+            json.dumps(
+                {
+                    "led_strip_device": "/dev/ttyUSB0",
+                    "led_brightness": 255,
+                    "tts_voice": "custom-voice",
+                }
+            )
+        )
+        settings = ConfigManager(cfg).load()
+        assert isinstance(settings, Settings)
+        assert settings.tts_voice == "custom-voice"
+        assert settings.led_count == 23
+
+    def test_shipped_config_has_no_dead_keys(self):
+        """Every key in the shipped content/config.json is a real setting."""
+        shipped = json.loads(Path("content/config.json").read_text())
+        assert set(shipped) <= set(Settings.model_fields)
+
+    def test_shipped_config_loads_with_defaults(self):
         settings = ConfigManager().load()
         assert isinstance(settings, Settings)
         assert settings.led_count == 23

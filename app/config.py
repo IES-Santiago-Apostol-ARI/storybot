@@ -11,7 +11,6 @@ from app.services.atomic_io import write_json_atomic
 class Settings(BaseModel):
     """Application settings."""
 
-    led_brightness: int = 255
     led_count: int = 23  # D-10: wired strip length (within 8–30 spec)
     led_max_brightness: float = (
         0.30  # D-09: ~75/255 child-safe baseline (cap applied before gamma)
@@ -59,6 +58,9 @@ class Settings(BaseModel):
     # the binary, model and ffmpeg exist on disk — dev machines without them
     # silently skip transcription (uploads still succeed).
     transcription_enabled: bool = True
+    # When these do not resolve, the transcriber falls back to the standard
+    # install at ~/whisper.cpp (deploy/install_whisper.sh), so no per-machine
+    # path needs to live in config.json.
     whisper_bin: str = "whisper-cli"  # bare name resolves via PATH
     whisper_model: str = "models/whisper/ggml-small.bin"
     nfc_reader_device: str = "usb:072f:2200"

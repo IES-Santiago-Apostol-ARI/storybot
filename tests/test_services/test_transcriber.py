@@ -34,6 +34,9 @@ def fake_tools(tmp_path, monkeypatch):
     monkeypatch.setattr(
         transcriber, "_which", lambda name: name if name != "missing" else None
     )
+    # No standard install unless a test builds one: the suite must not pick
+    # up a real ~/whisper.cpp on the machine running it.
+    monkeypatch.setattr(transcriber, "STANDARD_INSTALL_DIR", tmp_path / "no-whisper")
 
     calls: list[list[str]] = []
 
@@ -87,6 +90,47 @@ class TestAvailabilityGuards:
 
         assert await transcriber.transcribe("audio.mp3") is None
         assert calls == []
+
+    async def test_falls_back_to_standard_install_when_config_is_stale(
+        self, fake_tools, monkeypatch, tmp_path
+    ):
+        """Paths from another machine (e.g. after an OTA reset) must not turn
+        transcription off when whisper.cpp is installed in the standard place."""
+        settings, calls = fake_tools
+        std = tmp_path / "whisper.cpp"
+        (std / "build" / "bin").mkdir(parents=True)
+        std_bin = std / "build" / "bin" / "whisper-cli"
+        std_bin.write_text("#!/bin/sh\n")
+        std_bin.chmod(0o755)
+        (std / "models").mkdir()
+        std_model = std / "models" / "ggml-small.bin"
+        std_model.write_bytes(b"model")
+        monkeypatch.setattr(transcriber, "STANDARD_INSTALL_DIR", std)
+        monkeypatch.setattr(
+            transcriber,
+            "_which",
+            lambda name: name if name == "ffmpeg" else None,
+        )
+        monkeypatch.setattr(
+            transcriber,
+            "get_settings",
+            lambda: settings.model_copy(
+                update={
+                    "whisper_bin": "/home/other/whisper.cpp/build/bin/whisper-cli",
+                    "whisper_model": "/home/other/whisper.cpp/models/ggml-small.bin",
+                }
+            ),
+        )
+
+        assert transcriber._resolve_tools() == (str(std_bin), str(std_model), "ffmpeg")
+
+    async def test_configured_paths_win_over_standard_install(self, fake_tools):
+        settings, _ = fake_tools
+        assert transcriber._resolve_tools() == (
+            settings.whisper_bin,
+            settings.whisper_model,
+            "ffmpeg",
+        )
 
     async def test_returns_none_when_ffmpeg_missing(self, fake_tools, monkeypatch):
         _, calls = fake_tools

@@ -257,22 +257,33 @@ cmake --build build --config Release -j$(nproc)
 ```
 
 Esto deja el binario en `build/bin/whisper-cli` y el modelo en
-`models/ggml-small.bin`, ambos dentro del directorio `whisper.cpp`. Como el
-binario no está en el `PATH` (igual que `llama-server`), lo más simple es
-apuntar a ambos con rutas **absolutas** en `content/config.json`:
+`models/ggml-small.bin`, ambos dentro del directorio `whisper.cpp`. Estos pasos
+los automatiza `deploy/install_whisper.sh` (y `deploy/install.sh` lo ejecuta en
+modo IA).
+
+**No hace falta configurar rutas** si whisper.cpp está en `~/whisper.cpp` (el
+home del usuario que ejecuta StoryBot): cuando el binario o el modelo
+configurados no existen, la aplicación usa automáticamente
+`~/whisper.cpp/build/bin/whisper-cli` y `~/whisper.cpp/models/ggml-small.bin`.
+Por eso `content/config.json` no lleva rutas de ninguna máquina concreta, y una
+actualización OTA (que restaura los ficheros del repositorio) no desactiva la
+transcripción.
+
+Solo si lo instalas en otra ubicación, apunta a ambos con rutas absolutas en
+`content/config.json`:
 
 ```json
 {
-  "whisper_bin": "/home/ari/whisper.cpp/build/bin/whisper-cli",
-  "whisper_model": "/home/ari/whisper.cpp/models/ggml-small.bin"
+  "whisper_bin": "/opt/whisper.cpp/build/bin/whisper-cli",
+  "whisper_model": "/opt/whisper.cpp/models/ggml-small.bin"
 }
 ```
 
 Valores por defecto si no se sobrescriben:
 
 - `transcription_enabled`: `true`
-- `whisper_bin`: `whisper-cli` (se resuelve vía PATH)
-- `whisper_model`: `models/whisper/ggml-small.bin` (relativa a la raíz del proyecto)
+- `whisper_bin`: `whisper-cli` (se resuelve vía PATH; si no, `~/whisper.cpp/build/bin/whisper-cli`)
+- `whisper_model`: `models/whisper/ggml-small.bin` (relativa a la raíz del proyecto; si no existe, `~/whisper.cpp/models/ggml-small.bin`)
 
 Tras editar `content/config.json` hay que reiniciar el servicio
 (`sudo systemctl restart storybot`): `ConfigManager` cachea los ajustes al
@@ -351,7 +362,7 @@ Además de lo común, en modo IA el script:
 - Configura `sudo` sin contraseña para controlar `llama-server`
 - Compila `llama.cpp` con CUDA, descarga el modelo y habilita `llama-server.service` (`deploy/install_llama_server.sh`)
 - Instala la pila de portadas Stable Diffusion en `~/sd-cover` (`deploy/install_sd_cover.sh`)
-- Compila `whisper.cpp`, descarga el modelo `small` y apunta `content/config.json` a ambos (`deploy/install_whisper.sh`)
+- Compila `whisper.cpp` en `~/whisper.cpp` y descarga el modelo `small` (`deploy/install_whisper.sh`)
 - Asigna SPI1 al conector de 40 pines para la tira LED (requiere reiniciar)
 
 Estos pasos son idempotentes (se pueden repetir) y, si alguno falla, el

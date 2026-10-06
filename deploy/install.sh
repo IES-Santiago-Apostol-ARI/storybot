@@ -528,8 +528,8 @@ else
 fi
 
 # Step 3d: whisper.cpp (transcription of audio stories uploaded in /admin).
-# CPU-only build in ~/whisper.cpp plus the "small" model; the script points
-# content/config.json at them. Fail-soft: uploads work without a transcript.
+# CPU-only build in ~/whisper.cpp plus the "small" model; the app finds that
+# location by itself. Fail-soft: uploads work without a transcript.
 if [[ "$AI_MODE" == true && "$DEV_MODE" == false ]]; then
     echo ""
     echo "Step 3d: Installing whisper.cpp..."

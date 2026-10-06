@@ -1,5 +1,6 @@
 """Phase 21 install script source-assertion tests (DEP-01)."""
 
+import json
 import re
 from pathlib import Path
 
@@ -591,8 +592,15 @@ class TestLlamaAndWhisperSteps:
         text = Path("deploy/install_llama_server.sh").read_text()
         assert "nvpmodel -m" not in text
 
-    def test_whisper_script_builds_cpu_only_and_sets_config(self):
+    def test_whisper_script_builds_cpu_only_and_leaves_config_alone(self):
         text = Path("deploy/install_whisper.sh").read_text()
         assert "GGML_CUDA" not in text, "the app runs whisper-cli with --no-gpu"
         assert "download-ggml-model.sh" in text
-        assert 'data["whisper_bin"]' in text and 'data["whisper_model"]' in text
+        assert (
+            "config.json" not in text.split("set -euo pipefail", 1)[1]
+        ), "an OTA update resets tracked files, so the script must not edit them"
+
+    def test_shipped_config_has_no_machine_specific_whisper_paths(self):
+        config = json.loads(Path("content/config.json").read_text())
+        assert "whisper_bin" not in config
+        assert "whisper_model" not in config
