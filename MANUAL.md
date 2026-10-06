@@ -333,6 +333,6 @@ Para que una historia generada aparezca en el panel infantil como cuento normal:
 - **Red propia**: punto de acceso WiFi "StoryBot" (`192.168.12.1`)
 - **Lector NFC**: ACS ACR122U (USB)
 - **Impresora**: Brother QL-820NWBc (pegatinas para colorear)
-- **Tira LED**: 21 LEDs WS2812B
+- **Tira LED**: 23 LEDs WS2812B
 - **Botones físicos**: 4 (apagado, parar, dibujo, luces)
 - **Pantalla**: Touchscreen HDMI de 7 pulgadas

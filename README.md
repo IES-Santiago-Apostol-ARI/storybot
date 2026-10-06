@@ -504,7 +504,7 @@ cd ~/storybot
 
 A tener en cuenta:
 
-- Usa `led_count` de la configuración (21 por defecto). Con una tira más corta,
+- Usa `led_count` de la configuración (23 por defecto). Con una tira más corta,
   `walk` y `fill` dedican sus últimos pasos a LEDs que no existen.
 - Ejecútalo con el kiosk en reposo: la aplicación usa el mismo dispositivo SPI,
   pero solo reescribe la tira cuando cambia su fotograma. Durante una

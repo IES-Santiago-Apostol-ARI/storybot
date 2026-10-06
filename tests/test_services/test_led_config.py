@@ -7,8 +7,8 @@ class TestLedConfig:
     """Tests for LED-specific configuration fields."""
 
     def test_led_count_default(self):
-        """Settings().led_count defaults to 21 (D-10)."""
-        assert Settings().led_count == 21
+        """Settings().led_count defaults to 23 (D-10)."""
+        assert Settings().led_count == 23
 
     def test_led_max_brightness_default(self):
         """Settings().led_max_brightness defaults to 0.30 (D-09)."""
@@ -43,7 +43,7 @@ class TestLedConfig:
         # The real ConfigManager defaults to content/config.json, which contains the stale key
         settings = ConfigManager().load()
         assert isinstance(settings, Settings)
-        assert settings.led_count == 21
+        assert settings.led_count == 23
 
     # --- Phase 33 effect tunables (LED-10, LED-15, LED-16, LED-17, LED-19, LED-24) ---
 

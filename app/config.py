@@ -12,7 +12,7 @@ class Settings(BaseModel):
     """Application settings."""
 
     led_brightness: int = 255
-    led_count: int = 21  # D-10: wired strip length (within 8–30 spec)
+    led_count: int = 23  # D-10: wired strip length (within 8–30 spec)
     led_max_brightness: float = (
         0.30  # D-09: ~75/255 child-safe baseline (cap applied before gamma)
     )

@@ -394,7 +394,7 @@ class LedAnimator:
             self._overlay = None
             self._overlay_fn = None
             frame = self._render_base(now, get_settings().led_count)
-        # Encode on the loop (pure CPU, microseconds for 21 px).
+        # Encode on the loop (pure CPU, microseconds for 23 px).
         encoded = encode_ws2812(
             frame,
             count=get_settings().led_count,
