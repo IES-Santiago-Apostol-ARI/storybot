@@ -28,6 +28,10 @@ dependencies = [
     # plain `uv sync` on the device uninstalls them and breaks narration.
     "piper-tts>=1.4.1",
     "onnxruntime>=1.16.0",
+    # The WS2812B strip is driven over SPI on the device. The install uses a
+    # plain `uv sync` there, so spidev must be core (NOT the jetson extra) or
+    # the LED engine silently falls back to the mock.
+    "spidev>=3.6; platform_machine=='aarch64'",
 ]
 
 [project.optional-dependencies]
@@ -42,7 +46,6 @@ jetson = [
     "opencv-python>=4.8.0",
     "opencv-contrib-python>=4.8.0",
     "pygobject>=3.44.0; platform_machine=='aarch64'",
-    "spidev>=3.6; platform_machine=='aarch64'",
     "Jetson.GPIO>=2.1.0; platform_machine=='aarch64'",
     "torch>=2.1.0",
     "torchvision>=0.16.0",

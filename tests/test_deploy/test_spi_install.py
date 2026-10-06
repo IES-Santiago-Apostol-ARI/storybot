@@ -61,11 +61,35 @@ def test_config_by_function_spi1_option():
 
 
 def test_idempotency_guard_present():
-    """A skip-if-exists check on /dev/spidev0.0 is present."""
+    """The skip check reads the live pinmux, not the spidev node.
+
+    /dev/spidev0.0 is present on L4T R39 even when header pin 19 is not muxed
+    to SPI, so testing the node would skip the pinmux step on a fresh board.
+    """
+    txt = _script_text()
+    assert "if spi1_pinmux_live; then" in txt, "Missing live-pinmux idempotency guard"
+    assert (
+        "[ -e /dev/spidev0.0 ]" not in txt
+    ), "Must NOT use /dev/spidev0.0 presence as the SPI1-enabled check"
+
+
+def test_board_dtb_ensured_before_tool():
+    """A DTB matching the running board is placed in /boot/dtb before the tool runs."""
+    txt = _script_text()
+    ensure_pos = txt.find("spi1_ensure_board_dtb ||")
+    tool_pos = txt.find("-o dt spi1")
+    assert ensure_pos > 0, "Missing spi1_ensure_board_dtb call"
+    assert ensure_pos < tool_pos, "Board DTB must be ensured before the tool runs"
+
+
+def test_overlay_patched_to_active_pins():
+    """The generated overlay is patched so the spi1 pins are driven (not tristated)."""
     txt = _script_text()
     assert (
-        "[ -e /dev/spidev0.0 ]" in txt
-    ), "Missing idempotency guard: should skip if /dev/spidev0.0 already exists"
+        "-o dt spi1 && spi1_patch_overlay" in txt
+    ), "Overlay must be patched right after config-by-function.py succeeds"
+    assert "nvidia,gpio-mode 1" in txt, "Missing gpio-mode=1 patch for spi1 pins"
+    assert "nvidia,tristate 0" in txt, "Missing tristate=0 patch for spi1 pins"
 
 
 def test_fail_soft_manual_instructions():

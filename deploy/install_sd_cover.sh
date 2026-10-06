@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 # install_sd_cover.sh — Reproducible Jetson setup for SD 1.5 + LCM LoRA
-# Target: Jetson Orin Nano Super 8GB, JetPack 6.2.1, aarch64
+# Target: Jetson Orin Nano Super 8GB, aarch64. Two supported stacks:
+#   - JetPack 7 (CUDA 13, Python 3.12): upstream PyTorch cu132 wheels. Orin runs
+#     the SBSA CUDA stack there, so torch + torchvision install straight from
+#     download.pytorch.org — no NVIDIA wheel, no cuSPARSELt, no source build.
+#   - JetPack 6 (CUDA 12.6, Python 3.10): NVIDIA's torch wheel + torchvision
+#     built from source.
 # Creates an ISOLATED venv at ~/sd-cover/ — must NOT run inside storybot's venv.
+# Idempotent: every step is skipped when its result is already in place.
 set -euo pipefail
 
 SD_DIR="$HOME/sd-cover"
@@ -16,7 +22,7 @@ USE_SYSTEM_TORCH=false
 # Verified SD 1.5 lineart / coloring-book LoRA candidates (web-search verified 2026-04-26).
 # Format: "<short-name>=<hf-repo>". Short name is the local subdir under
 # ~/sd-cover/models/lineart-loras/ AND the value passed to bench_sd.py --lineart-lora.
-# All entries MUST be SD 1.5 base (runwayml/stable-diffusion-v1-5), NOT SDXL/2.1.
+# All entries MUST be SD 1.5 base (stable-diffusion-v1-5/stable-diffusion-v1-5), NOT SDXL/2.1.
 LINEART_LORAS=(
   "coloringbook-redmond-sd15=artificialguybr/coloringbook-redmond-1-5v-coloring-book-lora-for-liberteredmond-sd-1-5"
   "sketch-sd15=jordanhilado/sd-1-5-sketch-lora"
@@ -52,6 +58,20 @@ if [[ "$arch" != "aarch64" ]]; then
   echo "   This is fine for a dev-machine dry-run."
 fi
 
+# ── CUDA stack detection (picks the torch source and the venv Python) ───────
+CUDA_MAJOR=$(find /usr/local -maxdepth 1 -name 'cuda-[0-9]*' 2>/dev/null \
+  | sed -n 's|.*/cuda-\([0-9][0-9]*\).*|\1|p' | sort -n | tail -1)
+SBSA_TORCH=false
+PY_VERSION="3.10"
+if [[ "$arch" == "aarch64" && "${CUDA_MAJOR:-0}" -ge 13 ]]; then
+  SBSA_TORCH=true
+  PY_VERSION="3.12"
+fi
+# Upstream wheels for the CUDA 13 stack (pair confirmed on-device 2026-10-06).
+SBSA_TORCH_INDEX="https://download.pytorch.org/whl/cu132"
+SBSA_TORCH_VERSION="2.12.1"
+SBSA_TORCHVISION_VERSION="0.27.1"
+
 # ── Safety gate: must not run inside storybot's venv ────────────────────────
 if [[ -n "${VIRTUAL_ENV:-}" ]]; then
   # Check if the active venv is inside the storybot repo
@@ -63,7 +83,7 @@ if [[ -n "${VIRTUAL_ENV:-}" ]]; then
     echo "SD's torch/diffusers must NOT contaminate storybot's pyproject.toml."
     echo "Deactivate it first:"
     echo "  deactivate"
-    echo "  bash scripts/install_sd_cover.sh"
+    echo "  bash deploy/install_sd_cover.sh"
     echo "══════════════════════════════════════════════════════════════"
     exit 1
   fi
@@ -93,15 +113,15 @@ fi
 
 # ── Step 3: Create isolated venv ────────────────────────────────────────────
 echo ""
-echo "Step 3: Python 3.10 venv at $VENV_DIR"
+echo "Step 3: Python $PY_VERSION venv at $VENV_DIR"
 if [[ -d "$VENV_DIR" ]]; then
   echo "  ↷ $VENV_DIR exists."
 else
   if [[ "$USE_SYSTEM_TORCH" == "true" ]]; then
-    uv venv "$VENV_DIR" --python 3.10 --system-site-packages
+    uv venv "$VENV_DIR" --python "$PY_VERSION" --system-site-packages
     echo "  ✓ Created with --system-site-packages (system torch enabled)."
   else
-    uv venv "$VENV_DIR" --python 3.10
+    uv venv "$VENV_DIR" --python "$PY_VERSION"
     echo "  ✓ Created isolated venv."
   fi
 fi
@@ -117,6 +137,8 @@ if [[ "$USE_SYSTEM_TORCH" == "true" ]]; then
   echo "  ↷ Skipping (--system-torch)."
 elif [[ "$arch" != "aarch64" ]]; then
   echo "  ↷ Skipping (not aarch64)."
+elif [[ "$SBSA_TORCH" == "true" ]]; then
+  echo "  ↷ Skipping (CUDA $CUDA_MAJOR: upstream wheels bundle their CUDA libraries)."
 else
   CURRENT_CUSPARSELT=$(dpkg -s libcusparselt0 2>/dev/null | grep "^Version:" | awk '{print $2}' || echo "")
   if [[ "$CURRENT_CUSPARSELT" == "0.7"* ]]; then
@@ -143,7 +165,15 @@ if [[ "$USE_SYSTEM_TORCH" == "true" ]]; then
 else
   CURRENT_TORCH=$($PYTHON -c "import torch; print(torch.__version__)" 2>/dev/null || echo "")
   TARGET_TORCH="2.5.0a0"
-  if [[ "$CURRENT_TORCH" == "$TARGET_TORCH"* ]]; then
+  if [[ "$SBSA_TORCH" == "true" ]]; then
+    if [[ "$CURRENT_TORCH" == "$SBSA_TORCH_VERSION"* ]]; then
+      echo "  ↷ torch $CURRENT_TORCH already installed."
+    else
+      echo "  Installing torch $SBSA_TORCH_VERSION (cu132, upstream wheel)..."
+      $PIP "torch==$SBSA_TORCH_VERSION" --index-url "$SBSA_TORCH_INDEX"
+      echo "  ✓ torch installed."
+    fi
+  elif [[ "$CURRENT_TORCH" == "$TARGET_TORCH"* ]]; then
     echo "  ↷ torch $CURRENT_TORCH already installed."
   elif [[ "$arch" != "aarch64" && "$CURRENT_TORCH" == "2.5."* ]]; then
     echo "  ↷ torch $CURRENT_TORCH already installed."
@@ -159,6 +189,7 @@ else
       if $PYTHON -c "import torch; exit(0 if torch.__version__ == '$TARGET_TORCH' else 1)" 2>/dev/null; then
         echo "  ↷ torch already installed via system. Skipping."
       else
+        wget -c -q "$TORCH_WHL_URL" -O "$TMPDIR/$TORCH_WHL_NAME"
         UV_SKIP_WHEEL_FILENAME_CHECK=1 $PIP --no-cache "$TMPDIR/$TORCH_WHL_NAME"
       fi
       rm -rf "$TMPDIR"
@@ -179,6 +210,16 @@ if [[ "$USE_SYSTEM_TORCH" == "true" ]]; then
 elif [[ "$arch" != "aarch64" ]]; then
   echo "  Installing torchvision from PyPI (x86)..."
   $PIP "torchvision==0.20.1" --index-url "https://download.pytorch.org/whl/cu126"
+elif [[ "$SBSA_TORCH" == "true" ]]; then
+  TV_IMPORT=$($PYTHON -c "import torchvision; print(torchvision.__version__)" 2>/dev/null || echo "")
+  if [[ "$TV_IMPORT" == "$SBSA_TORCHVISION_VERSION"* ]]; then
+    echo "  ↷ torchvision $TV_IMPORT already installed."
+  else
+    echo "  Installing torchvision $SBSA_TORCHVISION_VERSION (cu132, upstream wheel)..."
+    $PIP "torch==$SBSA_TORCH_VERSION" "torchvision==$SBSA_TORCHVISION_VERSION" \
+      --index-url "$SBSA_TORCH_INDEX"
+    echo "  ✓ torchvision installed."
+  fi
 else
   # PyPI torchvision is x86-only and incompatible with NVIDIA's torch wheel.
   # Must build from source against the exact torch just installed.
@@ -242,11 +283,19 @@ echo "  ✓ Versions recorded."
 # ── Step 5: Download SD 1.5 ─────────────────────────────────────────────────
 echo ""
 echo "Step 5: Download Stable Diffusion 1.5"
-if [[ -d "$SD_MODEL" && -f "$SD_MODEL/unet/diffusion_pytorch_model.safetensors" ]]; then
+if [[ -f "$SD_MODEL/model_index.json" && -f "$SD_MODEL/unet/diffusion_pytorch_model.safetensors" ]]; then
   echo "  ↷ $SD_MODEL exists with model weights."
 else
-  echo "  ✓ Downloading runwayml/stable-diffusion-v1-5 (~5 GB)..."
-  uvx --from huggingface_hub hf download runwayml/stable-diffusion-v1-5 --local-dir "$SD_MODEL"
+  # Only the diffusers-format files the pipeline loads: the full repo also
+  # carries legacy .ckpt / EMA / fp16 duplicates (~45 GB in total).
+  echo "  ✓ Downloading stable-diffusion-v1-5/stable-diffusion-v1-5 (~4.3 GB)..."
+  uvx --from huggingface_hub hf download stable-diffusion-v1-5/stable-diffusion-v1-5 \
+    --local-dir "$SD_MODEL" \
+    --include "model_index.json" --include "scheduler/*" \
+    --include "tokenizer/*" --include "feature_extractor/*" \
+    --include "text_encoder/config.json" --include "text_encoder/model.safetensors" \
+    --include "unet/config.json" --include "unet/diffusion_pytorch_model.safetensors" \
+    --include "vae/config.json" --include "vae/diffusion_pytorch_model.safetensors"
   echo "  ✓ Download complete."
 fi
 
@@ -277,6 +326,19 @@ for entry in "${LINEART_LORAS[@]}"; do
     echo "  ✓ $short_name download complete."
   fi
 done
+
+# ── Step 8: Fuse the LoRAs into the checkpoint the cover worker loads ───────
+echo ""
+echo "Step 8: Fused checkpoint for the cover worker"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+FUSED_MODEL="$MODELS_DIR/sd15-storybot-fused"
+if [[ -f "$FUSED_MODEL/model_index.json" ]]; then
+  echo "  ↷ $FUSED_MODEL exists."
+else
+  echo "  Fusing LCM + lineart LoRAs into the base model (CPU, a few minutes)..."
+  $PYTHON "$REPO_ROOT/scripts/fuse_sd_loras.py"
+  echo "  ✓ Fused checkpoint written."
+fi
 
 # ── Verify basic import ─────────────────────────────────────────────────────
 echo ""

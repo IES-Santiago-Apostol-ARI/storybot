@@ -130,6 +130,12 @@ echo ""
 echo "Step 1: Installing system dependencies..."
 apt-get update
 apt-get install -y nginx unclutter pcscd pcsc-tools libccid libpcsclite-dev swig uhubctl avahi-daemon avahi-utils
+# spidev (LED strip) and pyscard (NFC) ship as source only on aarch64, so the
+# plain `uv sync` in Step 2 needs a compiler and the Python headers.
+apt-get install -y build-essential python3-dev
+# git + cmake build llama.cpp and whisper.cpp (Steps 3c/3d); ffmpeg converts
+# uploaded audio to WAV for transcription.
+apt-get install -y git cmake ffmpeg
 
 # AI-specific: NVIDIA JetPack (GPU drivers + CUDA + TensorRT + cuDNN)
 if [[ "$AI_MODE" == true ]]; then
@@ -207,14 +213,93 @@ chmod 0644 /etc/polkit-1/localauthority/50-local.d/10-storybot-bt.pkla
 echo -e "${GREEN}Polkit Bluetooth rule installed${NC}"
 
 # Step 1d: SPI1 enablement for WS2812B LED strip (Jetson only, idempotent, fail-soft)
-# Enables the spi1 function on the 40-pin header so /dev/spidev0.0 appears after reboot.
-# Uses config-by-function.py (NOT the hardware-module variant — Pitfall 1). Reboot is required
-# to load the regenerated DTB + boot entry, so we set REBOOT_REQUIRED for the completion banner.
+# Routes the spi1 function to the 40-pin header (pin 19 = MOSI) via config-by-function.py
+# (NOT the hardware-module variant — Pitfall 1). Reboot is required to load the regenerated
+# boot entry, so we set REBOOT_REQUIRED for the completion banner.
+# Three traps found during on-device bring-up (L4T R39.2.1, Orin Nano Super):
+#   - /dev/spidev0.0 is present even when the header pins are NOT muxed to SPI, so the
+#     idempotency guard reads the pinmux from the device tree instead of testing the node.
+#   - The tool only accepts a DTB in /boot/dtb whose model + compatible match the running
+#     board. A board booting the Super DTB from firmware has none there ("No DTB found").
+#   - config-by-function.py sets the pin function but leaves the pins in the unused state
+#     (tristate=1), so MOSI stays high-impedance. The generated overlay is patched to the
+#     values the interactive tool writes for an active pin.
+SPI1_HDR_PINS="19 21 23 24 26"
+SPI1_OVERLAY=/boot/jetson-io-hdr40-user-custom.dtbo
+SPI1_OVERLAY_NODE=/fragment@0/__overlay__/exp-header-pinmux
+
+# True when the running device tree has header pin 19 muxed to spi1 and driven.
+spi1_pinmux_live() {
+    local node
+    node="$(find /sys/firmware/devicetree/base -type d -name hdr40-pin19 2>/dev/null | head -1)"
+    [ -n "$node" ] || return 1
+    [ "$(tr -d '\0' < "$node/nvidia,function" 2>/dev/null)" = "spi1" ] || return 1
+    [ "$(od -An -tu1 "$node/nvidia,gpio-mode" 2>/dev/null | tr -d ' \n')" = "0001" ] || return 1
+    [ "$(od -An -tu1 "$node/nvidia,tristate" 2>/dev/null | tr -d ' \n')" = "0000" ]
+}
+
+# True when the overlay file has header pin 19 muxed to spi1 and driven.
+spi1_overlay_active() {
+    local node="$SPI1_OVERLAY_NODE/hdr40-pin19"
+    [ -f "$SPI1_OVERLAY" ] || return 1
+    [ "$(fdtget -t s "$SPI1_OVERLAY" "$node" nvidia,function 2>/dev/null)" = "spi1" ] || return 1
+    [ "$(fdtget -t u "$SPI1_OVERLAY" "$node" nvidia,gpio-mode 2>/dev/null)" = "1" ] || return 1
+    [ "$(fdtget -t u "$SPI1_OVERLAY" "$node" nvidia,tristate 2>/dev/null)" = "0" ]
+}
+
+# True when the DTB file describes the running board (same model + compatible).
+dtb_matches_running_board() {
+    local model compat
+    model="$(tr -d '\0' < /proc/device-tree/model)"
+    compat="$(tr '\0' ' ' < /proc/device-tree/compatible | sed 's/ *$//')"
+    [ "$(fdtget -t s "$1" / model 2>/dev/null)" = "$model" ] &&
+        [ "$(fdtget -t s "$1" / compatible 2>/dev/null)" = "$compat" ]
+}
+
+# Make sure /boot/dtb holds a DTB for the running board, copying it from /boot if needed.
+spi1_ensure_board_dtb() {
+    local dtb dtb_name
+    for dtb in /boot/dtb/*.dtb; do
+        if [ -f "$dtb" ] && dtb_matches_running_board "$dtb"; then
+            return 0
+        fi
+    done
+    for dtb in /boot/*-nv*.dtb /boot/*.dtb; do
+        if [ -f "$dtb" ] && dtb_matches_running_board "$dtb"; then
+            mkdir -p /boot/dtb
+            dtb_name="$(basename "$dtb")"
+            cp "$dtb" "/boot/dtb/kernel_${dtb_name#kernel_}"
+            echo -e "${GREEN}Copied $dtb_name into /boot/dtb for the header tool${NC}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Mark the spi1 header pins as active in the generated overlay.
+spi1_patch_overlay() {
+    local pin node
+    [ -f "$SPI1_OVERLAY" ] || return 1
+    for pin in $SPI1_HDR_PINS; do
+        node="$SPI1_OVERLAY_NODE/hdr40-pin$pin"
+        if [ "$(fdtget -t s "$SPI1_OVERLAY" "$node" nvidia,function 2>/dev/null)" = "spi1" ]; then
+            fdtput -t u "$SPI1_OVERLAY" "$node" nvidia,gpio-mode 1 || return 1
+            fdtput -t u "$SPI1_OVERLAY" "$node" nvidia,tristate 0 || return 1
+        fi
+    done
+    spi1_overlay_active
+}
+
 if [ -f /etc/nv_tegra_release ]; then
-    if [ -e /dev/spidev0.0 ]; then
-        echo -e "${GREEN}SPI1 already enabled (/dev/spidev0.0 present) — skipping pinmux step${NC}"
+    if spi1_pinmux_live; then
+        echo -e "${GREEN}SPI1 already routed to the 40-pin header — skipping pinmux step${NC}"
+    elif spi1_overlay_active && grep -q "$SPI1_OVERLAY" /boot/extlinux/extlinux.conf 2>/dev/null; then
+        echo -e "${GREEN}SPI1 header overlay already configured — REBOOT REQUIRED to load it${NC}"
+        REBOOT_REQUIRED=1
     elif [ -x /opt/nvidia/jetson-io/config-by-function.py ]; then
-        if sudo /opt/nvidia/jetson-io/config-by-function.py -o dt spi1; then
+        spi1_ensure_board_dtb ||
+            echo -e "${YELLOW}No DTB matching the running board found in /boot — the header tool may fail${NC}"
+        if sudo /opt/nvidia/jetson-io/config-by-function.py -o dt spi1 && spi1_patch_overlay; then
             echo -e "${GREEN}SPI1 function enabled via jetson-io — REBOOT REQUIRED to load it${NC}"
             REBOOT_REQUIRED=1
         else
@@ -232,6 +317,12 @@ fi
 # Step 1e: SPI access group + udev rule so non-root users can talk to /dev/spidev*
 groupadd -f spi
 usermod -aG spi "$INSTALL_USER"
+# Jetson.GPIO opens /dev/gpiochip* (root:gpio 0660 via NVIDIA's udev rule); the
+# first user of a JetPack image is in that group, any other install user is not.
+if [ -f /etc/nv_tegra_release ]; then
+    groupadd -f gpio
+    usermod -aG gpio "$INSTALL_USER"
+fi
 
 cat <<'EOF' > /etc/udev/rules.d/99-storybot-spi.rules
 # Allow members of the 'spi' group read/write access to spidev devices
@@ -360,12 +451,19 @@ echo -e "${GREEN}Python dependencies installed${NC}"
 # package into the venv so the app picks RealGPIOButtonService. Idempotent.
 if [[ "$(uname -m)" == "aarch64" ]]; then
     SYS_JETSON="/usr/lib/python3/dist-packages/Jetson"
-    VENV_SITE="$INSTALL_DIR/.venv/lib/python3.10/site-packages"
+    if [[ ! -d "$SYS_JETSON" && -f /etc/nv_tegra_release ]]; then
+        apt-get install -y python3-jetson-gpio || true
+    fi
+    # Ask the venv for its site-packages: the Python minor version differs
+    # between JetPack releases, so the path must not be hardcoded.
+    VENV_SITE="$("$INSTALL_DIR/.venv/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])' 2>/dev/null || true)"
     if [[ -d "$SYS_JETSON" && -d "$VENV_SITE" ]]; then
         sudo -u "$INSTALL_USER" ln -sfn "$SYS_JETSON" "$VENV_SITE/Jetson"
-        # Link the dist metadata too (lets importlib.metadata resolve it).
-        for egg in /usr/lib/python3/dist-packages/Jetson.GPIO-*.egg-info; do
-            [[ -e "$egg" ]] && sudo -u "$INSTALL_USER" ln -sfn "$egg" "$VENV_SITE/$(basename "$egg")"
+        # Do NOT link the dist metadata: with it present `uv sync` sees an
+        # unlocked package and uninstalls it, taking the Jetson link with it.
+        # Drop links left by earlier installs so the next sync is harmless.
+        for egg in "$VENV_SITE"/Jetson.GPIO-*.egg-info; do
+            if [[ -L "$egg" ]]; then rm -f "$egg"; fi
         done
         echo -e "${GREEN}Linked system Jetson.GPIO into the venv${NC}"
     else
@@ -388,6 +486,64 @@ if [[ "$AI_MODE" == true ]]; then
 else
     echo ""
     echo "Step 3: Skipping model downloads (stories-only mode)..."
+fi
+
+# Step 3b: Stable Diffusion cover stack (torch + diffusers + models)
+# Lives in its own venv at ~/sd-cover (see deploy/install_sd_cover.sh): the
+# cover worker runs as a separate process, and torch must never land in the
+# app venv. The script is idempotent, so re-running the installer is cheap.
+# Fail-soft: stories and narration work without covers.
+if [[ "$AI_MODE" == true && "$DEV_MODE" == false && -f /etc/nv_tegra_release ]]; then
+    echo ""
+    echo "Step 3b: Installing the Stable Diffusion cover stack (~/sd-cover)..."
+    if sudo -u "$INSTALL_USER" env -u VIRTUAL_ENV HOME="$USER_HOME" \
+        PATH="$USER_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" \
+        bash "$INSTALL_DIR/deploy/install_sd_cover.sh"; then
+        echo -e "${GREEN}Cover stack installed${NC}"
+    else
+        echo -e "${YELLOW}Cover stack install failed — sticker covers will be unavailable.${NC}"
+        echo "  Retry later with: bash $INSTALL_DIR/deploy/install_sd_cover.sh"
+    fi
+else
+    echo ""
+    echo "Step 3b: Skipping the Stable Diffusion cover stack..."
+fi
+
+# Step 3c: llama-server (story generation): llama.cpp built with CUDA, the
+# Qwen GGUF model, an 8 GB swapfile and the systemd unit. Runs as root with
+# TARGET_USER set; the script drops to the install user for the clone, build
+# and download. Fail-soft: pre-recorded stories work without it.
+if [[ "$AI_MODE" == true && "$DEV_MODE" == false && -f /etc/nv_tegra_release ]]; then
+    echo ""
+    echo "Step 3c: Installing llama-server (first build takes a while)..."
+    if TARGET_USER="$INSTALL_USER" bash "$INSTALL_DIR/deploy/install_llama_server.sh"; then
+        echo -e "${GREEN}llama-server installed${NC}"
+    else
+        echo -e "${YELLOW}llama-server install failed — AI story generation will be unavailable.${NC}"
+        echo "  Retry later with: sudo TARGET_USER=$INSTALL_USER bash $INSTALL_DIR/deploy/install_llama_server.sh"
+    fi
+else
+    echo ""
+    echo "Step 3c: Skipping llama-server..."
+fi
+
+# Step 3d: whisper.cpp (transcription of audio stories uploaded in /admin).
+# CPU-only build in ~/whisper.cpp plus the "small" model; the script points
+# content/config.json at them. Fail-soft: uploads work without a transcript.
+if [[ "$AI_MODE" == true && "$DEV_MODE" == false ]]; then
+    echo ""
+    echo "Step 3d: Installing whisper.cpp..."
+    if sudo -u "$INSTALL_USER" env -u VIRTUAL_ENV HOME="$USER_HOME" \
+        PATH="$USER_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" \
+        bash "$INSTALL_DIR/deploy/install_whisper.sh"; then
+        echo -e "${GREEN}whisper.cpp installed${NC}"
+    else
+        echo -e "${YELLOW}whisper.cpp install failed — audio uploads will not be transcribed.${NC}"
+        echo "  Retry later with: bash $INSTALL_DIR/deploy/install_whisper.sh"
+    fi
+else
+    echo ""
+    echo "Step 3d: Skipping whisper.cpp..."
 fi
 
 # Step 4: Create content directories

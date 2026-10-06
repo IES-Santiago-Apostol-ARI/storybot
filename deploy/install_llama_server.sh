@@ -1,23 +1,41 @@
 #!/usr/bin/env bash
 # install_llama_server.sh — Reproducible Jetson setup for Qwen 3.5 4B + llama.cpp
-# Target: Jetson Orin Nano Super 8GB, JetPack 6.2.1, aarch64
+# Target: Jetson Orin Nano Super 8GB, JetPack 6.2.1 / 7.2, aarch64
 #
 # Usage:
-#   bash scripts/install_llama_server.sh          (as the target user)
-#   sudo bash scripts/install_llama_server.sh     (as root — TARGET_USER must be set)
+#   sudo bash deploy/install_llama_server.sh      (root: everything, incl. swap + unit)
+#   bash deploy/install_llama_server.sh           (target user: source, build and model
+#                                                  only — swap and the unit need root)
+# deploy/install.sh calls it as root with TARGET_USER set to the install user.
+# Idempotent: every step is skipped when its result is already in place.
 #
 set -euo pipefail
 
-# Determine the target user for home directory paths.
-# When run with sudo, $SUDO_USER is the original user; $HOME is /root.
-# When run without sudo, $USER/$HOME is correct.
-if [[ -n "${SUDO_USER:-}" ]]; then
-  TARGET_USER="$SUDO_USER"
-elif [[ -n "${TARGET_USER:-}" ]]; then
+# Determine the target user for home directory paths. An explicit TARGET_USER
+# wins: under install.sh, $SUDO_USER is whoever typed sudo, which is not
+# necessarily the service account. Otherwise fall back to $SUDO_USER, then $USER.
+if [[ -n "${TARGET_USER:-}" ]]; then
   TARGET_USER="$TARGET_USER"
+elif [[ -n "${SUDO_USER:-}" ]]; then
+  TARGET_USER="$SUDO_USER"
 else
   TARGET_USER="$USER"
 fi
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+IS_ROOT=false
+if [[ "$(id -u)" -eq 0 ]]; then IS_ROOT=true; fi
+
+# Run a command as the target user, so nothing under their home ends up owned
+# by root when this script runs as root.
+as_user() {
+  if [[ "$IS_ROOT" == "true" ]]; then
+    sudo -u "$TARGET_USER" -H env \
+      PATH="/home/$TARGET_USER/.local/bin:/usr/local/cuda/bin:/usr/local/bin:/usr/bin:/bin" \
+      LD_LIBRARY_PATH="/usr/local/cuda/lib64" "$@"
+  else
+    "$@"
+  fi
+}
 LLAMA_DIR="/home/$TARGET_USER/llama.cpp"
 MODEL_DIR="$LLAMA_DIR/models/Qwen3.5-4B-GGUF"
 MODEL_FILE="Qwen3.5-4B-Q4_K_M.gguf"
@@ -91,10 +109,10 @@ fi
 # ── Step 3: Power mode ──────────────────────────────────────────────────────
 echo ""
 echo "Step 3: Jetson power mode"
+# Reported, not changed: mode IDs differ per board (on the Orin Nano Super
+# ID 0 is 15W, not MAXN), and deploy/install.sh owns the power mode.
 if command -v nvpmodel &>/dev/null; then
-  sudo nvpmodel -m 0
-  sudo jetson_clocks 2>/dev/null || true
-  echo "  ✓ nvpmodel MAXN + jetson_clocks applied."
+  echo "  ↷ $(nvpmodel -q 2>/dev/null | head -1 || echo 'power mode unknown') (left unchanged)."
 else
   echo "  ↷ nvpmodel not found (not a Jetson). Skipping."
 fi
@@ -107,7 +125,7 @@ if [[ -d "$LLAMA_DIR/.git" ]]; then
   echo "  ↷ $LLAMA_DIR exists. Skipping pull (run 'git pull' manually if needed)."
 else
   echo "  ✓ Cloning llama.cpp..."
-  git clone https://github.com/ggml-org/llama.cpp.git "$LLAMA_DIR"
+  as_user git clone https://github.com/ggml-org/llama.cpp.git "$LLAMA_DIR"
   CLONE_NEW=true
 fi
 
@@ -133,61 +151,65 @@ fi
 if [[ "$NEED_BUILD" == "true" ]]; then
   echo "  ✓ Building (cmake + make)..."
  # cmake -B "$LLAMA_DIR/build" -S "$LLAMA_DIR" -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release
-  cmake -B "$LLAMA_DIR/build" -S "$LLAMA_DIR" -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release -DLLAMA_BUILD_TESTS=OFF  -DLLAMA_BUILD_EXAMPLES=OFF -DCMAKE_CUDA_ARCHITECTURES=87 -DCMAKE_CUDA_STANDARD=17
+  as_user cmake -B "$LLAMA_DIR/build" -S "$LLAMA_DIR" -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release -DLLAMA_BUILD_TESTS=OFF  -DLLAMA_BUILD_EXAMPLES=OFF -DCMAKE_CUDA_ARCHITECTURES=87 -DCMAKE_CUDA_STANDARD=17
    #  cmake --build "$LLAMA_DIR/build" --parallel
-  cmake --build "$LLAMA_DIR/build" -j4
+  as_user cmake --build "$LLAMA_DIR/build" -j4
   echo "  ✓ Build complete."
 fi
 
 # ── Step 6: Download model via uvx (isolated, no global pip needed) ─────────
 echo ""
 echo "Step 6: Download Qwen 3.5 4B Q4_K_M GGUF"
-mkdir -p "$MODEL_DIR"
+as_user mkdir -p "$MODEL_DIR"
 if [[ -f "$MODEL_PATH" ]]; then
   SIZE=$(stat -c%s "$MODEL_PATH" 2>/dev/null || stat -f%z "$MODEL_PATH" 2>/dev/null || echo 0)
   if [[ "$SIZE" -gt 2000000000 ]]; then
     echo "  ↷ $MODEL_PATH exists ($(($SIZE / 1024 / 1024)) MB). Skipping download."
   else
     echo "  ⚠  File exists but seems too small ($(($SIZE / 1024 / 1024)) MB). Re-downloading..."
-    uvx --from huggingface_hub hf download unsloth/Qwen3.5-4B-GGUF "$MODEL_FILE" --local-dir "$MODEL_DIR"
+    as_user uvx --from huggingface_hub hf download unsloth/Qwen3.5-4B-GGUF "$MODEL_FILE" --local-dir "$MODEL_DIR"
     echo "  ✓ Download complete."
   fi
 else
   echo "  ✓ Downloading ~2.5 GB model..."
-  uvx --from huggingface_hub hf download unsloth/Qwen3.5-4B-GGUF "$MODEL_FILE" --local-dir "$MODEL_DIR"
+  as_user uvx --from huggingface_hub hf download unsloth/Qwen3.5-4B-GGUF "$MODEL_FILE" --local-dir "$MODEL_DIR"
   echo "  ✓ Download complete."
 fi
 
 # ── Step 7: Install systemd unit ──────────────────────────────────────────────
 echo ""
 echo "Step 7: Install systemd unit"
-SERVICE_FILE="$LLAMA_DIR/../deploy/llama-server.service"
-if [[ ! -f "$SERVICE_FILE" ]]; then
-  # Try the deploy directory relative to storybot repo
-  STORYBOT_DIR="/home/$TARGET_USER/storybot"
-  SERVICE_FILE="$STORYBOT_DIR/deploy/llama-server.service"
-fi
-if [[ ! -f "$SERVICE_FILE" ]]; then
-  # Try current directory
-  SERVICE_FILE="$(pwd)/deploy/llama-server.service"
-fi
-if [[ -f "$SERVICE_FILE" ]]; then
-  echo "  Installing from $SERVICE_FILE..."
+SERVICE_FILE="$SCRIPT_DIR/llama-server.service"
+if [[ "$IS_ROOT" != "true" ]]; then
+  echo "  ⚠  Not root — unit not installed. Finish with:"
+  echo "     sudo TARGET_USER=$TARGET_USER bash $SCRIPT_DIR/install_llama_server.sh"
+elif [[ ! -f "$SERVICE_FILE" ]]; then
+  echo "  ⚠  $SERVICE_FILE not found — unit not installed."
+else
   # Substitute the template placeholders for the target user / home directory.
-  sudo sed -e "s|__INSTALL_USER__|$TARGET_USER|g" \
-           -e "s|__INSTALL_HOME__|/home/$TARGET_USER|g" \
-           "$SERVICE_FILE" | sudo tee /etc/systemd/system/llama-server.service >/dev/null
-else
-  echo "  ⚠  Service file not found — copy manually:"
-  echo "     sudo cp deploy/llama-server.service /etc/systemd/system/"
-fi
-sudo systemctl daemon-reload
-sudo systemctl enable llama-server
-sudo systemctl start llama-server
-if sudo systemctl is-active --quiet llama-server 2>/dev/null; then
-  echo "  ✓ llama-server service started."
-else
-  echo "  ⚠  llama-server failed to start. Check with: sudo systemctl status llama-server"
+  UNIT_TMP="$(mktemp)"
+  sed -e "s|__INSTALL_USER__|$TARGET_USER|g" \
+      -e "s|__INSTALL_HOME__|/home/$TARGET_USER|g" \
+      "$SERVICE_FILE" > "$UNIT_TMP"
+  if cmp -s "$UNIT_TMP" /etc/systemd/system/llama-server.service 2>/dev/null; then
+    echo "  ↷ Unit already installed and up to date."
+  else
+    install -m 0644 "$UNIT_TMP" /etc/systemd/system/llama-server.service
+    systemctl daemon-reload
+    echo "  ✓ Unit installed."
+  fi
+  rm -f "$UNIT_TMP"
+  systemctl enable llama-server
+  if systemctl is-active --quiet llama-server; then
+    echo "  ↷ llama-server already running."
+  else
+    systemctl start llama-server || true
+    if systemctl is-active --quiet llama-server; then
+      echo "  ✓ llama-server service started."
+    else
+      echo "  ⚠  llama-server failed to start. Check with: sudo systemctl status llama-server"
+    fi
+  fi
 fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────

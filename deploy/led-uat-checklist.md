@@ -11,6 +11,13 @@
 | Encoder variant (Option A / Option B) | _fill after tuning_ |
 | Level shifter required? | _fill during electrical bring-up_ |
 
+### Wiring notes (bring-up 2026-10-06, L4T R39.2.1)
+
+- Data: header pin 19 (SPI1 MOSI, `/dev/spidev0.0`) → level shifter → strip DIN. Strip GND to a header GND pin (e.g. 39).
+- With a TXS0108E: VCCA = 3.3 V, VCCB = 5 V, and **OE tied high to VCCA**. OE pulled to GND disables every output and the strip stays dark.
+- `/dev/spidev0.0` exists even when pin 19 is not muxed to SPI. `scripts/verify_hardware.sh` checks the real pinmux.
+- Quick check without the app: `.venv/bin/python deploy/led_selftest.py --test solids`.
+
 ---
 
 ## Behavior Validation

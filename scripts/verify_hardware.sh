@@ -48,6 +48,17 @@ if ls /dev/spidev* 2>/dev/null; then
 else
   echo "FAIL: no /dev/spidev* node found — SPI1 may not be enabled or reboot required"
 fi
+# The spidev node exists even when header pin 19 is not muxed to SPI, so check
+# the live pinmux too (gpio-mode=1 + tristate=0 = pin driven by spi1).
+PIN19="$(find /sys/firmware/devicetree/base -type d -name hdr40-pin19 2>/dev/null | head -1)"
+if [ -n "$PIN19" ] &&
+   [ "$(tr -d '\0' < "$PIN19/nvidia,function")" = "spi1" ] &&
+   [ "$(od -An -tu1 "$PIN19/nvidia,gpio-mode" | tr -d ' \n')" = "0001" ] &&
+   [ "$(od -An -tu1 "$PIN19/nvidia,tristate" | tr -d ' \n')" = "0000" ]; then
+  echo "PASS: header pin 19 is muxed to spi1 and driven"
+else
+  echo "FAIL: header pin 19 is not routed to spi1 — rerun deploy/install.sh and reboot"
+fi
 getent group spi && echo "PASS: spi group exists" || echo "FAIL: spi group not found"
 if sudo -u "$INSTALL_USER" test -w /dev/spidev0.0 2>/dev/null; then
   echo "PASS: service user can write SPI node"

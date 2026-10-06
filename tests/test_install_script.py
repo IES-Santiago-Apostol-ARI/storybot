@@ -511,3 +511,88 @@ class TestRollbackScriptGpioRelink:
         assert (
             "ln -sfn" in rollback_text
         ), "Rollback should recreate the venv symlink (as install.sh does)"
+
+    def test_venv_site_packages_not_hardcoded(self, rollback_text):
+        """The venv's Python minor version varies by JetPack release."""
+        install_text = Path("deploy/install.sh").read_text()
+        for name, text in (("rollback", rollback_text), ("install", install_text)):
+            assert (
+                "python3.10/site-packages" not in text
+            ), f"{name} script must not hardcode the venv Python version"
+            assert (
+                'sysconfig.get_paths()["purelib"]' in text
+            ), f"{name} script should ask the venv for its site-packages"
+
+    def test_egg_info_not_linked(self, rollback_text):
+        """Linking the dist metadata is what makes `uv sync` prune the package."""
+        install_text = Path("deploy/install.sh").read_text()
+        for name, text in (("rollback", rollback_text), ("install", install_text)):
+            assert (
+                "dist-packages/Jetson.GPIO-" not in text
+            ), f"{name} script must not link the system Jetson.GPIO egg-info"
+
+
+class TestSdCoverStack:
+    """install.sh provisions the isolated cover venv via install_sd_cover.sh."""
+
+    def test_installer_runs_sd_cover_script_as_install_user(self):
+        text = Path("deploy/install.sh").read_text()
+        assert "deploy/install_sd_cover.sh" in text
+        step = text[text.index("# Step 3b:") : text.index("# Step 4")]
+        assert 'sudo -u "$INSTALL_USER"' in step, "must not create ~/sd-cover as root"
+        assert "env -u VIRTUAL_ENV" in step, "the script aborts inside an active venv"
+        assert "exit" not in step, "cover stack failure must not abort the install"
+
+    def test_sd_cover_script_supports_cuda13_stack(self):
+        text = Path("deploy/install_sd_cover.sh").read_text()
+        assert "https://download.pytorch.org/whl/cu132" in text
+        assert 'PY_VERSION="3.12"' in text
+        assert "runwayml/stable-diffusion-v1-5" not in text, "repo moved on the Hub"
+
+    def test_sd_cover_script_builds_fused_checkpoint(self):
+        text = Path("deploy/install_sd_cover.sh").read_text()
+        assert "scripts/fuse_sd_loras.py" in text
+        assert "sd15-storybot-fused" in text
+
+
+class TestLlamaAndWhisperSteps:
+    """install.sh provisions llama-server and whisper.cpp via their scripts."""
+
+    @staticmethod
+    def _step(marker: str, end: str) -> str:
+        text = Path("deploy/install.sh").read_text()
+        return text[text.index(marker) : text.index(end)]
+
+    def test_llama_step_passes_install_user_and_is_fail_soft(self):
+        step = self._step("# Step 3c:", "# Step 3d:")
+        assert 'TARGET_USER="$INSTALL_USER" bash' in step
+        assert "deploy/install_llama_server.sh" in step
+        assert "exit" not in step, "llama failure must not abort the install"
+
+    def test_whisper_step_runs_as_install_user_and_is_fail_soft(self):
+        step = self._step("# Step 3d:", "# Step 4")
+        assert 'sudo -u "$INSTALL_USER"' in step
+        assert "deploy/install_whisper.sh" in step
+        assert "exit" not in step, "whisper failure must not abort the install"
+
+    def test_build_tools_and_ffmpeg_installed(self):
+        text = Path("deploy/install.sh").read_text()
+        assert "apt-get install -y git cmake ffmpeg" in text
+
+    def test_llama_script_prefers_explicit_target_user(self):
+        """Under install.sh, $SUDO_USER is whoever typed sudo, not the service user."""
+        text = Path("deploy/install_llama_server.sh").read_text()
+        assert text.index('if [[ -n "${TARGET_USER:-}" ]]') < text.index(
+            'elif [[ -n "${SUDO_USER:-}" ]]'
+        )
+
+    def test_llama_script_does_not_force_power_mode(self):
+        """nvpmodel mode 0 is 15W on the Orin Nano Super, not MAXN."""
+        text = Path("deploy/install_llama_server.sh").read_text()
+        assert "nvpmodel -m" not in text
+
+    def test_whisper_script_builds_cpu_only_and_sets_config(self):
+        text = Path("deploy/install_whisper.sh").read_text()
+        assert "GGML_CUDA" not in text, "the app runs whisper-cli with --no-gpu"
+        assert "download-ggml-model.sh" in text
+        assert 'data["whisper_bin"]' in text and 'data["whisper_model"]' in text
