@@ -349,6 +349,13 @@ Además de lo común, en modo IA el script:
 - Crea autostart GNOME para Firefox en modo kiosk (pantalla táctil)
 - Desactiva el apagado de pantalla y oculta el cursor
 - Configura `sudo` sin contraseña para controlar `llama-server`
+- Compila `llama.cpp` con CUDA, descarga el modelo y habilita `llama-server.service` (`deploy/install_llama_server.sh`)
+- Instala la pila de portadas Stable Diffusion en `~/sd-cover` (`deploy/install_sd_cover.sh`)
+- Compila `whisper.cpp`, descarga el modelo `small` y apunta `content/config.json` a ambos (`deploy/install_whisper.sh`)
+- Asigna SPI1 al conector de 40 pines para la tira LED (requiere reiniciar)
+
+Estos pasos son idempotentes (se pueden repetir) y, si alguno falla, el
+instalador avisa y continúa. Con `--dev` se omiten las descargas y compilaciones.
 
 #### Instalación sin Jetson (solo cuentos, `STORYBOT_AI=0`)
 
@@ -401,6 +408,18 @@ sudo systemctl start storybot
 ### Configuración
 
 Crea un archivo `.env` en la raíz del proyecto (`cp .env.example .env`) con las variables de configuración necesarias. El servicio systemd lo carga automáticamente al arrancar.
+
+Variables que deben escribirse en `.env`:
+
+| Variable | ¿Obligatoria? | Quién la escribe | Para qué sirve |
+|----------|---------------|------------------|----------------|
+| `INSTALL_USER` | Sí, antes de ejecutar `deploy/install.sh` | Tú, a mano | Usuario del sistema propietario del despliegue |
+| `STORYBOT_AI` | No | `deploy/install.sh` (puedes cambiarla a mano) | Activa (`1`) o desactiva (`0`) las funciones de IA |
+
+No hay más variables: el resto de ajustes (LED, NFC, impresora, voz, rutas de
+whisper…) se guardan en `content/config.json`, no en `.env`. Las variables
+`TESTING`, `STORYBOT_SWEEP_TEST` y `STORYBOT_LIFESPAN_TEST` son solo para la
+suite de pruebas y **no** deben ponerse en `.env`.
 
 #### `INSTALL_USER`
 
@@ -460,6 +479,42 @@ uv run pytest
 # Ejecutar con cobertura
 uv run pytest --cov=app --cov-report=html
 ```
+
+### Prueba de la tira LED (`deploy/led_selftest.py`)
+
+Script independiente para comprobar **solo** la tira WS2812B en el Jetson.
+Escribe directamente por SPI (`/dev/spidev0.0`, pin 19 del conector de 40
+pines) usando el codificador y la configuración del proyecto, sin pasar por la
+aplicación FastAPI. Sirve para confirmar el cableado y localizar un LED muerto.
+
+```bash
+cd ~/storybot
+.venv/bin/python deploy/led_selftest.py                 # todas las pruebas
+.venv/bin/python deploy/led_selftest.py --test solids   # solo una prueba
+.venv/bin/python deploy/led_selftest.py --bright        # brillo al 100 % (ignora el tope del 30 %)
+```
+
+| Prueba (`--test`) | Qué hace | Qué comprueba |
+|-------------------|----------|---------------|
+| `solids` | Rojo, verde, azul y blanco fijos | Canales y orden de color (GRB) |
+| `walk` | Enciende un LED cada vez, del 0 al último | Dónde se corta o se corrompe la señal |
+| `fill` | Relleno acumulativo 0..i | El paso en que deja de crecer = LED muerto |
+| `ramp` | Blanco del 0 al 100 % | Fundido suave = señal y alimentación correctas |
+| `prod` | Azul con el tope y la gamma configurados | Lo que muestra realmente la aplicación |
+
+A tener en cuenta:
+
+- Usa `led_count` de la configuración (21 por defecto). Con una tira más corta,
+  `walk` y `fill` dedican sus últimos pasos a LEDs que no existen.
+- Ejecútalo con el kiosk en reposo: la aplicación usa el mismo dispositivo SPI,
+  pero solo reescribe la tira cuando cambia su fotograma. Durante una
+  reproducción o una generación ambos se pisarían.
+- En reposo la tira se ve **apagada**: el color de reposo (`led_idle_color`,
+  `#1A0F00`) queda en negro tras aplicar el tope de brillo y la gamma. No es un
+  fallo de la tira.
+- Si no se enciende nada, ejecuta `scripts/verify_hardware.sh` (comprueba que el
+  pin 19 está realmente asignado a SPI1) y revisa las notas de cableado de
+  `deploy/led-uat-checklist.md` (con un TXS0108E, **OE debe ir a 3,3 V**).
 
 ## Estándares de Código
 
