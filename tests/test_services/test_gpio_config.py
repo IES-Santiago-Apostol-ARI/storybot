@@ -2,7 +2,10 @@
 
 from pathlib import Path
 
-import tomli
+try:
+    import tomllib as tomli
+except ModuleNotFoundError:  # Python 3.10
+    import tomli
 
 from app.config import Settings
 
