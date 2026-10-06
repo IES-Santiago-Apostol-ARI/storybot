@@ -146,23 +146,23 @@ def _relink_jetson_gpio(repo_dir: Path) -> None:
     if not system_pkg.is_dir():
         _log_event("jetson_gpio_relink_skipped", reason="system_package_missing")
         return
-    targets = [
-        system_pkg,
-        *sorted(_SYSTEM_DIST_PACKAGES.glob("Jetson.GPIO-*.egg-info")),
-    ]
-    for target in targets:
-        link = site_packages / target.name
-        try:
-            if link.is_symlink() or link.exists():
-                link.unlink()
-            link.symlink_to(target)
-        except OSError as e:
-            _log_event(
-                "jetson_gpio_relink_failed",
-                target=str(target),
-                reason=type(e).__name__,
-            )
-            return
+    # Link the package only, never its egg-info: with the metadata present uv
+    # treats it as an unlocked package and uninstalls it on every sync.
+    link = site_packages / system_pkg.name
+    try:
+        for stale in site_packages.glob("Jetson.GPIO-*.egg-info"):
+            if stale.is_symlink():
+                stale.unlink()
+        if link.is_symlink() or link.exists():
+            link.unlink()
+        link.symlink_to(system_pkg)
+    except OSError as e:
+        _log_event(
+            "jetson_gpio_relink_failed",
+            target=str(system_pkg),
+            reason=type(e).__name__,
+        )
+        return
     _log_event("jetson_gpio_relinked", site_packages=str(site_packages))
 
 

@@ -623,12 +623,21 @@ def _make_fake_jetson_env(tmp_path, monkeypatch, machine="aarch64"):
 class TestRelinkJetsonGpio:
     """_relink_jetson_gpio restores what `uv sync` prunes."""
 
-    def test_relinks_package_and_egg_info(self, tmp_path, monkeypatch):
+    def test_relinks_package_without_egg_info(self, tmp_path, monkeypatch):
+        """The egg-info must stay unlinked: with it uv prunes the package."""
         dist, repo, site = _make_fake_jetson_env(tmp_path, monkeypatch)
         um._relink_jetson_gpio(repo)
         assert (site / "Jetson").is_symlink()
         assert (site / "Jetson").resolve() == dist / "Jetson"
-        assert (site / "Jetson.GPIO-2.1.9.egg-info").is_symlink()
+        assert not (site / "Jetson.GPIO-2.1.9.egg-info").exists()
+
+    def test_removes_stale_egg_info_link(self, tmp_path, monkeypatch):
+        dist, repo, site = _make_fake_jetson_env(tmp_path, monkeypatch)
+        stale = site / "Jetson.GPIO-2.1.9.egg-info"
+        stale.symlink_to(dist / "Jetson.GPIO-2.1.9.egg-info")
+        um._relink_jetson_gpio(repo)
+        assert not stale.is_symlink()
+        assert (site / "Jetson").is_symlink()
 
     def test_idempotent_when_link_already_present(self, tmp_path, monkeypatch):
         dist, repo, site = _make_fake_jetson_env(tmp_path, monkeypatch)

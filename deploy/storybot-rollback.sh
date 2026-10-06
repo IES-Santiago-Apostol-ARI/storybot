@@ -102,11 +102,12 @@ except Exception:
             # it the GPIO buttons fall back to the Mock. Mirror install.sh.
             if [[ "$(uname -m)" == "aarch64" ]]; then
                 SYS_JETSON="/usr/lib/python3/dist-packages/Jetson"
-                VENV_SITE="$WORK_DIR/.venv/lib/python3.10/site-packages"
+                VENV_SITE="$("$WORK_DIR/.venv/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])' 2>/dev/null || true)"
                 if [[ -d "$SYS_JETSON" && -d "$VENV_SITE" ]]; then
                     ln -sfn "$SYS_JETSON" "$VENV_SITE/Jetson"
-                    for egg in /usr/lib/python3/dist-packages/Jetson.GPIO-*.egg-info; do
-                        [[ -e "$egg" ]] && ln -sfn "$egg" "$VENV_SITE/$(basename "$egg")"
+                    # No dist metadata link: it is what makes uv prune it.
+                    for egg in "$VENV_SITE"/Jetson.GPIO-*.egg-info; do
+                        if [[ -L "$egg" ]]; then rm -f "$egg"; fi
                     done
                 fi
             fi
