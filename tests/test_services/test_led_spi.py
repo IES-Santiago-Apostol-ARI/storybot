@@ -42,11 +42,11 @@ class TestEncoderGoldenVectors:
     def test_total_length_for_n_leds(self):
         """
         len(encode_ws2812([(0,0,0)]*21, count=21, ...)) == 21*24 + RESET_BYTES
-        (assert exactly 564).
+        (assert exactly 744).
         """
         out = encode_ws2812([(0, 0, 0)] * 21, count=21, cap=1.0, gamma=2.2, order="GRB")
         assert len(out) == 21 * 24 + RESET_BYTES
-        assert len(out) == 564
+        assert len(out) == 744
 
 
 class TestEncoderOrder:
@@ -131,25 +131,25 @@ class TestEncoderBrightnessCap:
 
 
 class TestEncoderResetLatch:
-    def test_reset_latch_at_least_50us(self):
+    def test_reset_latch_at_least_280us(self):
         """
         out ends with RESET_BYTES trailing zero bytes AND
-        RESET_BYTES * 1.25 >= 50.
+        RESET_BYTES * 1.25 >= 280 (newer WS2812B revisions need >= 280us).
         """
         out = encode_ws2812([(0, 0, 0)], count=1, cap=1.0, gamma=2.2, order="GRB")
         assert out[-RESET_BYTES:] == bytes(RESET_BYTES)
-        assert RESET_BYTES * 1.25 >= 50
+        assert RESET_BYTES * 1.25 >= 280
 
 
 class TestEncoderConstants:
     def test_frozen_constants(self):
         """
-        ONE_BYTE == 0xFC, ZERO_BYTE == 0xC0, RESET_BYTES == 60,
+        ONE_BYTE == 0xFC, ZERO_BYTE == 0xC0, RESET_BYTES == 240,
         SPI_HZ == 6_400_000.
         """
         assert ONE_BYTE == 0xFC
         assert ZERO_BYTE == 0xC0
-        assert RESET_BYTES == 60
+        assert RESET_BYTES == 240
         assert SPI_HZ == 6_400_000
 
 

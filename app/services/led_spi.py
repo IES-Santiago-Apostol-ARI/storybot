@@ -12,8 +12,11 @@ SPI_HZ = 6_400_000
 ZERO_BYTE = 0xC0
 # 0b11111100 -> T1H approx 6/8 * 1.25us = 0.9375us (~0.8us target)
 ONE_BYTE = 0xFC
-# 60 * 1.25us = 75us > 50us RES latch (D-02)
-RESET_BYTES = 60
+# 240 * 1.25us = 300us of low signal to latch a frame (D-02). The original
+# WS2812B latches after 50us, but revisions since ~2017 specify >= 280us, and
+# the strip measured on-device (2026-10-06) needed between 100 and 200us.
+# With the old 75us the frame only latched because the bus then sat idle.
+RESET_BYTES = 240
 
 
 def _gamma_lut(gamma: float) -> np.ndarray:
@@ -83,7 +86,7 @@ def encode_ws2812(
     flat = arr.reshape(-1)
     out = spi_lut[flat].reshape(-1)
 
-    # 6. Reset latch (>= 50us)
+    # 6. Reset latch (>= 280us, see RESET_BYTES)
     return bytes(out) + bytes(RESET_BYTES)
 
 
