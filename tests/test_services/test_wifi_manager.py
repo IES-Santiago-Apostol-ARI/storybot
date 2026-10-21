@@ -167,6 +167,35 @@ class TestScan:
         assert result[0]["ssid"] == "MyNetwork"
 
     @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
+    async def test_scan_merges_access_points_with_same_ssid(self, mock_exec):
+        """One row per BSSID in nmcli -> one entry per SSID, strongest signal."""
+        detect_proc = _make_subprocess_mock(stdout=b"wlP1p1s0:wifi\n")
+        list_proc = _make_subprocess_mock(
+            stdout=(
+                b"ateca:81:WPA2: \n"
+                b"Other:90:WPA2: \n"
+                b"ateca:100:WPA2: \n"
+                b"ateca:95:WPA2:*\n"
+            )
+        )
+        mock_exec.side_effect = [detect_proc, list_proc]
+        mgr = RealWifiManager()
+        result = await mgr.scan()
+        assert [n["ssid"] for n in result] == ["ateca", "Other"]
+        assert result[0]["signal"] == 100
+        assert result[0]["connected"] is True
+
+    @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
+    async def test_scan_unescapes_colons_in_ssid(self, mock_exec):
+        detect_proc = _make_subprocess_mock(stdout=b"wlP1p1s0:wifi\n")
+        list_proc = _make_subprocess_mock(stdout=b"Cafe\\:Bar:70:WPA2:\n")
+        mock_exec.side_effect = [detect_proc, list_proc]
+        mgr = RealWifiManager()
+        result = await mgr.scan()
+        assert result[0]["ssid"] == "Cafe:Bar"
+        assert result[0]["signal"] == 70
+
+    @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
     async def test_rescan_failure_falls_back_to_cache(self, mock_exec):
         """If the blocking rescan is denied, fall back to cached results."""
         detect_proc = _make_subprocess_mock(stdout=b"wlP1p1s0:wifi\n")
@@ -207,50 +236,98 @@ class TestScan:
 
 
 class TestConnect:
-    """RealWifiManager.connect(ssid, password) wraps nmcli connect."""
+    """RealWifiManager.connect(ssid, password) builds an explicit NM profile."""
+
+    @staticmethod
+    def _procs(security=b"MyNetwork:WPA2\n", profiles=b"", add_rc=0, up_rc=0):
+        """detect, security lookup, profile list, add, up (+ delete on failure)."""
+        return [
+            _make_subprocess_mock(stdout=b"wlP1p1s0:wifi\n"),
+            _make_subprocess_mock(stdout=security),
+            _make_subprocess_mock(stdout=profiles),
+            _make_subprocess_mock(returncode=add_rc),
+            _make_subprocess_mock(
+                returncode=up_rc,
+                stderr=b"Error: Secrets were required, but not provided.\n",
+            ),
+            _make_subprocess_mock(returncode=0),
+        ]
 
     @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
     async def test_connect_returns_true_on_success(self, mock_exec):
-        detect_proc = _make_subprocess_mock(stdout=b"wlP1p1s0:wifi\n")
-        connect_proc = _make_subprocess_mock(
-            returncode=0,
-            stdout=b"Device 'wlP1p1s0' successfully activated with 'abc'.\n",
-        )
-        mock_exec.side_effect = [detect_proc, connect_proc]
+        mock_exec.side_effect = self._procs()
         mgr = RealWifiManager()
-        result = await mgr.connect("MyNetwork", "secret123")
-        assert result is True
+        assert await mgr.connect("MyNetwork", "secret123") is True
 
     @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
-    async def test_connect_returns_false_on_failure(self, mock_exec):
-        detect_proc = _make_subprocess_mock(stdout=b"wlP1p1s0:wifi\n")
-        connect_proc = _make_subprocess_mock(
-            returncode=1,
-            stderr=b"Error: Connection activation failed.\n",
-        )
-        mock_exec.side_effect = [detect_proc, connect_proc]
+    async def test_connect_failure_deletes_new_profile(self, mock_exec):
+        """A failed activation (e.g. wrong password) must not leave a profile."""
+        mock_exec.side_effect = self._procs(up_rc=4)
         mgr = RealWifiManager()
-        result = await mgr.connect("BadNetwork", "secret123")
-        assert result is False
+        assert await mgr.connect("MyNetwork", "badpass123") is False
+        delete_args = mock_exec.call_args_list[5].args
+        assert delete_args[1:] == ("connection", "delete", "id", "MyNetwork")
 
     @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
-    async def test_connect_calls_nmcli_with_correct_args(self, mock_exec):
-        """Verify connect uses correct nmcli command with ssid and password."""
-        detect_proc = _make_subprocess_mock(stdout=b"wlP1p1s0:wifi\n")
-        connect_proc = _make_subprocess_mock(returncode=0)
-        mock_exec.side_effect = [detect_proc, connect_proc]
+    async def test_connect_add_failure_returns_false(self, mock_exec):
+        mock_exec.side_effect = self._procs(add_rc=2)
         mgr = RealWifiManager()
-        await mgr.connect("TestSSID", "testpass123")
-        # Second call is the connect command
-        connect_call = mock_exec.call_args_list[1]
-        assert "nmcli" in connect_call[0]
-        assert "device" in connect_call[0]
-        assert "wifi" in connect_call[0]
-        assert "connect" in connect_call[0]
-        assert "TestSSID" in connect_call[0]
-        assert "password" in connect_call[0]
-        assert "testpass123" in connect_call[0]
-        assert "ifname" in connect_call[0]
+        assert await mgr.connect("MyNetwork", "secret123") is False
+        assert mock_exec.call_count == 4
+
+    @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
+    async def test_connect_adds_wpa_psk_profile(self, mock_exec):
+        mock_exec.side_effect = self._procs()
+        mgr = RealWifiManager()
+        await mgr.connect("MyNetwork", "testpass123")
+        add_args = mock_exec.call_args_list[3].args
+        assert add_args[1:3] == ("connection", "add")
+        assert add_args[add_args.index("ssid") + 1] == "MyNetwork"
+        assert add_args[add_args.index("ifname") + 1] == "wlP1p1s0"
+        assert add_args[add_args.index("wifi-sec.key-mgmt") + 1] == "wpa-psk"
+        assert add_args[add_args.index("wifi-sec.psk") + 1] == "testpass123"
+        up_args = mock_exec.call_args_list[4].args
+        assert "up" in up_args
+        assert "MyNetwork" in up_args
+
+    @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
+    async def test_connect_wpa3_only_uses_sae(self, mock_exec):
+        mock_exec.side_effect = self._procs(security=b"MyNetwork:WPA3\n")
+        mgr = RealWifiManager()
+        await mgr.connect("MyNetwork", "testpass123")
+        add_args = mock_exec.call_args_list[3].args
+        assert add_args[add_args.index("wifi-sec.key-mgmt") + 1] == "sae"
+
+    @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
+    async def test_connect_open_network_has_no_security(self, mock_exec):
+        mock_exec.side_effect = self._procs(security=b"MyNetwork:\n")
+        mgr = RealWifiManager()
+        await mgr.connect("MyNetwork", "00000000")
+        add_args = mock_exec.call_args_list[3].args
+        assert "wifi-sec.key-mgmt" not in add_args
+        assert "00000000" not in add_args
+
+    @patch("app.services.wifi_manager.asyncio.create_subprocess_exec")
+    async def test_connect_deletes_stale_profiles_for_ssid(self, mock_exec):
+        """Profiles left by earlier attempts ("X", "X 1") are removed first."""
+        profiles = (
+            b"u1:MyNetwork:802-11-wireless\n"
+            b"u2:MyNetwork 1:802-11-wireless\n"
+            b"u3:MyNetworkGuest:802-11-wireless\n"
+            b"u4:MyNetwork:802-3-ethernet\n"
+        )
+        procs = self._procs(profiles=profiles)
+        # Two deletes are inserted between the profile list and the add.
+        procs[3:3] = [_make_subprocess_mock(), _make_subprocess_mock()]
+        mock_exec.side_effect = procs
+        mgr = RealWifiManager()
+        assert await mgr.connect("MyNetwork", "secret123") is True
+        deleted = [
+            c.args[-1]
+            for c in mock_exec.call_args_list
+            if c.args[1:3] == ("connection", "delete")
+        ]
+        assert deleted == ["u1", "u2"]
 
 
 # ---------------------------------------------------------------------------

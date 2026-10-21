@@ -2,17 +2,54 @@
 
 import asyncio
 import json
+import re
 import shutil
 import sys
 
 
 def _redact_args(args: list[str]) -> list[str]:
-    """Return a copy of args with the value after 'password' redacted."""
+    """Return a copy of args with password/PSK values redacted."""
     out = list(args)
     for i, token in enumerate(out):
-        if token == "password" and i + 1 < len(out):
+        if token in ("password", "wifi-sec.psk") and i + 1 < len(out):
             out[i + 1] = "***"
     return out
+
+
+def _split_terse(line: str) -> list[str]:
+    """Split one line of `nmcli -t` output into fields.
+
+    nmcli escapes ':' and '\\' inside values with a backslash, so a plain
+    split(":") breaks SSIDs or profile names that contain a colon.
+    """
+    fields: list[str] = []
+    current: list[str] = []
+    chars = iter(line)
+    for ch in chars:
+        if ch == "\\":
+            current.append(next(chars, ""))
+        elif ch == ":":
+            fields.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+    fields.append("".join(current))
+    return fields
+
+
+def _key_mgmt_for(security: str | None) -> str | None:
+    """Map an nmcli SECURITY column to a wifi-sec.key-mgmt value.
+
+    None means an open network. Unknown networks default to WPA-PSK, which
+    also covers WPA2/WPA3 transition-mode APs.
+    """
+    if security is None:
+        return "wpa-psk"
+    if security in ("", "--"):
+        return None
+    if "WPA3" in security and "WPA2" not in security and "WPA1" not in security:
+        return "sae"
+    return "wpa-psk"
 
 
 async def _run_nmcli(*args: str, timeout_s: float = 20.0) -> tuple[str, str, int]:
@@ -88,7 +125,10 @@ class RealWifiManager(WifiManager):
 
         Lists networks forcing a fresh blocking scan (--rescan yes); falls
         back to cached results if that scan is denied or rate-limited.
-        Filters out hidden networks (blank SSIDs) per D-06.
+        Filters out hidden networks (blank SSIDs) per D-06. nmcli lists one
+        row per access point (BSSID), so an SSID served by several APs or
+        on both 2.4 and 5 GHz is merged into a single entry with the
+        strongest signal.
         """
         iface = await self._detect_wifi_interface()
         # List networks, forcing a fresh blocking scan. `--rescan yes` makes
@@ -127,46 +167,129 @@ class RealWifiManager(WifiManager):
                 "--rescan",
                 "no",
             )
-        networks: list[dict] = []
+        by_ssid: dict[str, dict] = {}
         for line in stdout.splitlines():
-            parts = line.split(":", 3)
+            parts = _split_terse(line)
             # Filter blank SSIDs (D-06)
             if len(parts) >= 4 and parts[0]:
                 try:
                     signal = int(parts[1])
                 except (ValueError, IndexError):
                     continue
-                security = parts[2] if parts[2] != "--" else "open"
-                networks.append(
-                    {
+                security = parts[2] if parts[2] not in ("", "--") else "open"
+                connected = parts[3] == "*"
+                existing = by_ssid.get(parts[0])
+                if existing is None:
+                    by_ssid[parts[0]] = {
                         "ssid": parts[0],
                         "signal": signal,
                         "security": security,
-                        "connected": parts[3] == "*",
+                        "connected": connected,
                     }
-                )
-        return networks
+                    continue
+                if signal > existing["signal"]:
+                    existing["signal"] = signal
+                    existing["security"] = security
+                existing["connected"] = existing["connected"] or connected
+        return sorted(by_ssid.values(), key=lambda n: n["signal"], reverse=True)
+
+    async def _lookup_security(self, iface: str, ssid: str) -> str | None:
+        """Return the SECURITY column for ssid from the cached scan, or None."""
+        stdout, _, rc = await _run_nmcli(
+            "-t",
+            "-f",
+            "SSID,SECURITY",
+            "device",
+            "wifi",
+            "list",
+            "ifname",
+            iface,
+            "--rescan",
+            "no",
+        )
+        if rc != 0:
+            return None
+        for line in stdout.splitlines():
+            parts = _split_terse(line)
+            if len(parts) >= 2 and parts[0] == ssid:
+                return parts[1]
+        return None
+
+    async def _delete_profiles_for(self, ssid: str) -> None:
+        """Delete saved WiFi profiles named after ssid ("X", "X 1", "X 2"...).
+
+        Earlier attempts (e.g. with a wrong password) leave profiles behind
+        that nmcli would otherwise reuse with stale or incomplete secrets.
+        """
+        stdout, _, rc = await _run_nmcli(
+            "-t", "-f", "UUID,NAME,TYPE", "connection", "show"
+        )
+        if rc != 0:
+            return
+        name_re = re.compile(re.escape(ssid) + r"( \d+)?")
+        for line in stdout.splitlines():
+            parts = _split_terse(line)
+            if (
+                len(parts) >= 3
+                and parts[2] == "802-11-wireless"
+                and name_re.fullmatch(parts[1])
+            ):
+                await _run_nmcli("connection", "delete", "uuid", parts[0])
 
     async def connect(self, ssid: str, password: str) -> bool:
         """Connect to a WiFi network.
 
-        Creates/updates a NM connection profile that persists across reboots.
+        Builds an explicit NM connection profile (persists across reboots)
+        instead of using `nmcli device wifi connect`, which on some NM
+        versions fails with "key-mgmt: property is missing" or reuses a
+        stale profile left by an earlier attempt. If activation fails the
+        new profile is removed, so a wrong password is not retried forever.
         """
         iface = await self._detect_wifi_interface()
+        key_mgmt = _key_mgmt_for(await self._lookup_security(iface, ssid))
+        await self._delete_profiles_for(ssid)
+
         # PSK passed in argv for now. A future variant using 'nmcli --ask'
         # with the password piped via stdin avoids a brief exposure in 'ps'
         # output, but requires manual verification on the Jetson hardware.
-        stdout, stderr, rc = await _run_nmcli(
-            "device",
+        add_args = [
+            "connection",
+            "add",
+            "type",
             "wifi",
-            "connect",
-            ssid,
-            "password",
-            password,
             "ifname",
             iface,
+            "con-name",
+            ssid,
+            "ssid",
+            ssid,
+            "connection.autoconnect",
+            "yes",
+        ]
+        if key_mgmt is not None:
+            add_args += ["wifi-sec.key-mgmt", key_mgmt, "wifi-sec.psk", password]
+        _, stderr, rc = await _run_nmcli(*add_args)
+        if rc != 0:
+            _log_event("wifi_profile_add_failed", ssid=ssid, detail=stderr)
+            return False
+
+        # Association + DHCP can take well over 20s on busy/mesh networks.
+        _, stderr, rc = await _run_nmcli(
+            "--wait",
+            "60",
+            "connection",
+            "up",
+            "id",
+            ssid,
+            "ifname",
+            iface,
+            timeout_s=75.0,
         )
-        return rc == 0
+        if rc != 0:
+            _log_event("wifi_connect_failed", ssid=ssid, detail=stderr)
+            await _run_nmcli("connection", "delete", "id", ssid)
+            return False
+        return True
 
     async def disconnect(self) -> bool:
         """Disconnect from current WiFi without deleting the profile.
