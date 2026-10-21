@@ -202,15 +202,12 @@ fi
 
 # Step 1c: BlueZ permission grant (all platforms)
 # The service user must be allowed to call org.bluez pair/connect without a
-# password prompt (mirrors the WiFi INFRA-09 polkit precedent). Grant the
-# bluetooth group AND a polkit rule (belt-and-suspenders, distro-dependent).
+# password prompt. BlueZ defines no polkit actions; access is granted by its
+# D-Bus policy (/usr/share/dbus-1/system.d/bluetooth.conf) to the bluetooth group.
 usermod -aG bluetooth "$INSTALL_USER" || true
 echo -e "${GREEN}Added $INSTALL_USER to bluetooth group${NC}"
-mkdir -p /etc/polkit-1/localauthority/50-local.d
-sed -e "s|__INSTALL_USER__|$INSTALL_USER|g" \
-    "$INSTALL_DIR/deploy/10-storybot-bt.pkla" > /etc/polkit-1/localauthority/50-local.d/10-storybot-bt.pkla
-chmod 0644 /etc/polkit-1/localauthority/50-local.d/10-storybot-bt.pkla
-echo -e "${GREEN}Polkit Bluetooth rule installed${NC}"
+# Remove the obsolete .pkla left by older installs (ignored by polkit >= 0.106)
+rm -f /etc/polkit-1/localauthority/50-local.d/10-storybot-bt.pkla
 
 # Step 1d: SPI1 enablement for WS2812B LED strip (Jetson only, idempotent, fail-soft)
 # Routes the spi1 function to the 40-pin header (pin 19 = MOSI) via config-by-function.py
