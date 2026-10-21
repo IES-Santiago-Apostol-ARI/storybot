@@ -656,7 +656,6 @@ echo "Step 6d: Configuring Ethernet never-default..."
 #   2. route-metric    -> if it ever does, WiFi (metric 600) still wins.
 #   3. DNS de-priority -> the TP-Link's DNS (no internet) must not be queried
 #      first, otherwise lookups fail even when routing is correct.
-ETH_IFACE=""
 mapfile -t ETH_CONNS < <(nmcli -t -f NAME,TYPE connection show | grep ':802-3-ethernet$' | cut -d: -f1)
 if [[ ${#ETH_CONNS[@]} -gt 0 ]]; then
     for ETH_CONN in "${ETH_CONNS[@]}"; do
@@ -671,7 +670,6 @@ if [[ ${#ETH_CONNS[@]} -gt 0 ]]; then
     # rather than only after the next reboot.
     ACTIVE_ETH=$(nmcli -t -f NAME,TYPE connection show --active | grep ':802-3-ethernet$' | cut -d: -f1)
     if [[ -n "$ACTIVE_ETH" ]]; then
-        ETH_IFACE=$(nmcli -t -f GENERAL.DEVICES connection show "$ACTIVE_ETH" | cut -d: -f2)
         nmcli connection up "$ACTIVE_ETH" >/dev/null 2>&1 || true
     fi
 else
@@ -729,18 +727,32 @@ if grep -q "^#host-name=" /etc/avahi/avahi-daemon.conf; then
 elif ! grep -q "^host-name=" /etc/avahi/avahi-daemon.conf; then
     sed -i "/^\[server\]/a host-name=storybot" /etc/avahi/avahi-daemon.conf
 fi
-if [[ -n "$ETH_IFACE" ]]; then
-    if grep -q "^#allow-interfaces=" /etc/avahi/avahi-daemon.conf; then
-        sed -i "s/^#allow-interfaces=.*/allow-interfaces=$ETH_IFACE/" /etc/avahi/avahi-daemon.conf
-    elif grep -q "^allow-interfaces=" /etc/avahi/avahi-daemon.conf; then
-        sed -i "s/^allow-interfaces=.*/allow-interfaces=$ETH_IFACE/" /etc/avahi/avahi-daemon.conf
-    else
-        sed -i "/^\[server\]/a allow-interfaces=$ETH_IFACE" /etc/avahi/avahi-daemon.conf
-    fi
-    echo -e "${GREEN}Avahi restricted to interface '$ETH_IFACE'${NC}"
+# Announce on every physical link: the admin phone may reach the device through
+# the TP-Link AP (Ethernet) or through the upstream router (WiFi). Restricting
+# Avahi to the Ethernet interface made storybot.local invisible over WiFi.
+# Skip only the virtual interfaces, whose addresses are unreachable from the LAN.
+sed -i "/^allow-interfaces=/d" /etc/avahi/avahi-daemon.conf
+AVAHI_DENY="docker0,l4tbr0,tailscale0,usb0,usb1"
+if grep -q "^#\?deny-interfaces=" /etc/avahi/avahi-daemon.conf; then
+    sed -i "s/^#\?deny-interfaces=.*/deny-interfaces=$AVAHI_DENY/" /etc/avahi/avahi-daemon.conf
 else
-    echo -e "${YELLOW}No Ethernet interface detected -- Avahi will announce on all interfaces${NC}"
+    sed -i "/^\[server\]/a deny-interfaces=$AVAHI_DENY" /etc/avahi/avahi-daemon.conf
 fi
+echo -e "${GREEN}Avahi announcing on Ethernet and WiFi (ignoring $AVAHI_DENY)${NC}"
+
+# WiFi power save makes the radio sleep through multicast frames, so mDNS
+# queries from phones are dropped and storybot.local resolves only sporadically.
+cat > /etc/NetworkManager/conf.d/99-storybot-wifi-powersave.conf << 'EOF'
+[connection]
+wifi.powersave = 2
+EOF
+systemctl reload NetworkManager
+# Apply it now without bouncing the link (the installer may be running over
+# SSH on that very WiFi); the NM setting takes over on the next connect.
+for WIFI_IFACE in $(nmcli -t -f DEVICE,TYPE device | grep ':wifi$' | cut -d: -f1); do
+    iw dev "$WIFI_IFACE" set power_save off 2>/dev/null || true
+done
+echo -e "${GREEN}WiFi power save disabled (keeps mDNS reachable over WiFi)${NC}"
 
 cat > /etc/avahi/services/storybot.service << 'EOF'
 <?xml version="1.0" standalone='no'?>
