@@ -378,15 +378,20 @@ class TestEnsureLlamaRunning:
         mock_exec.assert_not_called()
 
     @patch("app.services.swap_orchestrator.asyncio.create_subprocess_exec")
-    async def test_skips_when_swap_in_progress(self, mock_exec, orchestrator):
-        """A cover swap intentionally has llama down — don't fight it."""
+    async def test_waits_for_swap_in_progress(self, mock_exec, orchestrator):
+        """A go tap mid-swap must wait for the swap, not fail against a dead llama."""
         await orchestrator._lock.acquire()
-        try:
-            ok = await orchestrator.ensure_llama_running()
-        finally:
+        with patch(
+            "app.services.swap_orchestrator._llama_is_healthy",
+            new=AsyncMock(return_value=True),
+        ):
+            task = asyncio.create_task(orchestrator.ensure_llama_running())
+            await asyncio.sleep(0.05)
+            assert not task.done()  # blocked behind the swap
             orchestrator._lock.release()
+            ok = await asyncio.wait_for(task, 1.0)
 
-        assert ok is False
+        assert ok is True
         mock_exec.assert_not_called()
 
     @patch("app.services.swap_orchestrator.asyncio.create_subprocess_exec")

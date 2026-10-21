@@ -184,19 +184,20 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
             if meta.get("error") and animator is not None:
                 animator.set_mode(Mode.ERROR)
 
-        # Self-heal: a prior cover swap that timed out or was cancelled can
-        # leave llama-server stopped, which otherwise wedges every later
-        # generation with "Failed to connect to llama-server". Bring it back
-        # before generating (no-op when already up; skipped mid-swap so it
-        # doesn't fight Stable Diffusion for VRAM). None-guarded — T-33-11.
-        if orchestrator is not None:
-            await orchestrator.ensure_llama_running()
-
         # LED-17 / D-08: generation start drives the thinking comet through the
         # engine (sole writer). Cross-fades from idle (LED-22, handled by the
         # engine). None-guarded — T-33-11.
         if animator is not None:
             animator.set_mode(Mode.THINKING)
+
+        # Self-heal: a prior cover swap that timed out or was cancelled can
+        # leave llama-server stopped, which otherwise wedges every later
+        # generation with "Failed to connect to llama-server". Bring it back
+        # before generating (no-op when already up). Mid-swap this waits for
+        # the previous story's cover to finish (up to ~2 min) rather than
+        # failing, so THINKING is already on screen/LEDs. None-guarded — T-33-11.
+        if orchestrator is not None:
+            await orchestrator.ensure_llama_running()
 
         async for event in story_generator.generate_story(params):
             data = json.dumps(event, ensure_ascii=False)

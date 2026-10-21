@@ -98,16 +98,13 @@ class SwapOrchestrator:
         times out can leave llama-server stopped, which otherwise wedges every
         later story generation. Returns True when llama is healthy.
 
-        Returns False without touching llama when a cover swap is in progress —
-        that swap intentionally holds llama down to give the GPU to Stable
-        Diffusion, so starting llama here would fight it for VRAM.
+        When a cover swap is in progress, wait for it to finish instead of
+        failing fast: the swap holds llama down to give the GPU to Stable
+        Diffusion and restarts it in its finally, so generating mid-swap hits a
+        dead llama-server and the kiosk drops straight back to the home screen.
+        Holding the lock across the health-check + restart also keeps a new
+        swap from starting concurrently and fighting us for VRAM.
         """
-        if self._lock.locked():
-            return False
-        # Hold the lock across the health-check + restart so a cover swap cannot
-        # begin concurrently and fight us for the GPU's VRAM. We just verified
-        # the lock is free and there is no await before acquire(), so this can
-        # never block here.
         await self._lock.acquire()
         try:
             if await _llama_is_healthy():
