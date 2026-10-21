@@ -52,9 +52,15 @@ def _bt_card(mac: str) -> str:
     return "bluez_card." + mac.upper().replace(":", "_")
 
 
-def _bt_sink(mac: str) -> str:
-    """PulseAudio/PipeWire BlueZ A2DP sink name for a MAC."""
-    return "bluez_output." + mac.upper().replace(":", "_") + ".a2dp-sink"
+def _bt_sink_prefix(mac: str) -> str:
+    """Name prefix of the BlueZ output sink for a MAC (``bluez_output.<MAC>.``).
+
+    Only the prefix is stable: PulseAudio suffixes the profile (``.a2dp-sink``)
+    while PipeWire suffixes a node index (``.1``), so the real name must be
+    discovered from ``pactl list short sinks``. Hardcoding the PulseAudio form
+    meant the sink was never "ready" on PipeWire and audio never switched.
+    """
+    return "bluez_output." + mac.upper().replace(":", "_") + "."
 
 
 def _first_alsa_sink(pactl_short_sinks_output: str) -> str | None:
@@ -131,25 +137,30 @@ async def _move_all_inputs(sink: str) -> None:
             _log_event("bt_move_input_failed", input=input_id, target=sink)
 
 
-async def _sink_present(sink: str) -> bool:
-    """True when ``sink`` appears in ``pactl list short sinks`` (never raises)."""
+async def _find_bt_sink(mac: str) -> str | None:
+    """Name of the BT output sink for ``mac`` if enumerated, else ``None``.
+
+    Never raises; ``None`` also covers an unreachable pactl (logged there).
+    """
     out = await _pactl_list("sinks")
     if out is None:
-        return False
+        return None
+    prefix = _bt_sink_prefix(mac)
     for line in out.splitlines():
         parts = line.split("\t")
-        if len(parts) >= 2 and parts[1] == sink:
-            return True
-    return False
+        if len(parts) >= 2 and parts[1].startswith(prefix):
+            return parts[1]
+    return None
 
 
-async def _wait_for_sink(sink: str, sleep) -> bool:
-    """Poll up to ``SINK_READY_RETRIES`` times for ``sink`` to register."""
+async def _wait_for_sink(mac: str, sleep) -> str | None:
+    """Poll up to ``SINK_READY_RETRIES`` times for the BT sink to register."""
     for _ in range(SINK_READY_RETRIES):
-        if await _sink_present(sink):
-            return True
+        sink = await _find_bt_sink(mac)
+        if sink:
+            return sink
         await sleep(SINK_READY_DELAY)
-    return False
+    return None
 
 
 async def route_to_bt(mac: str, sleep=asyncio.sleep) -> bool:
@@ -160,7 +171,6 @@ async def route_to_bt(mac: str, sleep=asyncio.sleep) -> bool:
     AUDIO-06), then waits for the sink to actually register before making it the
     default output. Returns ``True`` when ``set-default-sink`` succeeds (rc == 0).
     """
-    sink = _bt_sink(mac)
     # AUDIO-06: activate the A2DP profile first.
     _, _, prc = await _run_pactl("set-card-profile", _bt_card(mac), "a2dp-sink")
     if prc != 0:
@@ -169,8 +179,14 @@ async def route_to_bt(mac: str, sleep=asyncio.sleep) -> bool:
         _log_event("bt_route_failed", mac=mac, rc=prc, target=_bt_card(mac))
     # Don't make a not-yet-enumerated sink the default — that's the silent
     # half-failure that loses audio right after a (re)connect.
-    if not await _wait_for_sink(sink, sleep):
-        _log_event("bt_route_failed", mac=mac, reason="sink_not_ready", target=sink)
+    sink = await _wait_for_sink(mac, sleep)
+    if not sink:
+        _log_event(
+            "bt_route_failed",
+            mac=mac,
+            reason="sink_not_ready",
+            target=_bt_sink_prefix(mac) + "*",
+        )
         return False
     # AUDIO-01: make the BT speaker the default output.
     _, _, rc = await _run_pactl("set-default-sink", sink)

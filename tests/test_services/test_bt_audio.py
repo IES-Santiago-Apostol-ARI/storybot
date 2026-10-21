@@ -5,6 +5,8 @@ patch either `asyncio.create_subprocess_exec` (for the `_run_pactl` unit tests) 
 `bt_audio._run_pactl` itself (for the routing tests). No real pactl is ever spawned.
 """
 
+import pytest
+
 from app.services import bt_audio
 
 
@@ -42,11 +44,36 @@ def test_bt_card_name_preserves_already_upper_mac():
     assert bt_audio._bt_card("00:42:79:E9:90:46") == "bluez_card.00_42_79_E9_90_46"
 
 
-def test_bt_sink_name_format():
-    assert (
-        bt_audio._bt_sink("aa:bb:cc:00:11:22")
-        == "bluez_output.AA_BB_CC_00_11_22.a2dp-sink"
+def _sink(mac):
+    """PipeWire-style BT sink name (``bluez_output.<MAC>.1``), as on the Jetson."""
+    return bt_audio._bt_sink_prefix(mac) + "1"
+
+
+def test_bt_sink_prefix_format():
+    prefix = bt_audio._bt_sink_prefix("aa:bb:cc:00:11:22")
+    assert prefix == "bluez_output.AA_BB_CC_00_11_22."
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "bluez_output.AA_BB_CC_00_11_22.1",  # PipeWire (pipewire-pulse)
+        "bluez_output.AA_BB_CC_00_11_22.a2dp-sink",  # PulseAudio
+    ],
+)
+async def test_find_bt_sink_matches_pipewire_and_pulseaudio_names(monkeypatch, name):
+    """The suffix differs per audio server; only the MAC prefix is matched."""
+    listing = (
+        "45\talsa_output.platform-sound.analog-stereo\tPipeWire\ts32le\tRUNNING\n"
+        "163\tbluez_output.11_22_33_44_55_66.1\tPipeWire\ts16le\tSUSPENDED\n"
+        f"164\t{name}\tPipeWire\ts16le 2ch 48000Hz\tSUSPENDED"
     )
+
+    async def fake_run(*args):
+        return (listing, "", 0)
+
+    monkeypatch.setattr(bt_audio, "_run_pactl", fake_run)
+    assert await bt_audio._find_bt_sink("aa:bb:cc:00:11:22") == name
 
 
 async def test_run_pactl_uses_pactl_binary_with_arg_list(monkeypatch):
@@ -81,7 +108,7 @@ def _ready_run(calls, mac, sink_inputs=""):
     wait in route_to_bt succeeds on the first poll (no sleep). ``sink_inputs``
     is what ``list short sink-inputs`` returns (default: no live streams).
     """
-    sink = bt_audio._bt_sink(mac)
+    sink = _sink(mac)
 
     async def fake_run(*args):
         calls.append(args)
@@ -105,7 +132,7 @@ async def test_route_to_bt_order_profile_before_default(monkeypatch):
     assert calls[1] == ("list", "short", "sinks")
     assert calls[2] == (
         "set-default-sink",
-        "bluez_output.AA_BB_CC_00_11_22.a2dp-sink",
+        "bluez_output.AA_BB_CC_00_11_22.1",
     )
     assert result is True
 
@@ -113,7 +140,7 @@ async def test_route_to_bt_order_profile_before_default(monkeypatch):
 async def test_route_to_bt_returns_false_when_default_sink_fails(monkeypatch):
     calls = []
     mac = "AA:BB:CC:00:11:22"
-    sink = bt_audio._bt_sink(mac)
+    sink = _sink(mac)
 
     async def fake_run(*args):
         calls.append(args)
@@ -146,7 +173,7 @@ async def test_route_to_bt_sets_sink_volume_to_max_on_connect(monkeypatch):
     result = await bt_audio.route_to_bt(mac)
 
     assert result is True
-    assert ("set-sink-volume", bt_audio._bt_sink(mac), "100%") in calls
+    assert ("set-sink-volume", _sink(mac), "100%") in calls
 
 
 async def test_route_to_bt_moves_live_sink_inputs_to_bt(monkeypatch):
@@ -163,7 +190,7 @@ async def test_route_to_bt_moves_live_sink_inputs_to_bt(monkeypatch):
     monkeypatch.setattr(bt_audio, "_run_pactl", _ready_run(calls, mac, inputs))
     result = await bt_audio.route_to_bt(mac)
     assert result is True
-    sink = bt_audio._bt_sink(mac)
+    sink = _sink(mac)
     assert ("move-sink-input", "155", sink) in calls
     assert ("move-sink-input", "201", sink) in calls
     # Moves happen after the sink became the default.
@@ -177,7 +204,7 @@ async def test_route_to_bt_still_true_when_move_input_fails(monkeypatch):
     must not fail the route as a whole."""
     calls = []
     mac = "AA:BB:CC:00:11:22"
-    sink = bt_audio._bt_sink(mac)
+    sink = _sink(mac)
 
     async def fake_run(*args):
         calls.append(args)
@@ -216,7 +243,7 @@ async def test_route_to_bt_waits_then_succeeds_when_sink_appears_late(monkeypatc
     proceeds to set-default-sink (the post-connect enumeration window)."""
     calls = []
     mac = "AA:BB:CC:00:11:22"
-    sink = bt_audio._bt_sink(mac)
+    sink = _sink(mac)
     list_calls = {"n": 0}
 
     async def fake_run(*args):
@@ -327,24 +354,24 @@ async def test_route_to_wired_returns_false_when_no_alsa_sink(monkeypatch):
 # environment, which is what hid the 2026-08-31 outage for a whole story.
 
 
-async def test_sink_present_false_when_pactl_unreachable(monkeypatch):
+async def test_find_bt_sink_false_when_pactl_unreachable(monkeypatch):
     async def fake_run(*args):
         return ("", "Connection failure: Connection refused", 1)
 
     monkeypatch.setattr(bt_audio, "_run_pactl", fake_run)
-    assert await bt_audio._sink_present("bluez_output.X.a2dp-sink") is False
+    assert await bt_audio._find_bt_sink("AA:BB:CC:00:11:22") is None
 
 
-async def test_sink_present_logs_unreachable_event(monkeypatch, capsys):
+async def test_find_bt_sink_logs_unreachable_event(monkeypatch, capsys):
     async def fake_run(*args):
         return ("", "Connection failure: Connection refused", 1)
 
     monkeypatch.setattr(bt_audio, "_run_pactl", fake_run)
-    await bt_audio._sink_present("bluez_output.X.a2dp-sink")
+    await bt_audio._find_bt_sink("AA:BB:CC:00:11:22")
     assert "bt_pactl_unreachable" in capsys.readouterr().err
 
 
-async def test_sink_present_does_not_log_unreachable_on_empty_listing(
+async def test_find_bt_sink_does_not_log_unreachable_on_empty_listing(
     monkeypatch, capsys
 ):
     """rc == 0 with no matching sink is genuine absence, not an unreachable server."""
@@ -353,7 +380,7 @@ async def test_sink_present_does_not_log_unreachable_on_empty_listing(
         return ("", "", 0)
 
     monkeypatch.setattr(bt_audio, "_run_pactl", fake_run)
-    assert await bt_audio._sink_present("bluez_output.X.a2dp-sink") is False
+    assert await bt_audio._find_bt_sink("AA:BB:CC:00:11:22") is None
     assert "bt_pactl_unreachable" not in capsys.readouterr().err
 
 
