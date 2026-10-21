@@ -129,7 +129,7 @@ chown "$INSTALL_USER:$INSTALL_USER" "$ENV_FILE"
 echo ""
 echo "Step 1: Installing system dependencies..."
 apt-get update
-apt-get install -y nginx unclutter pcscd pcsc-tools libccid libpcsclite-dev swig uhubctl avahi-daemon avahi-utils
+apt-get install -y curl nginx unclutter pcscd pcsc-tools libccid libpcsclite-dev swig uhubctl avahi-daemon avahi-utils
 # spidev (LED strip) and pyscard (NFC) ship as source only on aarch64, so the
 # plain `uv sync` in Step 2 needs a compiler and the Python headers.
 apt-get install -y build-essential python3-dev
@@ -807,6 +807,37 @@ fi
 echo ""
 if [[ "$AI_MODE" == true ]]; then
     echo "Step 9: Configuring kiosk autostart..."
+
+    # Install Firefox as a native .deb from Mozilla's APT repo. Ubuntu's own
+    # `firefox` package is only a transitional wrapper around the snap: on a
+    # fresh image without the snap, /usr/bin/firefox just prints "requires the
+    # firefox snap" and exits, leaving the kiosk on the bare desktop. The snap
+    # would not work here anyway: its confinement cannot read the hidden
+    # ~/.storybot-kiosk-profile directory. Pin priority 1000 lets apt replace
+    # the transitional package (epoch 1:) with Mozilla's lower version string.
+    install -d -m 0755 /etc/apt/keyrings
+    if [[ ! -s /etc/apt/keyrings/packages.mozilla.org.asc ]]; then
+        curl -fsSL https://packages.mozilla.org/apt/repo-signing-key.gpg \
+            -o /etc/apt/keyrings/packages.mozilla.org.asc
+    fi
+    cat > /etc/apt/sources.list.d/mozilla.list << 'MOZLISTEOF'
+deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main
+MOZLISTEOF
+    cat > /etc/apt/preferences.d/mozilla << 'MOZPINEOF'
+Package: *
+Pin: origin packages.mozilla.org
+Pin-Priority: 1000
+MOZPINEOF
+    if ! dpkg-query -W -f='${Version}' firefox 2>/dev/null | grep -q '~build'; then
+        apt-get update
+        apt-get install -y --allow-downgrades firefox
+    fi
+    if ! firefox --version > /dev/null 2>&1; then
+        echo -e "${RED}ERROR: firefox is not runnable after install${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}Firefox (Mozilla .deb) installed: $(firefox --version)${NC}"
+
     sudo -u "$INSTALL_USER" mkdir -p "$USER_HOME/.config/autostart"
     # Pre-create the Firefox kiosk profile directory. Launching firefox with
     # -profile pointing at a non-existent path fails with "Your Firefox profile
@@ -844,7 +875,42 @@ user_pref("browser.sessionstore.resume_from_crash", false);
 // Block web push permission prompts (the kiosk app needs no notifications)
 user_pref("dom.webnotifications.enabled", false);
 user_pref("permissions.default.desktop-notification", 2);
+// First-run "Welcome to Firefox" Terms of Use modal: shown while
+// acceptedVersion < termsofuse.minimumVersion, independent of about:welcome.
+user_pref("termsofuse.acceptedVersion", 999);
+user_pref("termsofuse.acceptedDate", "1735689600000");
+user_pref("termsofuse.bypassNotification", true);
+user_pref("trailhead.firstrun.didSeeAboutWelcome", true);
 AUTOPLAYEOF
+
+    # Enterprise policies are applied before the first window opens, so they
+    # reliably skip the first-run onboarding and Terms of Use screens that
+    # user.js prefs alone have not always suppressed. The Mozilla .deb reads
+    # them from its distribution dir; the file is not package-owned, so it
+    # survives Firefox upgrades.
+    install -d -m 0755 /usr/lib/firefox/distribution
+    cat > /usr/lib/firefox/distribution/policies.json << 'POLICIESEOF'
+{
+  "policies": {
+    "SkipTermsOfUse": true,
+    "OverrideFirstRunPage": "",
+    "OverridePostUpdatePage": "",
+    "DontCheckDefaultBrowser": true,
+    "DisableAppUpdate": true,
+    "DisableTelemetry": true,
+    "DisableProfileImport": true,
+    "UserMessaging": {
+      "SkipOnboarding": true,
+      "ExtensionRecommendations": false,
+      "FeatureRecommendations": false,
+      "UrlbarInterventions": false,
+      "MoreFromMozilla": false,
+      "Locked": true
+    }
+  }
+}
+POLICIESEOF
+    chmod 0644 /usr/lib/firefox/distribution/policies.json
 
     cat > "$USER_HOME/.config/autostart/storybot-kiosk.desktop" << 'KIOSKEOF'
 [Desktop Entry]
