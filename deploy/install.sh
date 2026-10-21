@@ -400,6 +400,13 @@ systemctl enable --now pcscd.socket
 systemctl enable --now pcscd
 echo -e "${GREEN}pcscd enabled${NC}"
 
+# pcscd authorizes clients via polkit, which only allows active login sessions
+# by default — the headless storybot.service would be rejected. Grant plugdev
+# (the user joins plugdev in Step 5).
+mkdir -p /etc/polkit-1/rules.d
+install -m 0644 "$INSTALL_DIR/deploy/50-pcscd.rules" /etc/polkit-1/rules.d/50-pcscd.rules
+echo -e "${GREEN}Polkit pcscd rule installed${NC}"
+
 # Blacklist kernel NFC modules that conflict with pcscd/CCID access to ACR122U
 cat > /etc/modprobe.d/storybot-nfc.conf << 'EOF'
 # Prevent Linux NFC kernel drivers from grabbing the ACR122U before pcscd can claim it
@@ -565,7 +572,13 @@ usermod -aG dialout "$INSTALL_USER"
 usermod -aG plugdev "$INSTALL_USER" || true
 echo -e "${GREEN}Added $INSTALL_USER to audio, dialout, plugdev groups${NC}"
 
-# No custom udev rule needed for ACR122U — pcscd manages it via CCID
+# ACR122U: pcscd manages it via CCID, but the reader does not resume from USB
+# autosuspend — pcscd's first read then fails with LIBUSB_ERROR_TIMEOUT.
+cat > /etc/udev/rules.d/99-storybot-nfc.rules << 'EOF'
+# ACS ACR122U NFC reader: never autosuspend
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="072f", ATTR{idProduct}=="2200", TEST=="power/control", ATTR{power/control}="on"
+EOF
+echo -e "${GREEN}Created udev rule disabling ACR122U autosuspend${NC}"
 
 # Create udev rules for Brother printer
 cat > /etc/udev/rules.d/99-storybot-printer.rules << 'EOF'
