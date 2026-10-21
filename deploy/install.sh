@@ -643,16 +643,12 @@ fi
 # Step 6c: Deploy polkit rule for passwordless WiFi management
 echo ""
 echo "Step 6c: Deploying polkit rule for WiFi management..."
-mkdir -p /etc/polkit-1/localauthority/50-local.d
-cat > /etc/polkit-1/localauthority/50-local.d/10-storybot-wifi.pkla << EOF
-[StoryBot WiFi Management]
-Identity=unix-user:${INSTALL_USER}
-Action=org.freedesktop.NetworkManager.wifi.scan;org.freedesktop.NetworkManager.enable-disable-wifi;org.freedesktop.NetworkManager.settings.modify.own;org.freedesktop.NetworkManager.settings.modify.system;org.freedesktop.NetworkManager.network-control
-ResultAny=yes
-ResultInactive=yes
-ResultActive=yes
-EOF
-chmod 0644 /etc/polkit-1/localauthority/50-local.d/10-storybot-wifi.pkla
+mkdir -p /etc/polkit-1/rules.d
+sed -e "s|__INSTALL_USER__|$INSTALL_USER|g" \
+    "$INSTALL_DIR/deploy/50-storybot-wifi.rules" > /etc/polkit-1/rules.d/50-storybot-wifi.rules
+chmod 0644 /etc/polkit-1/rules.d/50-storybot-wifi.rules
+# Remove the obsolete .pkla left by older installs (ignored by polkit >= 0.106)
+rm -f /etc/polkit-1/localauthority/50-local.d/10-storybot-wifi.pkla
 echo -e "${GREEN}Polkit WiFi rule installed${NC}"
 
 # Step 6d: Configure Ethernet never-default (prevents WiFi routing breakage)

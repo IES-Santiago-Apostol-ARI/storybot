@@ -1,0 +1,16 @@
+// Let the StoryBot service (a system service with no login session) scan and
+// manage WiFi via NetworkManager. polkit's default for session-less callers is
+// auth_admin, and a denied scan makes `nmcli ... --rescan yes` silently return
+// the stale cache (often just the connected AP).
+polkit.addRule(function(action, subject) {
+    var allowed = [
+        "org.freedesktop.NetworkManager.wifi.scan",
+        "org.freedesktop.NetworkManager.enable-disable-wifi",
+        "org.freedesktop.NetworkManager.settings.modify.own",
+        "org.freedesktop.NetworkManager.settings.modify.system",
+        "org.freedesktop.NetworkManager.network-control"
+    ];
+    if (subject.user == "__INSTALL_USER__" && allowed.indexOf(action.id) >= 0) {
+        return polkit.Result.YES;
+    }
+});
