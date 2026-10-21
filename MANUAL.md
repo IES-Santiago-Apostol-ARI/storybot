@@ -287,6 +287,10 @@ Para que una historia generada aparezca en el panel infantil como cuento normal:
 
 ## Solución de problemas
 
+### La pantalla se ha quedado congelada o no se actualiza
+- **Recarga la pantalla**: mantén un dedo quieto en la **esquina superior izquierda** de la pantalla durante **3 segundos** y suéltalo cuando se recargue. Es un gesto oculto, pensado para el profesorado: un toque rápido o deslizar el dedo por la esquina no hacen nada.
+- Si la pantalla no responde ni así, apaga el robot con el botón de apagado y vuelve a darle corriente.
+
 ### El lector NFC no funciona
 - Verifica que el icono de NFC en el panel de administración esté en verde.
 - Si está en rojo, reinicia el robot y vuelve a comprobar.

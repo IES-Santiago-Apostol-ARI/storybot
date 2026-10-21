@@ -869,8 +869,61 @@ function unlockAudio() {
     }
 }
 
+// Hidden maintenance gesture: holding one finger still on the top-left corner
+// reloads the kiosk. Firefox --kiosk has no reload button or touch gesture, and
+// a 3 s hold in a corner is something a small child won't do by accident.
+const RELOAD_GESTURE_ZONE_PX = 80;
+const RELOAD_GESTURE_HOLD_MS = 3000;
+
+function createReloadGesture({
+    zonePx = RELOAD_GESTURE_ZONE_PX,
+    holdMs = RELOAD_GESTURE_HOLD_MS,
+    onTrigger,
+}) {
+    let timer = null;
+    let pointerId = null;
+
+    const inZone = (e) => e.clientX <= zonePx && e.clientY <= zonePx;
+
+    function cancel() {
+        clearTimeout(timer);
+        timer = null;
+        pointerId = null;
+    }
+
+    return {
+        down(e) {
+            // Only the first finger counts; extra touches elsewhere are ignored.
+            if (timer !== null || !inZone(e)) return;
+            pointerId = e.pointerId;
+            timer = setTimeout(() => {
+                cancel();
+                onTrigger();
+            }, holdMs);
+        },
+        move(e) {
+            if (e.pointerId === pointerId && !inZone(e)) cancel();
+        },
+        up(e) {
+            if (e.pointerId === pointerId) cancel();
+        },
+    };
+}
+
+function installReloadGesture() {
+    const gesture = createReloadGesture({ onTrigger: () => location.reload() });
+    // Capture phase so page handlers that preventDefault can't swallow it.
+    const opts = { capture: true, passive: true };
+    window.addEventListener('pointerdown', gesture.down, opts);
+    window.addEventListener('pointermove', gesture.move, opts);
+    window.addEventListener('pointerup', gesture.up, opts);
+    window.addEventListener('pointercancel', gesture.up, opts);
+}
+
 // Initialization
 document.addEventListener('DOMContentLoaded', async () => {
+    installReloadGesture();
+
     // Initialize page states
     document.querySelectorAll('.page').forEach(page => {
         if (page.dataset.page === 'idle') {
