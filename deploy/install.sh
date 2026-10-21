@@ -144,7 +144,7 @@ else
     echo -e "${YELLOW}Skipping nvidia-jetpack (stories-only mode)${NC}"
 fi
 # audio bluetooth:
-apt-get -y  install pipewire pipewire-pulse wireplumber libspa-0.2-bluetooth bluez bluez-tools cmake libasound2-dev
+apt-get -y  install pipewire pipewire-pulse pulseaudio-utils wireplumber libspa-0.2-bluetooth bluez bluez-tools cmake libasound2-dev
 
 # Audio: configure pipewire in the install user's session, not root's.
 # `systemctl --user` needs the target user's DBus session — run via sudo -u
