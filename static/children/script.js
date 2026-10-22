@@ -285,7 +285,11 @@ function transitionTo(newState, story = null) {
 
                 signalLEDState('ended', { story_id: currentStory?.id ?? null });
                 stopProgressTracking();
-                setTimeout(() => transitionTo(STATES.IDLE), 4000);
+                // A story card tapped on this screen starts a new story; don't
+                // yank it back to idle when the timer fires.
+                setTimeout(() => {
+                    if (currentState === STATES.THANKYOU) transitionTo(STATES.IDLE);
+                }, 4000);
                 break;
         }
     }, 100); // Small delay for the page-turning-out animation to start
@@ -367,6 +371,15 @@ function playStory(story) {
     // chips don't apply to it, and COLLECTING would otherwise make the guard
     // below swallow the tap and leave the kiosk stuck.
     if (currentState === STATES.COLLECTING) {
+        lastGenerationParams = [];
+        transitionTo(STATES.IDLE);
+    }
+
+    // A new story replaces the one on screen, paused or not: a 3-year-old
+    // reads a silently ignored card as a broken robot. Dropping to IDLE also
+    // cancels a generated story's stream and resets the pause overlay.
+    if (currentState === STATES.PLAYING || currentState === STATES.THANKYOU) {
+        audioElement.pause();
         lastGenerationParams = [];
         transitionTo(STATES.IDLE);
     }
@@ -765,8 +778,8 @@ async function handleNfcCardEvent(event) {
         if (card_type === 'story') {
             clearParameterDisplay();
             lastGenerationParams = [];
-            if (currentState !== STATES.IDLE && currentState !== STATES.COLLECTING) return;
 
+            // Any state: playStory replaces a story already on screen.
             const response = await fetch(`/api/stories/nfc/${encodeURIComponent(uid)}`);
             if (response.ok) {
                 const story = await response.json();
