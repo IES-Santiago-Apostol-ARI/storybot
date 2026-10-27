@@ -130,6 +130,38 @@ echo ""
 echo "Step 1: Installing system dependencies..."
 apt-get update
 apt-get install -y curl nginx unclutter pcscd pcsc-tools libccid libpcsclite-dev swig uhubctl avahi-daemon avahi-utils
+
+# libccid < 1.6.2 gives the ACR122U only 100 ms to answer its first
+# GetSlotStatus; the reader can take up to 1 s, so pcscd fails to add it with
+# LIBUSB_ERROR_TIMEOUT and the late reply leaves every later answer one command
+# behind (upstream CCID commit 4841404). Ubuntu 24.04 ships 1.5.5, so install
+# Debian trixie's 1.6.2 (needs glibc >= 2.38) and hold it.
+LIBCCID_MIN=1.6.2
+LIBCCID_DEB_VERSION=1.6.2-1
+if dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libccid)" lt "$LIBCCID_MIN"; then
+    case "$(dpkg --print-architecture)" in
+        arm64) LIBCCID_SHA256=9546b767e4d64e215557342e20ae986abc4f360a7b97ac942865d201b19943cb ;;
+        amd64) LIBCCID_SHA256=f2a709cec08872e1642a6e0575de9c177e893e332d85c915adafb2b666d137b8 ;;
+        *) LIBCCID_SHA256="" ;;
+    esac
+    if [[ -z "$LIBCCID_SHA256" ]]; then
+        echo -e "${YELLOW}No pinned libccid $LIBCCID_MIN for this architecture — the ACR122U may fail at boot${NC}"
+    elif dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libc6)" lt 2.38; then
+        echo -e "${YELLOW}glibc too old for libccid $LIBCCID_MIN — keeping the distro libccid${NC}"
+    else
+        LIBCCID_DEB="/tmp/libccid_${LIBCCID_DEB_VERSION}_$(dpkg --print-architecture).deb"
+        if curl -fsSL -o "$LIBCCID_DEB" \
+            "http://deb.debian.org/debian/pool/main/c/ccid/$(basename "$LIBCCID_DEB")" &&
+            echo "$LIBCCID_SHA256  $LIBCCID_DEB" | sha256sum -c --quiet; then
+            apt-get install -y "$LIBCCID_DEB"
+            apt-mark hold libccid
+            echo -e "${GREEN}libccid $LIBCCID_DEB_VERSION installed and held${NC}"
+        else
+            echo -e "${RED}libccid download or checksum failed — keeping the distro libccid${NC}"
+        fi
+        rm -f "$LIBCCID_DEB"
+    fi
+fi
 # spidev (LED strip) and pyscard (NFC) ship as source only on aarch64, so the
 # plain `uv sync` in Step 2 needs a compiler and the Python headers.
 apt-get install -y build-essential python3-dev
@@ -569,13 +601,9 @@ usermod -aG dialout "$INSTALL_USER"
 usermod -aG plugdev "$INSTALL_USER" || true
 echo -e "${GREEN}Added $INSTALL_USER to audio, dialout, plugdev groups${NC}"
 
-# ACR122U: pcscd manages it via CCID, but the reader does not resume from USB
-# autosuspend — pcscd's first read then fails with LIBUSB_ERROR_TIMEOUT.
-cat > /etc/udev/rules.d/99-storybot-nfc.rules << 'EOF'
-# ACS ACR122U NFC reader: never autosuspend
-ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="072f", ATTR{idProduct}=="2200", TEST=="power/control", ATTR{power/control}="on"
-EOF
-echo -e "${GREEN}Created udev rule disabling ACR122U autosuspend${NC}"
+# No custom udev rule needed for ACR122U — pcscd manages it via CCID.
+# Drop the autosuspend rule left by older installs.
+rm -f /etc/udev/rules.d/99-storybot-nfc.rules
 
 # Create udev rules for Brother printer
 cat > /etc/udev/rules.d/99-storybot-printer.rules << 'EOF'
