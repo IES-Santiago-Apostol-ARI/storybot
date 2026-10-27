@@ -98,12 +98,28 @@ class TestCheckUpdate:
         fetch_proc = _make_subprocess_mock(returncode=0)
         local_proc = _make_subprocess_mock(stdout=b"abc1234\n")
         remote_proc = _make_subprocess_mock(stdout=b"def5678\n")
-        mock_exec.side_effect = [fetch_proc, local_proc, remote_proc]
+        behind_proc = _make_subprocess_mock(stdout=b"3\n")
+        mock_exec.side_effect = [fetch_proc, local_proc, remote_proc, behind_proc]
         mgr = RealUpdateManager()
         result = await mgr.check_update()
         assert result["update_available"] is True
         assert result["local_commit"] == "abc1234"
         assert result["remote_commit"] == "def5678"
+
+    @patch("app.services.update_manager.asyncio.create_subprocess_exec")
+    async def test_no_update_when_local_ahead_of_remote(self, mock_exec):
+        """A merge commit from a manual git pull, or unpushed commits, leave
+        HEAD ahead of origin/main — that is not an update."""
+        fetch_proc = _make_subprocess_mock(returncode=0)
+        local_proc = _make_subprocess_mock(stdout=b"abc1234\n")
+        remote_proc = _make_subprocess_mock(stdout=b"def5678\n")
+        behind_proc = _make_subprocess_mock(stdout=b"0\n")
+        mock_exec.side_effect = [fetch_proc, local_proc, remote_proc, behind_proc]
+        mgr = RealUpdateManager()
+        result = await mgr.check_update()
+        assert result["update_available"] is False
+        rev_list_args = mock_exec.call_args_list[3][0]
+        assert rev_list_args[1:] == ("rev-list", "--count", "HEAD..origin/main")
 
     @patch("app.services.update_manager.asyncio.create_subprocess_exec")
     async def test_no_update_when_hashes_same(self, mock_exec):
@@ -587,7 +603,8 @@ class TestRunGitCwd:
         fetch_proc = _make_subprocess_mock(returncode=0)
         local_proc = _make_subprocess_mock(stdout=b"abc123\n")
         remote_proc = _make_subprocess_mock(stdout=b"def456\n")
-        mock_exec.side_effect = [fetch_proc, local_proc, remote_proc]
+        behind_proc = _make_subprocess_mock(stdout=b"1\n")
+        mock_exec.side_effect = [fetch_proc, local_proc, remote_proc, behind_proc]
         mgr = RealUpdateManager()
         await mgr.check_update()
         # All calls should have cwd set to repo_dir

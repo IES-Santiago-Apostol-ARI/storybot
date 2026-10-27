@@ -215,8 +215,17 @@ class RealUpdateManager(UpdateManager):
         remote_stdout, _, _ = await _run_git(
             "rev-parse", "origin/main", cwd=self._repo_dir
         )
+        # Differing hashes alone don't mean an update: after a manual
+        # `git pull` (merge commit) or with unpushed local commits, HEAD is
+        # ahead of origin/main. Only commits HEAD lacks count as an update.
+        update_available = False
+        if local_stdout != remote_stdout:
+            behind_stdout, _, behind_rc = await _run_git(
+                "rev-list", "--count", "HEAD..origin/main", cwd=self._repo_dir
+            )
+            update_available = behind_rc == 0 and behind_stdout not in ("", "0")
         return {
-            "update_available": local_stdout != remote_stdout,
+            "update_available": update_available,
             "local_commit": local_stdout,
             "remote_commit": remote_stdout,
         }
