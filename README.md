@@ -60,10 +60,10 @@ Deberías ver un dispositivo de NVIDIA (algo como `NVIDIA Corp. APX`). Si no apa
 
 #### 3. Descargar JetPack 7.2.1 (L4T R39.2.1)
 
-Descarga estos dos ficheros desde la [página de Jetson Linux R39.2.1](https://developer.nvidia.com/embedded/jetson-linux-r3921) (necesitas iniciar sesión con tu cuenta NVIDIA Developer):
+Descarga estos dos ficheros desde la [página de Jetson Linux R39.2.1](https://developer.nvidia.com/embedded/jetpack/downloads) (necesitas iniciar sesión con tu cuenta NVIDIA Developer):
 
-1. **L4T Driver Package (BSP)** — `Jetson_Linux_R39.2.1_aarch64.tbz2`
-2. **Sample Root Filesystem** — `Tegra_Linux_Sample-Root-Filesystem_R39.2.1_aarch64.tbz2`
+1. **L4T Driver Package (BSP)** — [Jetson_Linux_R39.2.1_aarch64.tbz2] (https://developer.download.nvidia.com/embedded/L4T/r39_Release_v2.1/release/Jetson_Linux_R39.2.1_aarch64.tbz2)
+2. **Sample Root Filesystem** — [Tegra_Linux_Sample-Root-Filesystem_R39.2.1_aarch64.tbz2](https://developer.download.nvidia.com/embedded/L4T/r39_Release_v2.1/release/Tegra_Linux_Sample-Root-Filesystem_R39.2.1_aarch64.tbz2)
 
 #### 4. Preparar y flashear
 
