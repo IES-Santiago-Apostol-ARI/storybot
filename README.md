@@ -70,6 +70,9 @@ Descarga estos dos ficheros desde la [página de Jetson Linux R39.2.1](https://d
 En el PC host, ejecuta los siguientes comandos:
 
 ```bash
+# instala  los paquetes necesarios
+sudo apt install  qemu-user-static binfmt-support
+sudo dpkg-reconfigure qemu-user-static
 # Extraer el BSP
 tar xf Jetson_Linux_R39.2.1_aarch64.tbz2
 
@@ -78,11 +81,11 @@ cd Linux_for_Tegra/rootfs/
 sudo tar xpf ../../Tegra_Linux_Sample-Root-Filesystem_R39.2.1_aarch64.tbz2
 cd ..
 
-# Aplicar los binarios de NVIDIA al rootfs
-sudo ./apply_binaries.sh
-
 # Instalar prerequisitos del flasheo
 sudo tools/l4t_flash_prerequisites.sh
+
+# Aplicar los binarios de NVIDIA al rootfs
+sudo ./apply_binaries.sh
 
 # Flashear al SSD NVMe (la Jetson debe estar en modo recovery)
 sudo ./tools/kernel_flash/l4t_initrd_flash.sh \
@@ -123,6 +126,8 @@ E instala los componentes completos de JetPack (CUDA, cuDNN, TensorRT, etc.):
 
 ```bash
 sudo apt update
+sudo dpkg-reconfigure locales
+sudo dpkg-reconfigure keyboard-configuration
 sudo apt install nvidia-jetpack
 ```
 
@@ -238,7 +243,7 @@ Las historias subidas en audio desde `/admin` se transcriben a texto con
 (conversión a WAV 16 kHz mono) y el binario `whisper-cli`:
 
 ```bash
-sudo apt install ccache ffmpeg
+sudo apt install ccache ffmpeg cmake
 
 git clone https://github.com/ggml-org/whisper.cpp
 cd whisper.cpp
@@ -291,24 +296,7 @@ una historia, en CPU (`--no-gpu`) para no competir con llama-server/SD por la
 memoria unificada de 8 GB. Si falta el binario, el modelo o ffmpeg, la subida
 funciona igualmente y simplemente no se genera transcripción.
 
-### Configuración del entorno
 
-```bash
-# Crear entorno virtual
-uv venv
-uv sync
-
-# Instalar dependencias de desarrollo
-sudo apt install libpcsclite-dev
-uv sync --extra dev
-
-# Emular la pila de IA en una máquina x86 de desarrollo (opcional)
-# ⚠️ SOLO en x86. NO ejecutar en el Jetson real: allí CUDA/TensorRT/cuDNN
-#    vienen de `apt install nvidia-jetpack`, y este extra duplicaría/entraría
-#    en conflicto con esos paquetes del sistema (p. ej. tensorrt-cu13-libs).
-#    En el Jetson usa `uv sync` (el instalador ya lo hace automáticamente).
-uv sync --extra jetson
-```
 
 ### Despliegue
 
@@ -329,7 +317,7 @@ propietario del despliegue:
 
 ```bash
 # Clonar el repositorio (en el home del usuario de instalación)
-git clone <repo-url> ~/storybot
+git clone https://github.com/IES-Santiago-Apostol-ARI/storybot.git 
 cd ~/storybot
 
 # Crear .env a partir de la plantilla y definir INSTALL_USER
