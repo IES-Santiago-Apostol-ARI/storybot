@@ -5,7 +5,7 @@
 | Field | Value |
 |-------|-------|
 | Jetson model | Orin Nano Super 8GB |
-| JetPack version | 6.2.1 |
+| JetPack version | 7.2.1 (L4T R39.2.1) |
 | Confirmed `/dev/spidevX.Y` node | _fill after bring-up_ |
 | Final tuned `led_spi_speed_hz` | _fill after tuning (D-04)_ |
 | Encoder variant (Option A / Option B) | _fill after tuning_ |

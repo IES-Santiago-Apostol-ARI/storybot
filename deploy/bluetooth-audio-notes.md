@@ -12,7 +12,7 @@
 ## Why `pipewire-alsa` is required
 
 On the two production targets — **NVIDIA Jetson Orin Nano Super** (JetPack
-6.2.1, Ubuntu 22.04) and **Raspberry Pi** (64-bit Raspberry Pi OS /
+7.2.1, Ubuntu 24.04) and **Raspberry Pi** (64-bit Raspberry Pi OS /
 Ubuntu) — the audio stack is **PipeWire** (the modern sound server that
 replaces PulseAudio). StoryBot plays generated narration through
 `simpleaudio`, which is an **ALSA** client. ALSA clients cannot talk to a

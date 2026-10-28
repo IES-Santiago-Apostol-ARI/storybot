@@ -34,7 +34,7 @@
 - Cuenta gratuita de [NVIDIA Developer](https://developer.nvidia.com/)
 - Acceso a internet para descargar JetPack
 
-### Flasheo inicial vía USB al SSD NVMe (JetPack 6.2.2 / L4T R36.5)
+### Flasheo inicial vía USB al SSD NVMe (JetPack 7.2.1 / L4T R39.2.1)
 
 Este método flashea el firmware y el sistema operativo directamente al SSD NVMe sin necesidad de tarjeta microSD.
 
@@ -58,12 +58,12 @@ lsusb
 
 Deberías ver un dispositivo de NVIDIA (algo como `NVIDIA Corp. APX`). Si no aparece, revisa el cable USB-C y que el jumper esté bien colocado.
 
-#### 3. Descargar JetPack 6.2.2 (L4T R36.5)
+#### 3. Descargar JetPack 7.2.1 (L4T R39.2.1)
 
-Descarga estos dos ficheros desde la [página de Jetson Linux R36.5](https://developer.nvidia.com/embedded/jetson-linux-r365) (necesitas iniciar sesión con tu cuenta NVIDIA Developer):
+Descarga estos dos ficheros desde la [página de Jetson Linux R39.2.1](https://developer.nvidia.com/embedded/jetson-linux-r3921) (necesitas iniciar sesión con tu cuenta NVIDIA Developer):
 
-1. **L4T Driver Package (BSP)** — `Jetson_Linux_R36.5.0_aarch64.tbz2`
-2. **Sample Root Filesystem** — `Tegra_Linux_Sample-Root-Filesystem_R36.5.0_aarch64.tbz2`
+1. **L4T Driver Package (BSP)** — `Jetson_Linux_R39.2.1_aarch64.tbz2`
+2. **Sample Root Filesystem** — `Tegra_Linux_Sample-Root-Filesystem_R39.2.1_aarch64.tbz2`
 
 #### 4. Preparar y flashear
 
@@ -71,11 +71,11 @@ En el PC host, ejecuta los siguientes comandos:
 
 ```bash
 # Extraer el BSP
-tar xf Jetson_Linux_R36.5.0_aarch64.tbz2
+tar xf Jetson_Linux_R39.2.1_aarch64.tbz2
 
 # Extraer el sistema de ficheros raíz dentro del directorio rootfs del BSP
 cd Linux_for_Tegra/rootfs/
-sudo tar xpf ../../Tegra_Linux_Sample-Root-Filesystem_R36.5.0_aarch64.tbz2
+sudo tar xpf ../../Tegra_Linux_Sample-Root-Filesystem_R39.2.1_aarch64.tbz2
 cd ..
 
 # Aplicar los binarios de NVIDIA al rootfs
@@ -172,11 +172,11 @@ Para obtener el máximo rendimiento:
 
 - Python 3.10+
 - uv (gestor de paquetes)
-- JetPack 6.2.1 instalado
+- JetPack 7.2.1 instalado (L4T R39.2.1, Ubuntu 24.04)
 
-### Dependencias del sistema (JetPack 6.2.1)
+### Dependencias del sistema (JetPack 7.2.1)
 
-JetPack 6.2.1 incluye las siguientes librerías CUDA 12.6.10 que se instalan vía apt:
+JetPack 7.2.1 incluye las siguientes librerías CUDA 13.2 que se instalan vía apt:
 
 ```bash
 # Instalar JetPack completo (incluye todas las librerías CUDA)
@@ -185,32 +185,29 @@ sudo apt install nvidia-jetpack
 
 # O instalar librerías específicas manualmente:
 sudo apt install \
-    libcudnn9 \
-    libcudnn9-dev \
-    libcudnn9-static \
-    libcusolver-12-6 \
-    libcusparse-12-6 \
-    libcurand-12-6 \
-    libcufft-12-6 \
-    libcublas-12-6 \
-    libnvjpeg-12-6 \
-    libnvjitlink-12-6
+    libcudnn9-cuda-13 \
+    libcudnn9-dev-cuda-13 \
+    libcusolver-13-2 \
+    libcusparse-13-2 \
+    libcurand-13-2 \
+    libcufft-13-2 \
+    libcublas-13-2 \
+    libnvjpeg-13-2 \
+    libnvjitlink-13-2
 ```
 
-**Componentes incluidos en JetPack 6.2.1:**
+**Componentes incluidos en JetPack 7.2.1** (versiones instaladas en el dispositivo):
 
 | Componente | Versión |
 |------------|---------|
-| CUDA | 12.6.10 |
-| TensorRT | 10.3.0 |
-| cuDNN | 9.3.0 |
-| VPI | 3.2 |
-| DLA | 3.14 |
-| DeepStream | 7.1 |
+| Jetson Linux (L4T) | R39.2.1 |
+| Ubuntu | 24.04 LTS |
+| CUDA | 13.2 |
+| TensorRT | 10.16.2 |
+| cuDNN | 9.20.0 |
+| VPI | 4.1.4 |
 | OpenCV | 4.8.0 |
-| Vulkan | 1.3 |
-| OpenGL | 4.6 |
-| OpenGLES | 3.2 |
+| Vulkan | 1.4 |
 
 #### Compilar llama.cpp
 
@@ -223,7 +220,7 @@ sudo apt install ccache
 ```bash
 cmake -B build \
     -DGGML_CUDA=ON \
-    -DCMAKE_CUDA_COMPILER=/usr/local/cuda-12.6/bin/nvcc \
+    -DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.2/bin/nvcc \
     -DCMAKE_CUDA_ARCHITECTURES="87" \
     -DCMAKE_BUILD_TYPE=Release \
     -DLLAMA_BUILD_TESTS=OFF \
