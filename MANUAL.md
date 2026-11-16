@@ -132,7 +132,7 @@ La tira LED acompaña lo que está pasando. Estos son los estados:
 
 El panel de administración se abre desde un navegador:
 
-- **Desde un móvil o tablet**: conéctate a la red WiFi del robot (**StoryBot**) y abre `http://192.168.12.1/admin`.
+- **Desde un móvil o tablet**: conéctate a la red WiFi del robot (**StoryBot**) y abre `http://storybot.local/admin`. Si tu móvil no resuelve esa dirección, usa la IP que el router TP-Link asignó al robot (aparece en su lista de clientes DHCP, por ejemplo `http://192.168.0.101/admin`).
 - **Desde la pantalla táctil del robot**: `http://localhost/admin`.
 
 El panel no pide usuario ni contraseña: la protección es la propia red del robot, así que **no conectes StoryBot a una red WiFi abierta o compartida** si no quieres que otras personas puedan entrar al panel.
@@ -334,7 +334,7 @@ Para que una historia generada aparezca en el panel infantil como cuento normal:
   - Imágenes: Stable Diffusion 1.5
   - Transcripción de audio: whisper.cpp (en segundo plano, al subir un cuento)
 - **Conexión**: 100% offline, sin necesidad de internet
-- **Red propia**: punto de acceso WiFi "StoryBot" (`192.168.12.1`)
+- **Red propia**: punto de acceso WiFi "StoryBot" (`http://storybot.local`)
 - **Lector NFC**: ACS ACR122U (USB)
 - **Impresora**: Brother QL-820NWBc (pegatinas para colorear)
 - **Tira LED**: 23 LEDs WS2812B

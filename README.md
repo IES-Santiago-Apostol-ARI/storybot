@@ -464,7 +464,7 @@ Accede desde la pantalla táctil del robot: `http://localhost/`
 
 ### Panel de administración
 
-Accede desde un dispositivo móvil conectado a la red WiFi: `http://192.168.12.1/admin`
+Accede desde un dispositivo móvil conectado a la red WiFi "StoryBot": `http://storybot.local/admin` (o la IP que el TP-Link asignó al robot, visible en su lista de clientes DHCP)
 
 ## Pruebas
 

@@ -776,7 +776,11 @@ echo -e "${GREEN}Avahi announcing on Ethernet and WiFi (ignoring $AVAHI_DENY)${N
 
 # WiFi power save makes the radio sleep through multicast frames, so mDNS
 # queries from phones are dropped and storybot.local resolves only sporadically.
-cat > /etc/NetworkManager/conf.d/99-storybot-wifi-powersave.conf << 'EOF'
+# NetworkManager reads conf.d in lexical order (last wins), and Ubuntu ships
+# default-wifi-powersave-on.conf (wifi.powersave = 3) there; a "99-" prefix
+# sorts before "default-" and gets overridden, so use a "zz-" prefix.
+rm -f /etc/NetworkManager/conf.d/99-storybot-wifi-powersave.conf
+cat > /etc/NetworkManager/conf.d/zz-storybot-wifi-powersave.conf << 'EOF'
 [connection]
 wifi.powersave = 2
 EOF
@@ -1096,21 +1100,17 @@ echo "   - SSID: StoryBot"
 echo "5. Wireless Security:"
 echo "   - WPA/WPA2-Personal"
 echo "   - Set a secure password"
-echo "6. Network > LAN:"
-echo "   - IP Address: 192.168.12.1"
-echo "   - Subnet: 255.255.255.0"
-echo "7. DHCP Settings:"
-echo "   - Enable DHCP Server"
-echo "   - IP Pool: 192.168.12.100 - 192.168.12.200"
-echo "8. Reboot the AP"
+echo "6. Leave Network > LAN and DHCP on the TP-Link defaults"
+echo "   (AP at 192.168.0.1, DHCP server enabled)"
+echo "7. Reboot the AP"
 echo ""
-echo "After TP-Link setup, configure the Jetson's Ethernet with static IP:"
-echo "  sudo nmcli connection modify \"Wired connection 1\" \\"
-echo "    ipv4.method manual \\"
-echo "    ipv4.addresses 192.168.12.1/24"
+echo "Leave the Jetson's Ethernet on DHCP (the default): Step 6d already keeps"
+echo "it from taking over the default route or DNS. Optionally reserve its"
+echo "address in the TP-Link's DHCP > Address Reservation page."
 echo ""
-echo "Teachers access the admin panel at: http://192.168.12.1/admin"
-echo "Or via mDNS (no IP needed): http://storybot.local/admin"
+echo "Teachers access the admin panel via mDNS: http://storybot.local/admin"
+echo "Fallback: the Jetson's IP from the TP-Link's DHCP client list"
+echo "  (e.g. http://192.168.0.101/admin)"
 echo ""
 
 # Completion summary
