@@ -88,3 +88,55 @@ class TestLEDStateRoute:
         assert data["status"] == "ok"
         assert data["color"] == "#FF0000"
         assert data["rgb"] == [255, 0, 0]
+
+
+class TestLastCoverOnEnded:
+    """Image button source: 'ended' on a recorded story refreshes last-cover."""
+
+    @pytest.fixture
+    def client(self, monkeypatch, tmp_path):
+        from types import SimpleNamespace
+
+        from app.dependencies import get_story_manager
+
+        story = SimpleNamespace(
+            id="rec-1", title="t", led_color=None, cover_image="cover.jpg"
+        )
+        sm = SimpleNamespace(
+            get_story=lambda _id: story, get_story_by_nfc=lambda _u: None
+        )
+        app.dependency_overrides[get_story_manager] = lambda: sm
+        with TestClient(app) as c:
+            monkeypatch.chdir(tmp_path)  # route resolves content/ relative to cwd
+            yield c, story, tmp_path
+        app.dependency_overrides.pop(get_story_manager, None)
+
+    def _post(self, c, state):
+        return c.post(
+            "/api/system/led/state", json={"state": state, "story_id": "rec-1"}
+        )
+
+    def test_ended_copies_own_cover(self, client):
+        c, _story, tmp = client
+        (tmp / "content/stories/rec-1").mkdir(parents=True)
+        (tmp / "content/stories/rec-1/cover.jpg").write_bytes(b"OWN")
+
+        assert self._post(c, "ended").status_code == 200
+        assert (tmp / "last-cover").read_bytes() == b"OWN"
+
+    def test_ended_falls_back_to_sticker(self, client):
+        c, story, tmp = client
+        story.cover_image = None
+        (tmp / "content/generated/rec-1").mkdir(parents=True)
+        (tmp / "content/generated/rec-1/cover-print.png").write_bytes(b"STICKER")
+
+        assert self._post(c, "ended").status_code == 200
+        assert (tmp / "last-cover").read_bytes() == b"STICKER"
+
+    def test_playback_does_not_copy(self, client):
+        c, _story, tmp = client
+        (tmp / "content/stories/rec-1").mkdir(parents=True)
+        (tmp / "content/stories/rec-1/cover.jpg").write_bytes(b"OWN")
+
+        assert self._post(c, "playback").status_code == 200
+        assert not (tmp / "last-cover").exists()

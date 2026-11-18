@@ -133,14 +133,16 @@ def stub_route() -> _StubRoute:
 
 @pytest.fixture(autouse=True)
 def _isolate_generated_dir_and_swap(request, monkeypatch, tmp_path):
-    """Point module GENERATED_DIRs at tmp and neuter the real swap cycle.
+    """Point GENERATED_DIR / LAST_COVER at tmp and neuter the real swap cycle.
 
     test_swap_orchestrator.py is exempt from the method stubs — it tests the
     real methods (with subprocess/httpx mocked at a lower level).
     """
     gen = tmp_path / "generated"
     monkeypatch.setattr("app.routers.generate.GENERATED_DIR", gen)
-    monkeypatch.setattr("app.services.gpio_dispatcher.GENERATED_DIR", gen)
+    monkeypatch.setattr(
+        "app.services.printer_handler.LAST_COVER", tmp_path / "last-cover"
+    )
 
     if "test_swap_orchestrator" not in request.node.nodeid:
         from app.services.swap_orchestrator import SwapOrchestrator

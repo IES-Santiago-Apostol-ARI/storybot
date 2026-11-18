@@ -18,6 +18,7 @@ from app.services.atomic_io import write_json_atomic
 from app.services.cover_prompt_builder import build_translated as build_cover_prompt
 from app.services.led_animator import Mode
 from app.services.led_effects import hex_to_rgb
+from app.services.printer_handler import save_last_cover
 from app.services.sentence_buffer import SentenceBuffer
 from app.services.swap_orchestrator import LlamaRelaunchError
 
@@ -323,6 +324,8 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
                         str(preview_path),
                         str(print_path),
                     )
+                    # The GPIO image button prints the last finished story's cover.
+                    await asyncio.to_thread(save_last_cover, Path(print_path))
                     # Task 12: structured timing for cover generation.
                     print(
                         json.dumps(

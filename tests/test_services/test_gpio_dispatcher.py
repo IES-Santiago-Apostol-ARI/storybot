@@ -8,13 +8,11 @@ seams (no hardware):
 - interrupt (BTN-02/D-05): audio stop + clear PlaybackState + {type:interrupt}
 - animation (BTN-05/D-11): LedAnimator.rainbow() one-shot
 - lifespan (D-01): dispatcher task created on startup, cancelled cleanly
-- image (BTN-03/04/D-08/09/10): background cover gen, drop-on-busy, success ack,
-  failure/None-orchestrator error blink, nothing-playing / no-params fallback
+- image: print content/last-cover, drop-on-busy, rainbow ack / error blink
 - POST /api/system/poweroff shares the poweroff helper (BTN-06/D-04)
 """
 
 import asyncio
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -158,393 +156,107 @@ class TestLifespan:
 
 
 class TestImageHandler:
-    """BTN-03/04: image button → background cover generation (-k image)."""
+    """Image button → print content/last-cover (-k image)."""
+
+    @pytest.fixture
+    def last_cover(self, tmp_path, monkeypatch):
+        from app.services import printer_handler
+
+        path = tmp_path / "last-cover"
+        monkeypatch.setattr(printer_handler, "LAST_COVER", path)
+        return path
 
     @pytest.mark.asyncio
-    async def test_image_success_enqueues_event_and_rainbow_ack(self, fake_clock):
-        orch = MagicMock()
-        orch.generate_cover_for_story = AsyncMock(
-            return_value=(Path("/x/cover-preview.png"), Path("/x/cover-print.png"), 4.2)
-        )
+    async def test_image_prints_last_cover_and_rainbow(self, fake_clock, last_cover):
+        last_cover.write_bytes(b"png")
+        printer = MagicMock(print_sticker=AsyncMock())
         led = MagicMock()
-        kiosk: asyncio.Queue = asyncio.Queue()
-        holder = _holder(
-            {
-                "story_id": "story-1",
-                "params": [{"category": "personaje", "value": "gato"}],
-                "title": "Cuento",
-            }
-        )
-        d = _dispatcher(
-            kiosk_events=kiosk,
-            swap_orchestrator=orch,
-            led_animator=led,
-            playback_holder=holder,
-            now=fake_clock,
-        )
+        d = _dispatcher(printer=printer, led_animator=led, now=fake_clock)
 
         await d._handle_event("image")
         await _drain_tasks()
 
-        orch.generate_cover_for_story.assert_awaited_once()
-        assert orch.generate_cover_for_story.call_args[0][0] == "story-1"
-        assert isinstance(orch.generate_cover_for_story.call_args[0][3], int)
-        assert kiosk.get_nowait() == {
-            "type": "image",
-            "url": "/static/generated/story-1/cover-preview.png",
-        }
+        printer.print_sticker.assert_awaited_once_with(last_cover)
         led.rainbow.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_image_always_regenerates_even_with_existing_cover(
-        self, fake_clock, tmp_path, monkeypatch
-    ):
-        """Task 5: an existing cover-preview.png no longer short-circuits — the
-        orchestrator is always called so the old image is replaced."""
-        from app.services import gpio_dispatcher
-
-        monkeypatch.setattr(gpio_dispatcher, "GENERATED_DIR", tmp_path)
-        cover = tmp_path / "story-1" / "cover-preview.png"
-        cover.parent.mkdir(parents=True)
-        cover.write_bytes(b"old-png-bytes")
-
-        orch = MagicMock()
-        orch.generate_cover_for_story = AsyncMock(
-            return_value=(Path("/x/cover-preview.png"), Path("/x/cover-print.png"), 1.0)
-        )
+    async def test_image_no_cover_yet_error_blink(self, fake_clock, last_cover):
+        printer = MagicMock(print_sticker=AsyncMock())
         led = MagicMock()
-        kiosk: asyncio.Queue = asyncio.Queue()
-        holder = _holder(
-            {
-                "story_id": "story-1",
-                "params": [{"category": "personaje", "value": "gato"}],
-                "title": "Cuento",
-            }
-        )
-        d = _dispatcher(
-            kiosk_events=kiosk,
-            swap_orchestrator=orch,
-            led_animator=led,
-            playback_holder=holder,
-            now=fake_clock,
-        )
+        d = _dispatcher(printer=printer, led_animator=led, now=fake_clock)
 
         await d._handle_event("image")
         await _drain_tasks()
 
-        orch.generate_cover_for_story.assert_awaited_once()
-        assert kiosk.get_nowait() == {
-            "type": "image",
-            "url": "/static/generated/story-1/cover-preview.png",
-        }
-        led.rainbow.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_image_seed_varies_between_presses(self, fake_clock):
-        """Seed is random (random.randint), not derived from story_id — two
-        presses with the same story yield different seeds."""
-        orch = MagicMock()
-        orch.generate_cover_for_story = AsyncMock(
-            return_value=(Path("/x/cover-preview.png"), Path("/x/cover-print.png"), 1.0)
-        )
-        holder = _holder({"story_id": "story-1", "params": [], "title": "T"})
-        d = _dispatcher(swap_orchestrator=orch, playback_holder=holder, now=fake_clock)
-
-        await d._handle_event("image")
-        await _drain_tasks()
-        seed1 = orch.generate_cover_for_story.call_args[0][3]
-
-        fake_clock.now += 1.0  # bypass debounce
-        await d._handle_event("image")
-        await _drain_tasks()
-        seed2 = orch.generate_cover_for_story.call_args[0][3]
-
-        assert seed1 != seed2
-
-    @pytest.mark.asyncio
-    async def test_image_drop_on_busy(self, fake_clock):
-        release = asyncio.Event()
-        calls: list[str] = []
-
-        async def slow_gen(story_id, positive, negative, seed):
-            calls.append(story_id)
-            await release.wait()
-            return (Path("/x/cover-preview.png"), Path("/x/cover-print.png"), 1.0)
-
-        orch = MagicMock()
-        orch.generate_cover_for_story = slow_gen
-        holder = _holder({"story_id": "story-1", "params": [], "title": "T"})
-        d = _dispatcher(swap_orchestrator=orch, playback_holder=holder, now=fake_clock)
-
-        await d._handle_event("image")  # starts generation → busy
-        await asyncio.sleep(0)
-        fake_clock.now += 1.0  # bypass debounce so busy-guard is the cause
-        await d._handle_event("image")  # in flight → DROPPED
-        await asyncio.sleep(0)
-
-        assert len(calls) == 1
-
-        release.set()
-        await _drain_tasks()
-
-    @pytest.mark.asyncio
-    async def test_image_failure_drives_error_blink(self, fake_clock):
-        orch = MagicMock()
-        orch.generate_cover_for_story = AsyncMock(return_value=(None, None, None))
-        led = MagicMock()
-        kiosk: asyncio.Queue = asyncio.Queue()
-        holder = _holder({"story_id": "story-1", "params": [], "title": "T"})
-        d = _dispatcher(
-            kiosk_events=kiosk,
-            swap_orchestrator=orch,
-            led_animator=led,
-            playback_holder=holder,
-            now=fake_clock,
-        )
-
-        await d._handle_event("image")
-        await _drain_tasks()
-
+        printer.print_sticker.assert_not_called()
         led.set_mode.assert_called_with(Mode.ERROR)
-        assert kiosk.empty()
 
     @pytest.mark.asyncio
-    async def test_image_none_orchestrator_error_blink(self, fake_clock):
+    async def test_image_no_printer_error_blink(self, fake_clock, last_cover):
+        last_cover.write_bytes(b"png")
         led = MagicMock()
-        kiosk: asyncio.Queue = asyncio.Queue()
-        holder = _holder({"story_id": "story-1", "params": [], "title": "T"})
-        d = _dispatcher(
-            kiosk_events=kiosk,
-            swap_orchestrator=None,
-            led_animator=led,
-            playback_holder=holder,
-            now=fake_clock,
-        )
+        d = _dispatcher(printer=None, led_animator=led, now=fake_clock)
 
         await d._handle_event("image")  # must not raise
-        await _drain_tasks()
 
         led.set_mode.assert_called_with(Mode.ERROR)
-        assert kiosk.empty()
-
-
-class TestImageEdgeCases:
-    """BTN-04/D-10 edge cases (-k image_edge)."""
 
     @pytest.mark.asyncio
-    async def test_image_edge_nothing_playing(self, fake_clock):
-        orch = MagicMock()
-        orch.generate_cover_for_story = AsyncMock()
+    async def test_image_print_failure_error_blink(self, fake_clock, last_cover):
+        last_cover.write_bytes(b"png")
+        printer = MagicMock(print_sticker=AsyncMock(side_effect=OSError("off")))
         led = MagicMock()
-        kiosk: asyncio.Queue = asyncio.Queue()
-        holder = _holder(None)  # nothing playing
-        d = _dispatcher(
-            kiosk_events=kiosk,
-            swap_orchestrator=orch,
-            led_animator=led,
-            playback_holder=holder,
-            now=fake_clock,
-        )
-
-        await d._handle_event("image")
-        await _drain_tasks()
-
-        orch.generate_cover_for_story.assert_not_called()
-        led.set_mode.assert_called_with(Mode.ERROR)
-        assert kiosk.empty()
-
-    @pytest.mark.asyncio
-    async def test_image_edge_no_params_title_fallback(self, fake_clock):
-        from app.services import gpio_dispatcher
-
-        captured: dict = {}
-
-        async def spy_build(params):
-            captured["params"] = params
-            return ("positive", "negative")
-
-        orch = MagicMock()
-        orch.generate_cover_for_story = AsyncMock(
-            return_value=(Path("/x/cover-preview.png"), Path("/x/print.png"), 1.0)
-        )
-        holder = _holder(
-            {"story_id": "story-1", "params": [], "title": "Cuento de Ana"}
-        )
-        d = _dispatcher(swap_orchestrator=orch, playback_holder=holder, now=fake_clock)
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(
-                gpio_dispatcher.cover_prompt_builder, "build_translated", spy_build
-            )
-            await d._handle_event("image")
-            await _drain_tasks()
-
-        assert captured["params"] == [
-            {"category": "personaje", "value": "Cuento de Ana"}
-        ]
-        orch.generate_cover_for_story.assert_awaited_once()
-
-
-class TestImageOwnCover:
-    """Curated stories with their own cover: image button must NOT replace the
-    cover on the kiosk (no ``image`` event enqueued).
-
-    Selector: -k own_cover
-    """
-
-    @pytest.mark.asyncio
-    async def test_own_cover_generates_image_and_rainbow_but_no_kiosk_event(
-        self, fake_clock
-    ):
-        """has_own_cover=True: orchestrator is called, rainbow ack fires, but no
-        ``image`` event reaches kiosk_events — the original cover stays visible."""
-        orch = MagicMock()
-        orch.generate_cover_for_story = AsyncMock(
-            return_value=(
-                Path("/x/cover-preview.png"),
-                Path("/x/cover-print.png"),
-                4.2,
-            )
-        )
-        led = MagicMock()
-        kiosk: asyncio.Queue = asyncio.Queue()
-        holder = _holder(
-            {
-                "story_id": "curated-1",
-                "params": [],
-                "title": "Cuento curado",
-                "has_own_cover": True,
-            }
-        )
-        d = _dispatcher(
-            kiosk_events=kiosk,
-            swap_orchestrator=orch,
-            led_animator=led,
-            playback_holder=holder,
-            now=fake_clock,
-        )
-
-        await d._handle_event("image")
-        await _drain_tasks()
-
-        # Image was generated (for printing)
-        orch.generate_cover_for_story.assert_awaited_once()
-        assert orch.generate_cover_for_story.call_args[0][0] == "curated-1"
-
-        # Rainbow ack fires
-        led.rainbow.assert_called_once()
-
-        # But the kiosk event queue is empty — no cover swap on screen
-        assert kiosk.empty()
-
-    @pytest.mark.asyncio
-    async def test_own_cover_false_still_enqueues_image_event(self, fake_clock):
-        """has_own_cover=False (or absent): the existing behavior is preserved —
-        the image event IS enqueued and the kiosk swaps the cover."""
-        orch = MagicMock()
-        orch.generate_cover_for_story = AsyncMock(
-            return_value=(
-                Path("/x/cover-preview.png"),
-                Path("/x/cover-print.png"),
-                1.0,
-            )
-        )
-        led = MagicMock()
-        kiosk: asyncio.Queue = asyncio.Queue()
-        holder = _holder(
-            {
-                "story_id": "generated-1",
-                "params": [{"category": "personaje", "value": "oso"}],
-                "title": "El oso",
-                "has_own_cover": False,
-            }
-        )
-        d = _dispatcher(
-            kiosk_events=kiosk,
-            swap_orchestrator=orch,
-            led_animator=led,
-            playback_holder=holder,
-            now=fake_clock,
-        )
-
-        await d._handle_event("image")
-        await _drain_tasks()
-
-        orch.generate_cover_for_story.assert_awaited_once()
-        assert kiosk.get_nowait() == {
-            "type": "image",
-            "url": "/static/generated/generated-1/cover-preview.png",
-        }
-        led.rainbow.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_own_cover_missing_key_same_as_false(self, fake_clock):
-        """A snapshot that simply lacks has_own_cover behaves as False — image
-        event is enqueued (backwards compat)."""
-        orch = MagicMock()
-        orch.generate_cover_for_story = AsyncMock(
-            return_value=(
-                Path("/x/cover-preview.png"),
-                Path("/x/cover-print.png"),
-                1.0,
-            )
-        )
-        led = MagicMock()
-        kiosk: asyncio.Queue = asyncio.Queue()
-        holder = _holder(
-            {
-                "story_id": "old-story",
-                "params": [],
-                "title": "Old",
-                # has_own_cover key absent
-            }
-        )
-        d = _dispatcher(
-            kiosk_events=kiosk,
-            swap_orchestrator=orch,
-            led_animator=led,
-            playback_holder=holder,
-            now=fake_clock,
-        )
-
-        await d._handle_event("image")
-        await _drain_tasks()
-
-        orch.generate_cover_for_story.assert_awaited_once()
-        assert kiosk.get_nowait() == {
-            "type": "image",
-            "url": "/static/generated/old-story/cover-preview.png",
-        }
-        led.rainbow.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_own_cover_failure_still_error_blinks(self, fake_clock):
-        """has_own_cover=True but generation fails → error blink, no kiosk event."""
-        orch = MagicMock()
-        orch.generate_cover_for_story = AsyncMock(return_value=(None, None, None))
-        led = MagicMock()
-        kiosk: asyncio.Queue = asyncio.Queue()
-        holder = _holder(
-            {
-                "story_id": "curated-1",
-                "params": [],
-                "title": "Cuento",
-                "has_own_cover": True,
-            }
-        )
-        d = _dispatcher(
-            kiosk_events=kiosk,
-            swap_orchestrator=orch,
-            led_animator=led,
-            playback_holder=holder,
-            now=fake_clock,
-        )
+        d = _dispatcher(printer=printer, led_animator=led, now=fake_clock)
 
         await d._handle_event("image")
         await _drain_tasks()
 
         led.set_mode.assert_called_with(Mode.ERROR)
-        assert kiosk.empty()
+        led.rainbow.assert_not_called()
+        assert d._image_busy is False
+
+    @pytest.mark.asyncio
+    async def test_image_drop_on_busy(self, fake_clock, last_cover):
+        last_cover.write_bytes(b"png")
+        gate = asyncio.Event()
+
+        async def slow_print(_path):
+            await gate.wait()
+
+        printer = MagicMock(print_sticker=AsyncMock(side_effect=slow_print))
+        d = _dispatcher(printer=printer, now=fake_clock)
+
+        await d._handle_event("image")
+        await asyncio.sleep(0)
+        fake_clock.now += 1.0
+        await d._handle_event("image")  # in flight → dropped
+        gate.set()
+        await _drain_tasks()
+
+        assert printer.print_sticker.await_count == 1
+
+
+class TestSaveLastCover:
+    def test_copies_and_overwrites(self, tmp_path, monkeypatch):
+        from app.services import printer_handler
+
+        dst = tmp_path / "last-cover"
+        monkeypatch.setattr(printer_handler, "LAST_COVER", dst)
+        a, b = tmp_path / "a.png", tmp_path / "b.jpg"
+        a.write_bytes(b"A")
+        b.write_bytes(b"B")
+
+        printer_handler.save_last_cover(a)
+        printer_handler.save_last_cover(b)
+
+        assert dst.read_bytes() == b"B"
+        assert not (tmp_path / "last-cover.tmp").exists()
+
+    def test_missing_source_never_raises(self, tmp_path, monkeypatch):
+        from app.services import printer_handler
+
+        monkeypatch.setattr(printer_handler, "LAST_COVER", tmp_path / "last-cover")
+        printer_handler.save_last_cover(tmp_path / "nope.png")
 
 
 class TestPoweroffEndpoint:

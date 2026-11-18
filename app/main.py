@@ -324,7 +324,7 @@ async def lifespan(app: FastAPI):
             kiosk_events=app.state.kiosk_events,
             audio_player=hardware.get_service("audio"),
             led_animator=getattr(app.state, "led_animator", None),
-            swap_orchestrator=getattr(app.state, "swap_orchestrator", None),
+            printer=getattr(app.state, "printer", None),
             playback_holder=app.state,
         )
         gpio_dispatcher_task = asyncio.create_task(app.state.gpio_dispatcher.run())

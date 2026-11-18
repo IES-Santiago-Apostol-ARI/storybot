@@ -5,6 +5,7 @@ import json
 import re
 from collections.abc import AsyncIterator
 from enum import Enum
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
@@ -250,6 +251,19 @@ async def set_led_state(
             }
     elif state in (LEDState.IDLE, LEDState.ENDED):
         http_request.app.state.playback = None
+
+    # Image button prints content/last-cover: refresh it when a recorded story
+    # ends. Own cover first, else an AI sticker made for it. Live generated
+    # stories never resolve here (synthetic id); generate.py copies theirs.
+    if state == LEDState.ENDED and story is not None:
+        from app.services.printer_handler import save_last_cover
+
+        candidates = [Path("content/generated") / story.id / "cover-print.png"]
+        if story.cover_image:
+            candidates.insert(0, Path("content/stories") / story.id / story.cover_image)
+        src = next((c for c in candidates if c.is_file()), None)
+        if src is not None:
+            await asyncio.to_thread(save_last_cover, src)
 
     if state == LEDState.PLAYBACK:
         # D-13: PLAYBACK is a base mode; pass the resolved color so the

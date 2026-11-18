@@ -6,8 +6,10 @@ NEVER raises — falls back to mock when brother_ql is unavailable or TESTING is
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -24,6 +26,30 @@ except Exception:  # pragma: no cover — exercised on machines without brother_
     convert = None  # type: ignore
     BrotherQLRaster = None  # type: ignore
     _BROTHER_QL_AVAILABLE = False
+
+# Cover of the last finished story; the GPIO image button prints this file.
+# No extension on purpose: it may hold a PNG or a JPG and PIL sniffs content.
+LAST_COVER = Path("content/last-cover")
+
+
+def save_last_cover(src: Path) -> None:
+    """Copy *src* over LAST_COVER atomically (a press mid-copy never reads half
+    a file). Never raises: losing the copy must not break playback/generation."""
+    try:
+        tmp = LAST_COVER.with_name(LAST_COVER.name + ".tmp")
+        shutil.copyfile(src, tmp)
+        os.replace(tmp, LAST_COVER)
+    except Exception as e:
+        print(
+            json.dumps(
+                {
+                    "event": "last_cover_save_failed",
+                    "src": str(src),
+                    "reason": type(e).__name__,
+                }
+            ),
+            file=sys.stderr,
+        )
 
 
 class PrinterService:
@@ -47,6 +73,13 @@ class RealPrinterService(PrinterService):
     async def print_sticker(self, png_path: Path) -> None:
         if not self._available or BrotherQLRaster is None:
             raise RuntimeError("brother_ql backend not available")
+        # Blocking USB I/O: keep it off the event loop (buttons, SSE, audio).
+        await asyncio.to_thread(self._print_sync, png_path)
+
+    def _print_sync(self, png_path: Path) -> None:
+        # Direct pyusb send, no spooler: if the printer is off this raises and
+        # the job is gone, so nothing piles up to print when it powers on.
+        # convert() also prefixes every job with invalidate + ESC @ (reset).
         qlr = BrotherQLRaster("QL-820NWBc")
         convert(
             qlr=qlr,

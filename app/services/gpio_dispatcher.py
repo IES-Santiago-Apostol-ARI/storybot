@@ -8,9 +8,9 @@ Phase 37's SSE). It owns the four button-name actions:
 - **interrupt** (BTN-02, D-05): ``audio_player.stop()`` + clear the PlaybackState
   snapshot + enqueue ``{"type": "interrupt"}`` onto kiosk_events.
 - **animation** (BTN-05, D-11): one-shot ``LedAnimator.rainbow()``.
-- **image** (BTN-03/04, D-08/09/10): background cover generation via
-  ``swap_orchestrator``, drop-on-busy guard, rainbow ack / ``Mode.ERROR`` blink,
-  and the nothing-playing / no-params edge cases.
+- **image**: print ``content/last-cover`` (the cover of the last finished
+  story, kept fresh by the led/state and generate routes) on the Brother QL;
+  drop-on-busy guard, rainbow ack / ``Mode.ERROR`` blink.
 
 A per-button debounce-once guard (D-02/BTN-07) enforces "fires exactly once per
 press" using ``settings.gpio_debounce_ms`` (50 ms — explicitly NOT
@@ -20,19 +20,13 @@ fake_clock drives it deterministically.
 
 import asyncio
 import json
-import random
 import sys
 import time
-from pathlib import Path
 from typing import Any
 
 from app.config import get_settings
-from app.services import cover_prompt_builder, system_control
+from app.services import printer_handler, system_control
 from app.services.led_animator import Mode
-
-# Where generated covers land (same tree the SD worker writes via the
-# orchestrator's out_dir and generate.py's GENERATED_DIR).
-GENERATED_DIR = Path("content/generated")
 
 
 def _log(event: str, **fields: Any) -> None:
@@ -52,8 +46,7 @@ class GpioDispatcher:
             for the kiosk UI / SSE consumers.
         audio_player: AudioPlayer for the interrupt handler, or None.
         led_animator: LedAnimator for rainbow ack / Mode.ERROR feedback, or None.
-        swap_orchestrator: SwapOrchestrator for cover generation, or None on a
-            non-AI profile (the image handler degrades to Mode.ERROR).
+        printer: PrinterService for the image button, or None (error blink).
         playback_holder: object exposing a mutable ``.playback`` attribute that
             holds the current PlaybackState snapshot ``{story_id, params, title}``
             or None. In production this is ``app.state``; in unit tests it is a
@@ -70,7 +63,7 @@ class GpioDispatcher:
         *,
         audio_player: Any = None,
         led_animator: Any = None,
-        swap_orchestrator: Any = None,
+        printer: Any = None,
         playback_holder: Any = None,
         now: Any = None,
     ) -> None:
@@ -78,22 +71,15 @@ class GpioDispatcher:
         self._kiosk_events = kiosk_events
         self._audio_player = audio_player
         self._led_animator = led_animator
-        self._swap_orchestrator = swap_orchestrator
+        self._printer = printer
         self._playback_holder = playback_holder
         self._now = now or time.monotonic
 
         # Per-button debounce state: last accepted timestamp per button name.
         self._last_fired: dict[str, float] = {}
 
-        # Drop-on-busy in-flight guard for the image handler (D-08).
+        # Drop-on-busy guard: a double press must not print twice.
         self._image_busy = False
-
-    # ------------------------------------------------------------------ #
-    # Playback snapshot
-    # ------------------------------------------------------------------ #
-    def _playback(self) -> dict | None:
-        """Read the current PlaybackState snapshot from the holder (live)."""
-        return getattr(self._playback_holder, "playback", None)
 
     # ------------------------------------------------------------------ #
     # Debounce
@@ -142,7 +128,7 @@ class GpioDispatcher:
             self._led_animator.rainbow()
 
     # ------------------------------------------------------------------ #
-    # Image button (BTN-03/04)
+    # Image button: print the last finished story's cover
     # ------------------------------------------------------------------ #
     def _error_blink(self) -> None:
         """D-09/D-10: short error blink via the engine (sole writer)."""
@@ -150,95 +136,28 @@ class GpioDispatcher:
             self._led_animator.set_mode(Mode.ERROR)
 
     def _handle_image(self) -> None:
-        """BTN-03/04: launch background cover generation for the playing story.
+        """Print content/last-cover in a background task (buttons stay instant).
 
-        D-10 nothing-playing → safe no-op + Mode.ERROR blink. Drop-on-busy
-        (D-08): re-presses while a generation is in flight are dropped. A None
-        orchestrator (non-AI profile) degrades to Mode.ERROR. Generation runs in
-        a background asyncio task so power/interrupt/animation stay instant.
+        No printer or no cover saved yet → error blink. Re-presses while a
+        print is in flight are dropped.
         """
-        snapshot = self._playback()
-
-        # D-10/BTN-04: nothing playing → safe no-op + error blink.
-        if not snapshot:
-            self._error_blink()
-            return
-
-        # D-08: drop re-presses while a generation is already in flight.
         if self._image_busy:
             return
-
-        # Non-AI profile: no orchestrator → error blink, never AttributeError.
-        if self._swap_orchestrator is None:
+        if self._printer is None or not printer_handler.LAST_COVER.is_file():
             self._error_blink()
             return
-
-        # D-10: use the snapshot params, else synthesize a title-based fallback
-        # so the image button always tries to produce something while playing.
-        params = snapshot.get("params") or []
-        if not params:
-            title = snapshot.get("title", "") or ""
-            params = [{"category": "personaje", "value": title}]
-
-        story_id = snapshot.get("story_id")
-        has_own_cover = snapshot.get("has_own_cover", False)
-
         self._image_busy = True
-        asyncio.create_task(self._generate_cover(story_id, params, has_own_cover))
+        asyncio.create_task(self._print_last_cover())
 
-    async def _generate_cover(
-        self, story_id: str, params: list[dict], has_own_cover: bool = False
-    ) -> None:
-        """Background task: build the prompt, run the orchestrator, then ack
-        or error-blink.
-
-        The prompt is built here, not in the button handler, because turning
-        the Spanish card values into English may ask llama-server.
-
-        Always regenerates (Task 5): the SD worker overwrites
-        ``cover-preview.png`` / ``cover-print.png`` in
-        ``content/generated/<story_id>/``, replacing the old image. The old
-        image survives if generation fails (safer than pre-deleting). Seed is
-        random so re-presses produce different images.
-
-        On success enqueues ``{"type": "image", "url": ...}`` (URL derived from
-        the orchestrator's actual preview filename) and fires ``rainbow()`` as
-        the press ack (D-09). On busy/failure/exception drives ``Mode.ERROR``.
-        The in-flight guard is reset in ``finally`` regardless of outcome.
-
-        When ``has_own_cover`` is True (curated story with its own cover image),
-        the generated image is kept for printing but the ``image`` event is NOT
-        enqueued — the kiosk keeps the original cover visible.
-        """
+    async def _print_last_cover(self) -> None:
+        """Rainbow ack on success; error blink on failure (e.g. printer off —
+        the job is dropped, never queued). Busy guard reset in ``finally``."""
         try:
-            positive, negative = await cover_prompt_builder.build_translated(params)
-            seed = random.randint(0, 2**32 - 1)
-            preview_path, _print_path, _gen_seconds = (
-                await self._swap_orchestrator.generate_cover_for_story(
-                    story_id, positive, negative, seed
-                )
-            )
-
-            # Busy-lock or failure → (None, None, None).
-            if preview_path is None:
-                self._error_blink()
-                return
-
-            if not has_own_cover:
-                # Derive the URL from the actual output filename (avoids a silent
-                # 404 if the worker's basename ever changes).
-                url = f"/static/generated/{story_id}/{preview_path.name}"
-                self._kiosk_events.put_nowait({"type": "image", "url": url})
-
+            await self._printer.print_sticker(printer_handler.LAST_COVER)
             if self._led_animator is not None:
                 self._led_animator.rainbow()
-
         except Exception as e:
-            _log(
-                "cover_generation_error",
-                story_id=story_id,
-                reason=type(e).__name__,
-            )
+            _log("cover_print_error", reason=type(e).__name__)
             self._error_blink()
         finally:
             self._image_busy = False
