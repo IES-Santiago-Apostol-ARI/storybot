@@ -808,6 +808,20 @@ systemctl enable --now avahi-daemon
 systemctl restart avahi-daemon
 echo -e "${GREEN}Avahi configured -- device reachable at http://storybot.local${NC}"
 
+# Step 6h: Keep the clock right. There is no RTC battery, so the device boots
+# in 1970 and TLS (git pull, update checks) fails. timesyncd handles networks
+# where NTP works and, offline, restores the last saved time at boot; the
+# school network blocks UDP 123, so fall back to an HTTP Date header.
+echo ""
+echo "Step 6h: Configuring clock sync (NTP + HTTP fallback)..."
+timedatectl set-ntp true
+cp "$INSTALL_DIR/deploy/storybot-http-time.sh" /usr/local/bin/storybot-http-time.sh
+chmod +x /usr/local/bin/storybot-http-time.sh
+cp "$INSTALL_DIR/deploy/storybot-http-time.service" "$INSTALL_DIR/deploy/storybot-http-time.timer" /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now storybot-http-time.timer
+echo -e "${GREEN}Clock sync configured (timesyncd + storybot-http-time.timer)${NC}"
+
 # Step 7: Configure Nginx reverse proxy
 echo ""
 echo "Step 7: Configuring Nginx reverse proxy..."
