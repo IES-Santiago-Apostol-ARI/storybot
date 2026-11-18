@@ -403,6 +403,41 @@ app = FastAPI(
 )
 
 
+class NoStoreApiMiddleware:
+    """Send ``Cache-Control: no-store`` on every /api/* response.
+
+    API responses had no Cache-Control, so Firefox heuristically cached them.
+    The Jetson boots offline with its clock at 1970, which makes a cached
+    response (Date in 2026) look fresh forever: the kiosk kept rendering a
+    stale empty ``/api/stories`` and never showed saved stories. Pure ASGI
+    (not BaseHTTPMiddleware) so SSE streams pass through untouched.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not scope["path"].startswith("/api/"):
+            await self.app(scope, receive, send)
+            return
+
+        async def send_no_store(message):
+            if message["type"] == "http.response.start":
+                headers = [
+                    (k, v)
+                    for k, v in message.get("headers", [])
+                    if k.lower() != b"cache-control"
+                ]
+                headers.append((b"cache-control", b"no-store"))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_no_store)
+
+
+app.add_middleware(NoStoreApiMiddleware)
+
+
 @app.get("/")
 async def root():
     """Redirect root to children's kiosk interface."""
