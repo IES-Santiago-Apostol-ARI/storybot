@@ -10,19 +10,26 @@ import asyncio
 import json
 import os
 import shutil
+import socket
 import sys
 from pathlib import Path
+
+from app.config import get_settings
 
 # Import brother_ql lazily — the module must remain importable on machines
 # where brother_ql is not installed (Mock-only environments).
 try:
-    from brother_ql.backends.helpers import send  # type: ignore
+    from PIL import Image
+
+    # brother_ql 0.9.4 resizes with Image.ANTIALIAS, removed in Pillow 10.
+    if not hasattr(Image, "ANTIALIAS"):
+        Image.ANTIALIAS = Image.LANCZOS  # type: ignore[attr-defined]
+
     from brother_ql.conversion import convert  # type: ignore
     from brother_ql.raster import BrotherQLRaster  # type: ignore
 
     _BROTHER_QL_AVAILABLE = True
 except Exception:  # pragma: no cover — exercised on machines without brother_ql
-    send = None  # type: ignore
     convert = None  # type: ignore
     BrotherQLRaster = None  # type: ignore
     _BROTHER_QL_AVAILABLE = False
@@ -62,7 +69,7 @@ class PrinterService:
 
 
 class RealPrinterService(PrinterService):
-    """Real Brother QL-820NWBc backend via pyusb (D-18)."""
+    """Real Brother QL-820NWB backend over Bluetooth RFCOMM (D-18)."""
 
     is_mock: bool = False
 
@@ -77,22 +84,61 @@ class RealPrinterService(PrinterService):
         await asyncio.to_thread(self._print_sync, png_path)
 
     def _print_sync(self, png_path: Path) -> None:
-        # Direct pyusb send, no spooler: if the printer is off this raises and
-        # the job is gone, so nothing piles up to print when it powers on.
+        # Direct RFCOMM send, no spooler: if the printer is off connect() fails
+        # and the job is gone, so nothing piles up to print when it powers on.
         # convert() also prefixes every job with invalidate + ESC @ (reset).
-        qlr = BrotherQLRaster("QL-820NWBc")
+        qlr = BrotherQLRaster("QL-820NWB")
+        # Two-colour job: the loaded DK-22251 black/red roll rejects black-only
+        # jobs ("tipo de rollo incorrecto"); a B/W cover still prints black.
         convert(
             qlr=qlr,
             images=[str(png_path)],
-            label="62",
+            label="62red",
+            red=True,
             dither=False,
             threshold=70.0,
         )
-        send(
-            instructions=qlr.data,
-            printer_identifier="usb://0x04f9:0x209d",
-            backend_identifier="pyusb",
-        )
+        settings = get_settings()
+        sock = socket.socket(_AF_BLUETOOTH, socket.SOCK_STREAM, _BTPROTO_RFCOMM)
+        try:
+            sock.settimeout(_BT_TIMEOUT_S)
+            sock.connect((settings.printer_bt_address, settings.printer_bt_channel))
+            sock.sendall(qlr.data)
+            _wait_print_result(sock)
+        finally:
+            sock.close()
+
+
+# Linux values; some CPython builds (e.g. uv's on the dev box) lack the names.
+_AF_BLUETOOTH = getattr(socket, "AF_BLUETOOTH", 31)
+_BTPROTO_RFCOMM = getattr(socket, "BTPROTO_RFCOMM", 3)
+# Bluetooth connect / status-read timeout (seconds).
+_BT_TIMEOUT_S = 20.0
+# Status frame byte 18 (status type): 0x01 printing completed, 0x02 error.
+_STATUS_DONE = 0x01
+_STATUS_ERROR = 0x02
+
+
+def _wait_print_result(sock: socket.socket) -> None:
+    """Read 32-byte status frames until printing completes. Raises on an error
+    frame; a silent printer (timeout / closed link) counts as sent."""
+    buf = b""
+    try:
+        while True:
+            chunk = sock.recv(64)
+            if not chunk:
+                return
+            buf += chunk
+            while len(buf) >= 32:
+                frame, buf = buf[:32], buf[32:]
+                if frame[18] == _STATUS_ERROR:
+                    raise RuntimeError(
+                        f"printer error err1=0x{frame[8]:02x} err2=0x{frame[9]:02x}"
+                    )
+                if frame[18] == _STATUS_DONE:
+                    return
+    except TimeoutError:
+        return
 
 
 class MockPrinterService(PrinterService):

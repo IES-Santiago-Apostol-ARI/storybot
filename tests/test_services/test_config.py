@@ -279,3 +279,11 @@ class TestAtomicConfigSave:
         reloaded = config_manager.reload()
         assert reloaded.gpio_debounce_ms == 200
         assert reloaded.tts_voice == "custom"
+
+
+def test_printer_bluetooth_defaults():
+    from app.config import Settings
+
+    s = Settings()
+    assert s.printer_bt_address == "04:68:74:2F:17:5C"
+    assert s.printer_bt_channel == 1
