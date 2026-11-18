@@ -157,3 +157,35 @@ class TestFactory:
         # this test just asserts the contract: factory never raises.
         svc = create_printer_service()
         assert isinstance(svc, PrinterService)
+
+
+class TestSaveStoryCover:
+    """Resolve a recorded story's printable cover and copy it to LAST_COVER."""
+
+    def test_prefers_own_cover(self, tmp_path, monkeypatch):
+        from app.services import printer_handler
+
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "content/stories/s1").mkdir(parents=True)
+        (tmp_path / "content/stories/s1/cover.jpg").write_bytes(b"OWN")
+        (tmp_path / "content/generated/s1").mkdir(parents=True)
+        (tmp_path / "content/generated/s1/cover-print.png").write_bytes(b"STICKER")
+        printer_handler.save_story_cover("s1", "cover.jpg")
+        assert printer_handler.LAST_COVER.read_bytes() == b"OWN"
+
+    def test_falls_back_to_sticker(self, tmp_path, monkeypatch):
+        from app.services import printer_handler
+
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "content/generated/s1").mkdir(parents=True)
+        (tmp_path / "content/generated/s1/cover-print.png").write_bytes(b"STICKER")
+        printer_handler.save_story_cover("s1", None)
+        assert printer_handler.LAST_COVER.read_bytes() == b"STICKER"
+
+    def test_no_cover_leaves_last_cover_alone(self, tmp_path, monkeypatch):
+        from app.services import printer_handler
+
+        monkeypatch.chdir(tmp_path)
+        printer_handler.LAST_COVER.write_bytes(b"PREVIOUS")
+        printer_handler.save_story_cover("s1", None)
+        assert printer_handler.LAST_COVER.read_bytes() == b"PREVIOUS"

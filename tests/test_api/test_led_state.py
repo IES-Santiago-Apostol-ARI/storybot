@@ -140,3 +140,43 @@ class TestLastCoverOnEnded:
 
         assert self._post(c, "playback").status_code == 200
         assert not (tmp / "last-cover").exists()
+
+
+class TestLastCoverOnInterrupted:
+    """A recorded story abandoned mid-playback (kiosk drops to 'idle' with no
+    story id) also refreshes last-cover, so the image button can print it
+    without listening to the whole story."""
+
+    @pytest.fixture
+    def client(self, monkeypatch, tmp_path):
+        from types import SimpleNamespace
+
+        from app.dependencies import get_story_manager
+
+        story = SimpleNamespace(
+            id="rec-1", title="t", led_color=None, cover_image="cover.jpg"
+        )
+        sm = SimpleNamespace(
+            get_story=lambda _id: story, get_story_by_nfc=lambda _u: None
+        )
+        app.dependency_overrides[get_story_manager] = lambda: sm
+        with TestClient(app) as c:
+            monkeypatch.chdir(tmp_path)
+            (tmp_path / "content/stories/rec-1").mkdir(parents=True)
+            (tmp_path / "content/stories/rec-1/cover.jpg").write_bytes(b"OWN")
+            yield c, tmp_path
+        app.dependency_overrides.pop(get_story_manager, None)
+
+    def test_idle_after_playback_copies_cover(self, client):
+        c, tmp = client
+        c.post(
+            "/api/system/led/state", json={"state": "playback", "story_id": "rec-1"}
+        )
+        assert c.post("/api/system/led/state", json={"state": "idle"}).status_code == 200
+        assert (tmp / "last-cover").read_bytes() == b"OWN"
+
+    def test_idle_without_playback_copies_nothing(self, client):
+        c, tmp = client
+        app.state.playback = None
+        assert c.post("/api/system/led/state", json={"state": "idle"}).status_code == 200
+        assert not (tmp / "last-cover").exists()

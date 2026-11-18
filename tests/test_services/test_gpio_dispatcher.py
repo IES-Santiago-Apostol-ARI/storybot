@@ -113,6 +113,25 @@ class TestInterruptHandler:
         assert kiosk.get_nowait() == {"type": "interrupt"}
 
 
+    @pytest.mark.asyncio
+    async def test_interrupt_saves_playing_story_cover(self, tmp_path, monkeypatch):
+        """The interrupted story's cover becomes the image button's last-cover."""
+        from app.services import printer_handler
+
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "content/stories/s1").mkdir(parents=True)
+        (tmp_path / "content/stories/s1/cover.jpg").write_bytes(b"OWN")
+        holder = _holder(
+            {"story_id": "s1", "params": [], "title": "T", "cover_image": "cover.jpg"}
+        )
+        d = _dispatcher(playback_holder=holder)
+
+        await d._handle_event("interrupt")
+
+        assert printer_handler.LAST_COVER.read_bytes() == b"OWN"
+        assert holder.playback is None
+
+
 class TestAnimationHandler:
     """BTN-05/D-11: animation button fires LedAnimator.rainbow() one-shot."""
 

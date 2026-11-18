@@ -69,6 +69,72 @@ def _save_generated_story(
     )
 
 
+# Cover jobs outlive their SSE request: a kiosk that aborts the stream (the
+# interrupt button) must not cancel the swap cycle mid-way, and an interrupted
+# story still gets a cover for the GPIO image button. Strong refs keep the
+# running tasks alive.
+_cover_tasks: set[asyncio.Task] = set()
+
+
+async def _make_cover(story_id, params, orchestrator, story_manager):
+    """Draw the cover for *params* and make it the image button's last-cover.
+
+    Attaches it to the saved story when *story_manager* is given (None when the
+    story was interrupted before it was saved). Returns the orchestrator's
+    ``(preview_path, print_path, gen_seconds)``.
+    """
+    # Spanish cards -> English prompt; llama-server is still up here.
+    positive, negative = await build_cover_prompt(params)
+    # Random seed (like the GPIO image button and the admin sticker
+    # button) so the same parameters never draw the same sticker
+    # twice. It used to be crc32(story_id), which made a regeneration
+    # of the same story pixel-identical.
+    seed = random.randint(0, 2**32 - 1)
+    # The orchestrator bounds the SD worker internally (WORKER_TIMEOUT_S) and
+    # always restarts llama in a finally, so it must NOT be wrapped in an
+    # external asyncio.wait_for — that cancelled the swap mid-cycle and left
+    # llama-server permanently dead.
+    result = await orchestrator.generate_cover_for_story(
+        story_id, positive, negative, seed
+    )
+    preview_path, print_path, _gen_seconds = result
+    if preview_path and print_path:
+        if story_manager is not None:
+            await asyncio.to_thread(
+                story_manager.attach_cover,
+                story_id,
+                str(preview_path),
+                str(print_path),
+            )
+        # The GPIO image button prints the last story's cover.
+        await asyncio.to_thread(save_last_cover, Path(print_path))
+    return result
+
+
+def _cover_task_done(task: asyncio.Task) -> None:
+    _cover_tasks.discard(task)
+    if not task.cancelled() and task.exception() is not None:
+        # An aborted request no longer awaits its cover: log failures here.
+        print(
+            json.dumps(
+                {
+                    "event": "cover_task_failed",
+                    "reason": type(task.exception()).__name__,
+                }
+            ),
+            file=sys.stderr,
+        )
+
+
+def _start_cover(story_id, params, orchestrator, story_manager) -> asyncio.Task:
+    task = asyncio.create_task(
+        _make_cover(story_id, params, orchestrator, story_manager)
+    )
+    _cover_tasks.add(task)
+    task.add_done_callback(_cover_task_done)
+    return task
+
+
 def _cover_event(event_type: str, data: dict) -> str:
     wrapped = {event_type: data}
     return f"data: {json.dumps(wrapped, ensure_ascii=False)}\n\n"
@@ -111,6 +177,8 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
     # One narrator per story: pick the speaker (random M/F for sharvard,
     # per settings.tts_speaker) once and hold it for every segment.
     story_speaker = tts_pipeline.pick_speaker() if tts_pipeline else None
+    # Shared with stream(): an interrupted stream starts the cover itself.
+    progress = {"cover_started": False, "story_saved": False}
 
     async def _stream_body():
         buf = SentenceBuffer()
@@ -296,36 +364,18 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
                 GENERATED_DIR,
                 segments=segments,
             )
+            progress["story_saved"] = True
 
         # Cover generation (after story save, audio fully flushed)
         if collected_text and orchestrator and story_manager:
-            # Spanish cards -> English prompt; llama-server is still up here.
-            positive, negative = await build_cover_prompt(params)
-            # Random seed (like the GPIO image button and the admin sticker
-            # button) so the same parameters never draw the same sticker
-            # twice. It used to be crc32(story_id), which made a regeneration
-            # of the same story pixel-identical.
-            seed = random.randint(0, 2**32 - 1)
-
+            progress["cover_started"] = True
             try:
-                # The orchestrator bounds the SD worker internally (WORKER_
-                # TIMEOUT_S) and always restarts llama in a finally, so it must
-                # NOT be wrapped in an external asyncio.wait_for — that cancelled
-                # the swap mid-cycle and left llama-server permanently dead.
-                result = await orchestrator.generate_cover_for_story(
-                    story_id, positive, negative, seed
-                )
-                preview_path, print_path, gen_seconds = result
+                cover_task = _start_cover(story_id, params, orchestrator, story_manager)
+                # shield: a client disconnect cancels this wait, not the job —
+                # the cover still lands as last-cover for the image button.
+                preview_path, print_path, gen_seconds = await asyncio.shield(cover_task)
 
                 if preview_path and print_path:
-                    await asyncio.to_thread(
-                        story_manager.attach_cover,
-                        story_id,
-                        str(preview_path),
-                        str(print_path),
-                    )
-                    # The GPIO image button prints the last finished story's cover.
-                    await asyncio.to_thread(save_last_cover, Path(print_path))
                     # Task 12: structured timing for cover generation.
                     print(
                         json.dumps(
@@ -371,9 +421,11 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
         error event. Both paths must reset the engine.
         """
         inner = _stream_body()
+        finished = False
         try:
             async for chunk in inner:
                 yield chunk
+            finished = True
         except GeneratorExit:
             # Kiosk tab closed mid-generation: settle the engine back to idle.
             if animator is not None:
@@ -384,8 +436,21 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
             # with a terminal error event; ERROR mode auto-fades (D-16).
             if animator is not None:
                 animator.set_mode(Mode.ERROR)
+            finished = True
             yield f"data: {json.dumps({'error': type(e).__name__, 'done': True})}\n\n"
         finally:
             await inner.aclose()
+            # Interrupted (kiosk aborted the request) before the cover step:
+            # the cover depends only on the cards, so still draw it in the
+            # background — the image button prints it without the child
+            # having to listen to the whole story.
+            if not finished and not progress["cover_started"] and orchestrator:
+                progress["cover_started"] = True
+                _start_cover(
+                    story_id,
+                    params,
+                    orchestrator,
+                    story_manager if progress["story_saved"] else None,
+                )
 
     return StreamingResponse(stream(), media_type="text/event-stream")

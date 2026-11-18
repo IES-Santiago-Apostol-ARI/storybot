@@ -59,6 +59,17 @@ def save_last_cover(src: Path) -> None:
         )
 
 
+def save_story_cover(story_id: str, cover_image: str | None) -> None:
+    """Copy a recorded story's printable cover to LAST_COVER: its own cover
+    first, else an AI sticker made for it. No-op when it has neither."""
+    candidates = [Path("content/generated") / story_id / "cover-print.png"]
+    if cover_image:
+        candidates.insert(0, Path("content/stories") / story_id / cover_image)
+    src = next((c for c in candidates if c.is_file()), None)
+    if src is not None:
+        save_last_cover(src)
+
+
 class PrinterService:
     """Base contract for the Brother QL-820NWBc print path."""
 

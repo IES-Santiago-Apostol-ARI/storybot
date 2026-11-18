@@ -5,7 +5,6 @@ import json
 import re
 from collections.abc import AsyncIterator
 from enum import Enum
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
@@ -240,6 +239,7 @@ async def set_led_state(
     # title} on app.state.playback on PLAYBACK (reusing the story resolved
     # above — its title feeds the image button's D-10 fallback); clear it on
     # IDLE/ENDED; leave it untouched on PAUSE/RESUME.
+    previous = getattr(http_request.app.state, "playback", None)
     if state == LEDState.PLAYBACK:
         if story is not None:
             resolved_story_id = getattr(story, "id", None)
@@ -248,22 +248,24 @@ async def set_led_state(
                 "params": _load_story_params(resolved_story_id),
                 "title": getattr(story, "title", "") or "",
                 "has_own_cover": bool(getattr(story, "cover_image", None)),
+                "cover_image": getattr(story, "cover_image", None),
             }
     elif state in (LEDState.IDLE, LEDState.ENDED):
         http_request.app.state.playback = None
 
     # Image button prints content/last-cover: refresh it when a recorded story
-    # ends. Own cover first, else an AI sticker made for it. Live generated
-    # stories never resolve here (synthetic id); generate.py copies theirs.
-    if state == LEDState.ENDED and story is not None:
-        from app.services.printer_handler import save_last_cover
+    # ends, or is abandoned mid-playback (kiosk drops to idle with a snapshot
+    # still set), so a child can print a cover without hearing the whole
+    # story. Live generated stories never resolve here (synthetic id);
+    # generate.py copies theirs.
+    from app.services.printer_handler import save_story_cover
 
-        candidates = [Path("content/generated") / story.id / "cover-print.png"]
-        if story.cover_image:
-            candidates.insert(0, Path("content/stories") / story.id / story.cover_image)
-        src = next((c for c in candidates if c.is_file()), None)
-        if src is not None:
-            await asyncio.to_thread(save_last_cover, src)
+    if state == LEDState.ENDED and story is not None:
+        await asyncio.to_thread(save_story_cover, story.id, story.cover_image)
+    elif state == LEDState.IDLE and previous and previous.get("story_id"):
+        await asyncio.to_thread(
+            save_story_cover, previous["story_id"], previous.get("cover_image")
+        )
 
     if state == LEDState.PLAYBACK:
         # D-13: PLAYBACK is a base mode; pass the resolved color so the

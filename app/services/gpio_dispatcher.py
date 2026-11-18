@@ -119,6 +119,15 @@ class GpioDispatcher:
         if self._audio_player is not None:
             await self._audio_player.stop()
         if self._playback_holder is not None:
+            # The interrupted story's cover becomes the image button's
+            # last-cover (no need to listen to the whole story to print it).
+            snap = self._playback_holder.playback
+            if snap and snap.get("story_id"):
+                await asyncio.to_thread(
+                    printer_handler.save_story_cover,
+                    snap["story_id"],
+                    snap.get("cover_image"),
+                )
             self._playback_holder.playback = None
         self._kiosk_events.put_nowait({"type": "interrupt"})
 
