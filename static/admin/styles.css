@@ -1118,6 +1118,18 @@ input[type="color"] {
 .bt-signal-bar:nth-child(2) { height: 9px; }
 .bt-signal-bar:nth-child(3) { height: 14px; }
 
+/* BT printer picker */
+.bt-printer {
+    margin-top: var(--space-md);
+    padding-top: var(--space-sm);
+    border-top: 1px solid #ddd;
+}
+
+.bt-printer h3 {
+    margin: 0 0 var(--space-sm);
+    font-size: 1rem;
+}
+
 /* BT scanning indicator */
 .bt-scanning {
     text-align: center;

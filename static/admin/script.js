@@ -2670,8 +2670,110 @@ function initBtSection() {
     const btStatus = document.getElementById('bt-status');
     if (btStatus) btStatus.addEventListener('click', scrollToBtSection);
 
+    const printerScanBtn = document.getElementById('bt-printer-scan-btn');
+    if (printerScanBtn) printerScanBtn.addEventListener('click', scanPrinters);
+
     // Populate the header icon once while the section is still collapsed.
     fetchBtStatus();
+    loadCurrentPrinter();
+}
+
+// === Impresora Bluetooth (QL-820NWB) ===
+// Covers go to the printer whose address is saved here; a replacement unit
+// only needs to be chosen once (no pairing step).
+
+let currentPrinterMac = null;
+
+async function loadCurrentPrinter() {
+    const current = document.getElementById('bt-printer-current');
+    try {
+        const res = await fetch('/api/printer/device');
+        if (!res.ok) throw new Error('printer device failed');
+        const printer = await res.json();
+        currentPrinterMac = printer.mac;
+        if (current) {
+            current.textContent = `Impresora: ${printer.name || 'QL-820NWB'} (${printer.mac})`;
+        }
+    } catch (error) {
+        console.error('Error loading printer:', error);
+        if (current) current.textContent = 'Impresora: —';
+    }
+}
+
+async function scanPrinters() {
+    const scanning = document.getElementById('bt-printer-scanning');
+    const list = document.getElementById('bt-printer-list');
+    const button = document.getElementById('bt-printer-scan-btn');
+    try {
+        if (button) button.disabled = true;
+        if (scanning) scanning.classList.remove('hidden');
+        if (list) list.replaceChildren();
+        const res = await fetch('/api/printer/scan');
+        if (!res.ok) throw new Error('printer scan failed');
+        const printers = await res.json();
+        if (!printers.length) {
+            const empty = document.createElement('p');
+            empty.className = 'empty';
+            empty.textContent = 'No se encontró ninguna impresora. ¿Está encendida?';
+            if (list) list.appendChild(empty);
+            return;
+        }
+        for (const printer of printers) {
+            if (list) list.appendChild(createPrinterItem(printer));
+        }
+    } catch (error) {
+        console.error('Error scanning printers:', error);
+        showMessage('Error al buscar impresoras', 'error');
+    } finally {
+        if (scanning) scanning.classList.add('hidden');
+        if (button) button.disabled = false;
+    }
+}
+
+function createPrinterItem(printer) {
+    const item = document.createElement('div');
+    item.className = 'bt-device-item';
+    const inUse = printer.mac === currentPrinterMac;
+    if (inUse) item.classList.add('connected');
+
+    // Name via textContent ONLY: BT advertisement names are attacker-controlled.
+    const name = document.createElement('span');
+    name.className = 'bt-device-name';
+    name.textContent = printer.name;
+    item.appendChild(name);
+
+    if (inUse) {
+        const badge = document.createElement('span');
+        badge.className = 'bt-device-badge';
+        badge.textContent = 'En uso';
+        item.appendChild(badge);
+    } else {
+        const use = document.createElement('button');
+        use.type = 'button';
+        use.className = 'btn btn-primary btn-small';
+        use.textContent = 'Usar';
+        use.addEventListener('click', () => choosePrinter(printer));
+        item.appendChild(use);
+    }
+    return item;
+}
+
+async function choosePrinter(printer) {
+    try {
+        const res = await fetch('/api/printer/device', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mac: printer.mac, name: printer.name }),
+        });
+        if (!res.ok) throw new Error('printer save failed');
+        showMessage(`Impresora guardada: ${printer.name}`, 'success');
+        await loadCurrentPrinter();
+        const list = document.getElementById('bt-printer-list');
+        if (list) list.replaceChildren();
+    } catch (error) {
+        console.error('Error saving printer:', error);
+        showMessage('Error al guardar la impresora', 'error');
+    }
 }
 
 // === Pegatina IA para historias subidas ===

@@ -287,3 +287,9 @@ def test_printer_bluetooth_defaults():
     s = Settings()
     assert s.printer_bt_address == "04:68:74:2F:17:5C"
     assert s.printer_bt_channel == 1
+
+
+def test_printer_bluetooth_name_default():
+    from app.config import Settings
+
+    assert Settings().printer_bt_name == "QL-820NWB9000"

@@ -14,11 +14,13 @@ import pytest
 
 from app.services.bt_manager import (
     A2DP_SINK_UUID,
+    PRINTER_SCAN_WINDOW_S,
     BtManager,
     MockBtManager,
     RealBtManager,
     _bt_adapter_present,
     _is_audio,
+    _is_printer,
     _to_entries,
     create_bt_manager,
 )
@@ -1409,3 +1411,65 @@ class TestRealRoutingIsolation:
         await mgr.connect("DD:EE:FF:33:44:55")
         # The patched router ran instead of any real pactl subprocess.
         assert len(router.calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# Printer scan (admin "Buscar impresora"): Brother QL-820NWB by name prefix.
+# ---------------------------------------------------------------------------
+
+
+def _printer_scan_fixture():
+    return {
+        "/org/bluez/hci0/dev_04_68_74_2F_17_5C": _device(
+            "04:68:74:2F:17:5C", alias="QL-820NWB9000", rssi=-60, cls=0x140680
+        ),
+        "/org/bluez/hci0/dev_04_68_74_2F_17_5D": _device(
+            "04:68:74:2F:17:5D", name="QL-820NWB1234", rssi=-40
+        ),
+        "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_01": _device(
+            "AA:BB:CC:DD:EE:01", alias="Aula JBL", rssi=-30, cls=0x240414
+        ),
+    }
+
+
+class TestIsPrinter:
+    def test_matches_ql820nwb_name(self):
+        assert _is_printer({"Alias": "QL-820NWB9000"}) is True
+        assert _is_printer({"Name": "QL-820NWB1234"}) is True
+
+    def test_rejects_other_devices(self):
+        assert _is_printer({"Alias": "Aula JBL"}) is False
+        assert _is_printer({"Address": "AA:BB:CC:DD:EE:01"}) is False
+
+
+class TestScanPrinters:
+    async def test_real_returns_only_printers_sorted(self):
+        mgr = RealBtManager()
+        windows = []
+
+        async def seam(window_s=None):
+            windows.append(window_s)
+            return _printer_scan_fixture()
+
+        mgr._get_managed_objects = seam
+        result = await mgr.scan_printers()
+        assert [e["mac"] for e in result] == [
+            "04:68:74:2F:17:5D",  # -40 strongest
+            "04:68:74:2F:17:5C",
+        ]
+        # Printers advertise slower than speakers: longer discovery window.
+        assert windows == [PRINTER_SCAN_WINDOW_S]
+
+    async def test_real_returns_empty_when_seam_raises(self):
+        mgr = RealBtManager()
+
+        async def seam(window_s=None):
+            raise RuntimeError("no adapter")
+
+        mgr._get_managed_objects = seam
+        assert await mgr.scan_printers() == []
+
+    async def test_mock_returns_fixed_printer(self):
+        result = await MockBtManager().scan_printers()
+        assert len(result) == 1
+        assert result[0]["name"].startswith("QL-820NWB")

@@ -34,6 +34,12 @@ except Exception:  # pragma: no cover — exercised on machines without dbus-fas
 # Fixed blocking discovery window in seconds (D-04: ~8-10s range; no SSE).
 SCAN_WINDOW_S = 8.0
 
+# Printer discovery (admin "Buscar impresora"): the QL-820NWB answers classic
+# inquiry slower than speakers, so it gets a longer window. Matched by name:
+# the robot always uses this model; only the unit (its MAC) may change.
+PRINTER_SCAN_WINDOW_S = 15.0
+PRINTER_NAME_PREFIX = "QL-820NWB"
+
 
 # A2DP Audio Sink service UUID (Bluetooth SIG assigned number 0x110B).
 # Match if a device advertises this — it identifies an A2DP-capable speaker.
@@ -78,6 +84,12 @@ def _is_audio(props: dict) -> bool:
     return props.get("Icon") == "audio-card"
 
 
+def _is_printer(props: dict) -> bool:
+    """Return True if the Device1 props name a Brother QL-820NWB printer."""
+    name = props.get("Alias") or props.get("Name") or ""
+    return str(name).startswith(PRINTER_NAME_PREFIX)
+
+
 def _unwrap(value):
     """Return ``value.value`` for a dbus-fast Variant, else ``value`` itself.
 
@@ -88,7 +100,7 @@ def _unwrap(value):
     return getattr(value, "value", value)
 
 
-def _to_entries(managed: dict) -> list[dict]:
+def _to_entries(managed: dict, keep=_is_audio) -> list[dict]:
     """Filter GetManagedObjects output to audio-only, RSSI-sorted entries.
 
     Args:
@@ -108,7 +120,7 @@ def _to_entries(managed: dict) -> list[dict]:
             continue  # adapter objects / Battery1 / other interfaces skipped
         # Unwrap Variant values once, then run pure logic on plain types.
         props = {k: _unwrap(v) for k, v in dev.items()}
-        if not _is_audio(props):
+        if not keep(props):
             continue
         out.append(
             {
@@ -166,6 +178,9 @@ class BtManager:
     async def scan(self) -> list[dict]:
         raise NotImplementedError
 
+    async def scan_printers(self) -> list[dict]:
+        raise NotImplementedError
+
     async def get_last_speaker(self) -> dict | None:
         raise NotImplementedError
 
@@ -220,7 +235,7 @@ class RealBtManager(BtManager):
         self._connect_fail_key: tuple[str, str] | None = None
         self._connect_fail_count = 0
 
-    async def _get_managed_objects(self) -> dict:
+    async def _get_managed_objects(self, window_s: float = SCAN_WINDOW_S) -> dict:
         """Run the blocking ~8-10s BlueZ discovery window, return managed objs.
 
         Per-call short-lived SYSTEM bus connection (RESEARCH Pattern 1):
@@ -251,7 +266,7 @@ class RealBtManager(BtManager):
             try:
                 # D-04: blocking window — discover for a fixed ~8-10s, then
                 # return a single list (no SSE streaming this phase).
-                await asyncio.sleep(SCAN_WINDOW_S)
+                await asyncio.sleep(window_s)
             finally:
                 await adapter.call_stop_discovery()
 
@@ -275,6 +290,15 @@ class RealBtManager(BtManager):
             _log_event("bt_scan_unavailable", reason=type(exc).__name__)
             return []
         return _to_entries(managed)
+
+    async def scan_printers(self) -> list[dict]:
+        """Discover nearby QL-820NWB printers, strongest first. Never raises."""
+        try:
+            managed = await self._get_managed_objects(window_s=PRINTER_SCAN_WINDOW_S)
+        except Exception as exc:
+            _log_event("bt_printer_scan_unavailable", reason=type(exc).__name__)
+            return []
+        return _to_entries(managed, keep=_is_printer)
 
     async def get_last_speaker(self) -> dict | None:
         """BT-06: delegate to BtDeviceStore (never raises)."""
@@ -550,6 +574,9 @@ class MockBtManager(BtManager):
     async def scan(self) -> list[dict]:
         # Return a fresh list so callers can't mutate the class constant.
         return [dict(entry) for entry in self._MOCK_SCAN]
+
+    async def scan_printers(self) -> list[dict]:
+        return [{"name": "QL-820NWB-Mock", "mac": "AA:BB:CC:00:99:01", "rssi": -50}]
 
     async def get_last_speaker(self) -> dict | None:
         # Return a copy so callers can't mutate internal state.

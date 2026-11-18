@@ -6,6 +6,10 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.requests import Request
 from pydantic import BaseModel, Field
 
+from app.config import get_config_manager, get_settings
+from app.models.bt import _MAC, BtDevice
+from app.services.bt_manager import create_bt_manager
+
 router = APIRouter(prefix="/api/printer", tags=["printer"])
 
 # T-16-02: only files under these roots may be printed.
@@ -79,4 +83,33 @@ async def print_sticker(body: PrintRequest, request: Request) -> dict:
             file=sys.stderr,
         )
         return {"ok": False, "error": type(e).__name__}
+    return {"ok": True}
+
+
+class PrinterDeviceRequest(BaseModel):
+    mac: str = Field(..., pattern=_MAC)
+    name: str = Field("", max_length=64)
+
+
+@router.get("/scan", response_model=list[BtDevice])
+async def scan_printers() -> list[dict]:
+    """Discover nearby QL-820NWB printers (~15 s blocking scan)."""
+    return await create_bt_manager().scan_printers()
+
+
+@router.get("/device")
+async def get_printer_device() -> dict:
+    """The Bluetooth printer covers are sent to."""
+    settings = get_settings()
+    return {"name": settings.printer_bt_name, "mac": settings.printer_bt_address}
+
+
+@router.put("/device")
+async def set_printer_device(body: PrinterDeviceRequest) -> dict:
+    """Use another printer unit. No pairing needed: BlueZ pairs on the first
+    RFCOMM connect (no PIN), so the address is all the print path needs."""
+    settings = get_settings().model_copy(
+        update={"printer_bt_address": body.mac.upper(), "printer_bt_name": body.name}
+    )
+    get_config_manager().save(settings)
     return {"ok": True}

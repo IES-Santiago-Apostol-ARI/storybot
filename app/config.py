@@ -68,6 +68,7 @@ class Settings(BaseModel):
     # Brother QL-820NWB over Bluetooth Classic SPP (paired via bluetoothctl).
     printer_bt_address: str = "04:68:74:2F:17:5C"
     printer_bt_channel: int = 1
+    printer_bt_name: str = "QL-820NWB9000"  # shown in /admin
     # GPIO button pin mapping (Jetson.GPIO BOARD mode = physical J2 pin)
     gpio_interrupt_pin: int = 15
     gpio_image_pin: int = 29
