@@ -1,0 +1,9 @@
+[Unit]
+Description=Retry HTTP clock sync (WiFi may connect long after boot)
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=15min
+
+[Install]
+WantedBy=timers.target

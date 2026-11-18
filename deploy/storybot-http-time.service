@@ -1,0 +1,8 @@
+[Unit]
+Description=Set the clock from an HTTP Date header when NTP is blocked
+Wants=network-online.target
+After=network-online.target systemd-timesyncd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/storybot-http-time.sh
