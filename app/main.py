@@ -492,11 +492,15 @@ if children_static_dir.exists():
         name="children",
     )
 
-# Mount admin panel (html=True enables index.html serving)
+# Mount admin panel (html=True enables index.html serving).
+# NoCacheStaticFiles: with plain StaticFiles the browser reused a stale
+# script.js after a deploy, so new admin buttons rendered with no handler.
 admin_static_dir = Path("static/admin")
 if admin_static_dir.exists():
     app.mount(
-        "/admin", StaticFiles(directory=str(admin_static_dir), html=True), name="admin"
+        "/admin",
+        NoCacheStaticFiles(directory=str(admin_static_dir), html=True),
+        name="admin",
     )
 
 # Mount shared theme directory.

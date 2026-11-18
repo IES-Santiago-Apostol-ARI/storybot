@@ -45,3 +45,15 @@ def test_api_responses_are_not_cacheable(client, path):
 def test_non_api_routes_keep_their_own_cache_policy(client):
     response = client.get("/children/")
     assert response.headers.get("cache-control") == "no-cache, must-revalidate"
+
+
+@pytest.mark.parametrize(
+    "path", ["/admin/", "/admin/script.js", "/admin/styles.css", "/admin/index.html"]
+)
+def test_admin_code_always_revalidates(client, path):
+    # Plain StaticFiles left /admin heuristically cached: after a deploy the
+    # browser ran the old script.js against the new index.html, so the new
+    # "Buscar impresora" button had no click handler.
+    response = client.get(path)
+    assert response.status_code == 200
+    assert response.headers.get("cache-control") == "no-cache, must-revalidate"
