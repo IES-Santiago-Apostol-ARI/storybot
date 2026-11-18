@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Standalone GPIO wiring test for all four buttons (run ON the Jetson).
+"""Standalone GPIO wiring test for all three buttons (run ON the Jetson).
 
 Verifies the physical wiring + edge detection for every StoryBot button at
 once, independent of the FastAPI app. Use it to confirm each button is on the
@@ -18,9 +18,9 @@ Usage (on the Jetson, NOT the dev machine):
 
 It does three things:
   1. Reports whether the app would pick the Real or Mock GPIO service.
-  2. Polls the raw level on all four pins so you can confirm wiring:
+  2. Polls the raw level on all three pins so you can confirm wiring:
      released -> 0, pressed -> 1  (active-high, internal pull-down).
-  3. Arms edge detection on all four pins exactly like gpio_handler.py
+  3. Arms edge detection on all three pins exactly like gpio_handler.py
      and prints which button fired, so you can check each one is mapped right.
 
 Wiring modes:
@@ -40,7 +40,6 @@ import time
 # Button name -> BOARD pin. Mirrors app/config.py Settings defaults.
 # Duplicated (not imported) so this runs on the Jetson's system python3.
 PIN_MAP = {
-    "power": 7,
     "interrupt": 15,
     "image": 29,
     "animation": 31,

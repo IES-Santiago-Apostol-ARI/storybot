@@ -16,9 +16,6 @@ PYPROJECT_TOML = PROJECT_ROOT / "pyproject.toml"
 class TestGpioConfig:
     """Tests for GPIO-specific configuration fields."""
 
-    def test_gpio_power_pin_default(self):
-        """Settings().gpio_power_pin defaults to 7 (GPIO-04)."""
-        assert Settings().gpio_power_pin == 7
 
     def test_gpio_interrupt_pin_default(self):
         """Settings().gpio_interrupt_pin defaults to 15 (GPIO-04)."""

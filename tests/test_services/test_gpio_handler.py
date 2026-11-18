@@ -82,10 +82,10 @@ class TestRealServiceEdgeToQueue:
 
     @pytest.mark.asyncio
     async def test_real_service_bridges_edge_to_queue(self):
-        """Verify RealGPIOButtonService configures 4 pins and bridges edges to queue.
+        """Verify RealGPIOButtonService configures 3 pins and bridges edges to queue.
 
         Checks:
-        - 4 pins configured in BOARD mode with IN + PUD_UP + bouncetime
+        - 3 pins configured in BOARD mode with IN + PUD_UP + bouncetime
         - add_event_detect(FALLING) called for each pin
         - Edge callback fires -> loop.call_soon_threadsafe(queue.put_nowait, name)
         """
@@ -116,7 +116,7 @@ class TestRealServiceEdgeToQueue:
             mock_gpio.setmode.assert_called_once_with(mock_gpio.BOARD)
 
             # --- Assert 2: setup() called exactly 4 times (one per pin) ---
-            assert mock_gpio.setup.call_count == 4
+            assert mock_gpio.setup.call_count == 3
 
             # Verify each call: GPIO.setup(pin, IN, pull_up_down=PUD_DOWN)
             for call in mock_gpio.setup.call_args_list:
@@ -128,7 +128,7 @@ class TestRealServiceEdgeToQueue:
                 assert kwargs.get("pull_up_down") == mock_gpio.PUD_DOWN
 
             # --- Assert 3: add_event_detect(RISING) called for each pin ---
-            assert mock_gpio.add_event_detect.call_count == 4
+            assert mock_gpio.add_event_detect.call_count == 3
 
             for call in mock_gpio.add_event_detect.call_args_list:
                 args, kwargs = call
@@ -143,7 +143,7 @@ class TestRealServiceEdgeToQueue:
             # Get the callback that was registered for each pin (they're all the same)
             callback = mock_gpio.add_event_detect.call_args_list[0][1]["callback"]
 
-            # The first pin in the map is gpio_power_pin (default 7) -> "power"
+            # The first pin in the map is gpio_interrupt_pin (default 15) -> "interrupt"
             first_pin = mock_gpio.setup.call_args_list[0][0][0]
 
             # Spy on the real event loop's call_soon_threadsafe to verify it's
@@ -160,11 +160,11 @@ class TestRealServiceEdgeToQueue:
             # Simulate a GPIO edge event on that pin — the callback fires
             callback(first_pin)
 
-            # call_soon_threadsafe should have been called once with queue.put_nowait("power")
+            # call_soon_threadsafe should have been called once with queue.put_nowait("interrupt")
             assert len(call_log) == 1
             func, args = call_log[0]
             # Bound methods create new objects on each attribute access in Python,
             # so compare by __self__ (the queue instance) and __name__.
             assert func.__self__ is queue
             assert func.__name__ == "put_nowait"
-            assert args == ("power",)
+            assert args == ("interrupt",)

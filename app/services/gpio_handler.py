@@ -61,7 +61,7 @@ def create_gpio_service() -> GPIOButtonService:
 class RealGPIOButtonService(GPIOButtonService):
     """Real GPIO button service using Jetson.GPIO edge detection.
 
-    Configures 4 pins (BOARD mode) as pull-down + rising edge (each button
+    Configures 3 pins (BOARD mode) as pull-down + rising edge (each button
     ties its pin to 3.3 V when pressed). Edge callbacks on the GPIO thread
     call into the asyncio loop via loop.call_soon_threadsafe to enqueue the
     button name.
@@ -97,7 +97,6 @@ class RealGPIOButtonService(GPIOButtonService):
         # Pin-to-name map from Settings defaults
         settings = get_settings()
         pin_map = {
-            settings.gpio_power_pin: "power",
             settings.gpio_interrupt_pin: "interrupt",
             settings.gpio_image_pin: "image",
             settings.gpio_animation_pin: "animation",
