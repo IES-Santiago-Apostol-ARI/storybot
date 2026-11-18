@@ -6,3 +6,5 @@ After=network-online.target systemd-timesyncd.service
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/storybot-http-time.sh
+# Up to 6 rounds x (3 x 5 s curl + 10 s pause) ~= 2.5 min
+TimeoutStartSec=4min
