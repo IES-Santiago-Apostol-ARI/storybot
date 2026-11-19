@@ -8,10 +8,10 @@ lines 136-201).
 
 Purpose: auto-approve incoming pairing/service authorization so
 ``Device1.Pair()`` (plan 05) completes unattended on a headless kiosk with the
-``DisplayYesNo`` capability (see CAPABILITY). ``RequestAuthorization``/``AuthorizeService``
-auto-approve by returning normally (Pitfall 2 — belt-and-suspenders with the
-``Trusted=true`` set in plan 05); PIN/passkey methods return deterministic
-dummies.
+``DisplayYesNo`` capability (see CAPABILITY).
+``RequestAuthorization``/``AuthorizeService`` auto-approve by returning
+normally (Pitfall 2 — belt-and-suspenders with the ``Trusted=true``
+set in plan 05); PIN/passkey methods return deterministic dummies.
 
 The module mirrors ``bt_manager.py``'s lazy-import guard (lines 19-29) so it
 stays importable on CI/Mock-only machines where dbus-fast is absent — the
@@ -91,7 +91,8 @@ class BluezAgent(ServiceInterface):  # type: ignore[misc]
     """The ``org.bluez.Agent1`` callback object (BT-02).
 
     Auto-approves pairing and service authorization for headless operation
-    (``DisplayYesNo``; RequestConfirmation auto-accepts). PIN/passkey methods return deterministic dummies —
+    (``DisplayYesNo``; RequestConfirmation auto-accepts). PIN/passkey methods
+    return deterministic dummies —
     they should never fire for an A2DP speaker, but BlueZ requires them to
     exist on the Agent1 interface. The Display* methods are server→client
     notifications and are no-ops on a kiosk.
