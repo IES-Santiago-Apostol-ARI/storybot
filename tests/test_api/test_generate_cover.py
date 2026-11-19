@@ -429,3 +429,47 @@ class TestAttachCover:
         # Should not raise
         captured = capsys.readouterr()
         assert "cover_attach_orphan" in captured.err
+
+
+class TestCoverChime:
+    """A new last-cover beeps the speaker, even with no kiosk listening."""
+
+    @pytest.mark.asyncio
+    async def test_chime_after_last_cover_saved(self, tmp_path, monkeypatch):
+        from app.routers import generate as gen_module
+
+        print_path = tmp_path / "cover-print.png"
+        print_path.write_bytes(b"png")
+        monkeypatch.setattr(
+            gen_module, "build_cover_prompt", AsyncMock(return_value=("p", "n"))
+        )
+        saved = []
+        monkeypatch.setattr(gen_module, "save_last_cover", saved.append)
+        orch = MagicMock()
+        orch.generate_cover_for_story = AsyncMock(
+            return_value=(tmp_path / "prev.png", print_path, 1.0)
+        )
+        audio = MagicMock()
+        audio.play = AsyncMock(side_effect=lambda _p: saved.append("chime"))
+
+        await gen_module._make_cover("sid", [], orch, None, audio)
+
+        assert saved == [print_path, "chime"]
+        audio.play.assert_awaited_once_with(gen_module.COVER_CHIME)
+        assert gen_module.COVER_CHIME.is_file()
+
+    @pytest.mark.asyncio
+    async def test_chime_failure_does_not_fail_cover(self, tmp_path, monkeypatch):
+        from app.routers import generate as gen_module
+
+        monkeypatch.setattr(
+            gen_module, "build_cover_prompt", AsyncMock(return_value=("p", "n"))
+        )
+        monkeypatch.setattr(gen_module, "save_last_cover", lambda _p: None)
+        orch = MagicMock()
+        result = (tmp_path / "a.png", tmp_path / "b.png", 1.0)
+        orch.generate_cover_for_story = AsyncMock(return_value=result)
+        audio = MagicMock()
+        audio.play = AsyncMock(side_effect=RuntimeError("no speaker"))
+
+        assert await gen_module._make_cover("sid", [], orch, None, audio) == result

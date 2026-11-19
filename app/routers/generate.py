@@ -25,6 +25,8 @@ from app.services.swap_orchestrator import LlamaRelaunchError
 router = APIRouter()
 
 GENERATED_DIR = Path("content/generated")
+# Played on the speaker when a new cover is printable from the image button.
+COVER_CHIME = Path("static/children/assets/chime.wav")
 MAX_GENERATED_STORIES = 5
 
 
@@ -76,7 +78,7 @@ def _save_generated_story(
 _cover_tasks: set[asyncio.Task] = set()
 
 
-async def _make_cover(story_id, params, orchestrator, story_manager):
+async def _make_cover(story_id, params, orchestrator, story_manager, audio=None):
     """Draw the cover for *params* and make it the image button's last-cover.
 
     Attaches it to the saved story when *story_manager* is given (None when the
@@ -108,6 +110,19 @@ async def _make_cover(story_id, params, orchestrator, story_manager):
             )
         # The GPIO image button prints the last story's cover.
         await asyncio.to_thread(save_last_cover, Path(print_path))
+        # Tell whoever is near the printer the image button has a new cover,
+        # even when the kiosk aborted the stream. A missing speaker must not
+        # fail the cover.
+        if audio is not None:
+            try:
+                await audio.play(COVER_CHIME)
+            except Exception as e:
+                print(
+                    json.dumps(
+                        {"event": "cover_chime_failed", "reason": type(e).__name__}
+                    ),
+                    file=sys.stderr,
+                )
     return result
 
 
@@ -126,9 +141,11 @@ def _cover_task_done(task: asyncio.Task) -> None:
         )
 
 
-def _start_cover(story_id, params, orchestrator, story_manager) -> asyncio.Task:
+def _start_cover(
+    story_id, params, orchestrator, story_manager, audio=None
+) -> asyncio.Task:
     task = asyncio.create_task(
-        _make_cover(story_id, params, orchestrator, story_manager)
+        _make_cover(story_id, params, orchestrator, story_manager, audio)
     )
     _cover_tasks.add(task)
     task.add_done_callback(_cover_task_done)
@@ -156,6 +173,8 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
     tts_pipeline = getattr(fastapi_request.app.state, "tts_pipeline", None)
     story_manager = getattr(fastapi_request.app.state, "story_manager", None)
     orchestrator = getattr(fastapi_request.app.state, "swap_orchestrator", None)
+    hardware = getattr(fastapi_request.app.state, "hardware", None)
+    audio = hardware.get_service("audio") if hardware is not None else None
     # Phase 33-05 D-01: reach the engine via the SAFE getattr pattern —
     # tests/test_api/test_generate.py builds TestClient(app) WITHOUT a context
     # manager, so the lifespan never runs and app.state.led_animator is never
@@ -370,7 +389,9 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
         if collected_text and orchestrator and story_manager:
             progress["cover_started"] = True
             try:
-                cover_task = _start_cover(story_id, params, orchestrator, story_manager)
+                cover_task = _start_cover(
+                    story_id, params, orchestrator, story_manager, audio
+                )
                 # shield: a client disconnect cancels this wait, not the job —
                 # the cover still lands as last-cover for the image button.
                 preview_path, print_path, gen_seconds = await asyncio.shield(cover_task)
@@ -451,6 +472,7 @@ async def generate_story(request: StoryGenerateRequest, fastapi_request: Request
                     params,
                     orchestrator,
                     story_manager if progress["story_saved"] else None,
+                    audio,
                 )
 
     return StreamingResponse(stream(), media_type="text/event-stream")
