@@ -182,6 +182,26 @@ apt-get -y  install pipewire pipewire-pulse pulseaudio-utils wireplumber libspa-
 # `systemctl --user` needs the target user's DBus session — run via sudo -u
 # with XDG_RUNTIME_DIR/DBUS_SESSION_BUS_ADDRESS exported. Skip silently if
 # the user has no active session (e.g. headless first-boot install).
+# Never suspend idle sinks: WirePlumber's 5s idle suspend fires while the LLM
+# thinks, and resuming the sink (BT A2DP especially) swallows the first words
+# of the story. Lua drop-ins = WirePlumber 0.4 (Ubuntu 22.04/24.04).
+for d in main bluetooth; do
+    sudo -u "$INSTALL_USER" mkdir -p "$USER_HOME/.config/wireplumber/$d.lua.d"
+done
+cat > "$USER_HOME/.config/wireplumber/main.lua.d/51-storybot-no-suspend.lua" << 'EOF'
+table.insert(alsa_monitor.rules, {
+  matches = { { { "node.name", "matches", "alsa_output.*" } } },
+  apply_properties = { ["session.suspend-timeout-seconds"] = 0 },
+})
+EOF
+cat > "$USER_HOME/.config/wireplumber/bluetooth.lua.d/51-storybot-no-suspend.lua" << 'EOF'
+table.insert(bluez_monitor.rules, {
+  matches = { { { "node.name", "matches", "bluez_output.*" } } },
+  apply_properties = { ["session.suspend-timeout-seconds"] = 0 },
+})
+EOF
+chown -R "$INSTALL_USER:$INSTALL_USER" "$USER_HOME/.config/wireplumber"
+
 USER_UID=$(id -u "$INSTALL_USER")
 if [[ -d "/run/user/$USER_UID" ]]; then
     sudo -u "$INSTALL_USER" \
@@ -195,6 +215,10 @@ if [[ -d "/run/user/$USER_UID" ]]; then
         XDG_RUNTIME_DIR="/run/user/$USER_UID" \
         DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$USER_UID/bus" \
         systemctl --user --now enable pipewire pipewire-pulse wireplumber || true
+    sudo -u "$INSTALL_USER" \
+        XDG_RUNTIME_DIR="/run/user/$USER_UID" \
+        DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$USER_UID/bus" \
+        systemctl --user restart wireplumber || true
 else
     echo -e "${YELLOW}No active user session for $INSTALL_USER — skipping pipewire user-unit setup${NC}"
 fi
