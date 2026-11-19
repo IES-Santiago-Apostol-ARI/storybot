@@ -104,7 +104,7 @@ def _find_ruff() -> str:
 
 
 async def _run_ruff(cwd: Path | None = None) -> int:
-    """Run ruff check app/ and return returncode only.
+    """Run ruff check app/ (fatal errors only) and return returncode only.
 
     Returns a non-zero code (rather than raising) when the ruff binary cannot be
     spawned, so apply_update can emit a clean error event instead of crashing
@@ -115,6 +115,10 @@ async def _run_ruff(cwd: Path | None = None) -> int:
         proc = await asyncio.create_subprocess_exec(
             ruff_bin,
             "check",
+            # Only errors that would stop the app from running (syntax errors,
+            # undefined names); a style nit must never block an OTA update.
+            "--select",
+            "E9,F63,F7,F82",
             "app/",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -284,14 +288,11 @@ class RealUpdateManager(UpdateManager):
 
             # Stage 4: Checking (ruff check)
             yield {"stage": "checking", "done": False}
+            # Advisory only: a lint failure must never block an update. Code
+            # that fails to boot is rolled back by storybot-rollback.sh.
             ruff_rc = await _run_ruff(cwd=self._repo_dir)
             if ruff_rc != 0:
-                await self._rollback(prev_hash)
-                yield {
-                    "stage": "error",
-                    "error": f"ruff check failed (rc={ruff_rc})",
-                }
-                return
+                _log_event("ruff_check_failed", rc=ruff_rc)
 
             # Write flag file (D-13)
             self._write_update_flag(prev_hash)

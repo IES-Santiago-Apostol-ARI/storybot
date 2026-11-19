@@ -245,27 +245,22 @@ class TestApplyUpdate:
         assert len(error_events) == 1
 
     @patch("app.services.update_manager.asyncio.create_subprocess_exec")
-    async def test_rollback_on_ruff_failure(self, mock_exec):
-        """ruff check failure rolls back."""
-        head_proc = _make_subprocess_mock(stdout=b"abc1234\n")
-        ruff_fail_proc = _make_subprocess_mock(returncode=1)
-        rollback_reset_proc = _make_subprocess_mock(returncode=0)
-        rollback_uv_proc = _make_subprocess_mock(returncode=0)
+    async def test_ruff_failure_does_not_block_update(self, mock_exec, tmp_path):
+        """ruff check failure is advisory: update proceeds to restart."""
         mock_exec.side_effect = [
-            head_proc,  # save HEAD (rev-parse HEAD)
+            _make_subprocess_mock(stdout=b"abc1234\n"),  # save HEAD
             _make_subprocess_mock(returncode=0),  # git fetch ok
             _make_subprocess_mock(returncode=0),  # git reset ok
             _make_subprocess_mock(returncode=0),  # uv sync ok
-            ruff_fail_proc,  # ruff check fails
-            rollback_reset_proc,  # rollback: reset
-            rollback_uv_proc,  # rollback: uv sync
+            _make_subprocess_mock(returncode=1),  # ruff check fails
+            _make_subprocess_mock(returncode=0),  # restart
         ]
         mgr = RealUpdateManager()
-        events = []
-        async for event in mgr.apply_update():
-            events.append(event)
-        error_events = [e for e in events if e.get("stage") == "error"]
-        assert len(error_events) == 1
+        mgr._repo_dir = tmp_path  # keep .update-state out of the real repo
+        events = [event async for event in mgr.apply_update()]
+        stages = [e["stage"] for e in events]
+        assert "error" not in stages
+        assert stages[-1] == "restarting"
 
     @patch("app.services.update_manager.asyncio.create_subprocess_exec")
     async def test_concurrent_apply_blocked_by_lock(self, mock_exec):
@@ -543,32 +538,29 @@ class TestRunRuffMissingBinary:
     """
 
     @patch("app.services.update_manager.asyncio.create_subprocess_exec")
-    async def test_apply_emits_error_and_rolls_back_when_ruff_missing(self, mock_exec):
-        """Missing ruff at the checking stage yields a clean error event + rollback,
-        not a crash that kills the SSE stream."""
+    async def test_apply_continues_when_ruff_missing(self, mock_exec, tmp_path):
+        """Missing ruff at the checking stage neither crashes the SSE stream
+        nor blocks the update."""
         head_proc = _make_subprocess_mock(stdout=b"abc1234\n")
         fetch_proc = _make_subprocess_mock(returncode=0)
         reset_proc = _make_subprocess_mock(returncode=0)
         uv_proc = _make_subprocess_mock(returncode=0)
         ruff_missing = FileNotFoundError("no such file: ruff")
-        rollback_reset = _make_subprocess_mock(returncode=0)
-        rollback_uv = _make_subprocess_mock(returncode=0)
         mock_exec.side_effect = [
             head_proc,  # rev-parse HEAD
             fetch_proc,  # git fetch
             reset_proc,  # git reset --hard origin/main
             uv_proc,  # uv sync
             ruff_missing,  # ruff check -> FileNotFoundError
-            rollback_reset,  # rollback: git reset --hard abc1234
-            rollback_uv,  # rollback: uv sync
+            _make_subprocess_mock(returncode=0),  # restart
         ]
         mgr = RealUpdateManager()
-        events = []
-        async for event in mgr.apply_update():
-            events.append(event)
-        error_events = [e for e in events if e.get("stage") == "error"]
-        assert len(error_events) == 1, f"Expected 1 error event, got: {events}"
-        assert "checking" in [e["stage"] for e in events]
+        mgr._repo_dir = tmp_path  # keep .update-state out of the real repo
+        events = [event async for event in mgr.apply_update()]
+        stages = [e["stage"] for e in events]
+        assert "error" not in stages, f"Unexpected error event: {events}"
+        assert "checking" in stages
+        assert stages[-1] == "restarting"
 
 
 # ---------------------------------------------------------------------------
@@ -706,12 +698,11 @@ class TestApplyRelinksJetsonGpio:
             _make_subprocess_mock(stdout=b"abc1234\n"),  # rev-parse HEAD
             _make_subprocess_mock(returncode=0),  # git fetch
             _make_subprocess_mock(returncode=0),  # git reset
-            _make_subprocess_mock(returncode=0),  # uv sync
-            _make_subprocess_mock(returncode=1),  # ruff check fails
+            _make_subprocess_mock(returncode=1),  # uv sync fails
             _make_subprocess_mock(returncode=0),  # rollback git reset
             _make_subprocess_mock(returncode=0),  # rollback uv sync
         ]
         mgr = RealUpdateManager()
         events = [event async for event in mgr.apply_update()]
         assert events[-1]["stage"] == "error"
-        assert mock_relink.call_count == 2  # forward sync + rollback sync
+        assert mock_relink.call_count == 1  # rollback sync (forward sync failed)
