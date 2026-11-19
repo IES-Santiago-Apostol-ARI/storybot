@@ -190,6 +190,9 @@ class BtManager:
     async def pair(self, mac: str, name: str | None = None) -> dict:
         raise NotImplementedError
 
+    async def pair_printer(self, mac: str) -> dict:
+        raise NotImplementedError
+
     async def connect(self, mac: str) -> dict:
         raise NotImplementedError
 
@@ -318,7 +321,7 @@ class RealBtManager(BtManager):
     # Routing is delegated to ``bt_audio`` so pactl never appears in tests.
     # ------------------------------------------------------------------
 
-    async def _pair_device(self, bus, mac: str) -> None:
+    async def _pair_device(self, bus, mac: str, connect: bool = True) -> None:
         """Pair + Trust + Connect on ``bus`` (BT-02 + Trusted + BT-04).
 
         Pitfall 1: runs on the SAME bus the caller used for
@@ -336,12 +339,14 @@ class RealBtManager(BtManager):
             await dev.call_pair()
         except Exception as exc:
             # AlreadyExists == already paired: not an error (RESEARCH line 243).
-            if "AlreadyExists" not in type(exc).__name__:
+            # dbus_fast raises a plain DBusError; the BlueZ name is in .type.
+            if getattr(exc, "type", None) != "org.bluez.Error.AlreadyExists":
                 raise
         # Belt-and-suspenders with the agent's AuthorizeService (Pitfall 2):
         # trusting the device auto-authorizes future A2DP service connections.
         await props.call_set("org.bluez.Device1", "Trusted", _variant_wrap(True))
-        await dev.call_connect()
+        if connect:
+            await dev.call_connect()
 
     async def pair(self, mac: str, name: str | None = None) -> dict:
         """BT-02: register the headless agent, pair+trust+connect, route, remember.
@@ -365,6 +370,22 @@ class RealBtManager(BtManager):
             return {"ok": True}
         except Exception as exc:
             _log_event("bt_pair_failed", reason=type(exc).__name__)
+            return {"ok": False, "error": type(exc).__name__}
+
+    async def pair_printer(self, mac: str) -> dict:
+        """Pair + trust a printer with our headless agent (no Connect: the print
+        path opens its own RFCOMM socket, which an unpaired printer refuses
+        with EACCES). Never raises."""
+        try:
+            bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+            try:
+                await register_agent(bus)
+                await self._pair_device(bus, mac, connect=False)
+            finally:
+                bus.disconnect()
+            return {"ok": True}
+        except Exception as exc:
+            _log_event("bt_printer_pair_failed", reason=type(exc).__name__)
             return {"ok": False, "error": type(exc).__name__}
 
     async def _connect_device(self, bus, mac: str) -> None:
@@ -595,6 +616,9 @@ class MockBtManager(BtManager):
         self._connected_mac = mac
         self._current_sink = "bt"
         await self.remember_speaker(name or "Mock Speaker", mac)
+        return {"ok": True}
+
+    async def pair_printer(self, mac: str) -> dict:
         return {"ok": True}
 
     async def connect(self, mac: str) -> dict:

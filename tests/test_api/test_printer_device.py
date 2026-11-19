@@ -57,3 +57,47 @@ class TestPrinterDevice:
         resp = c.put("/api/printer/device", json={"mac": "not-a-mac", "name": "x"})
         assert resp.status_code == 422
         assert not cfg.exists()
+
+
+class _FakeBt:
+    def __init__(self, pair_ok=True):
+        self.pair_ok, self.paired, self.forgotten = pair_ok, [], []
+
+    async def pair_printer(self, mac):
+        self.paired.append(mac)
+        return {"ok": True} if self.pair_ok else {"ok": False, "error": "DBusError"}
+
+    async def forget(self, mac):
+        self.forgotten.append(mac)
+        return {"ok": True}
+
+
+class TestPrinterReplace:
+    """An unpaired printer refuses the RFCOMM print socket (EACCES), so Usar
+    must pair the new unit and unpair the one it replaces."""
+
+    def _put(self, c, monkeypatch, bt, mac="44:f7:9f:48:a5:d0"):
+        monkeypatch.setattr("app.routers.printer.create_bt_manager", lambda: bt)
+        return c.put("/api/printer/device", json={"mac": mac, "name": "QL-820NWB2824"})
+
+    def test_pairs_new_and_forgets_old(self, client, monkeypatch):
+        c, _ = client
+        bt = _FakeBt()
+        assert self._put(c, monkeypatch, bt).status_code == 200
+        assert bt.paired == ["44:F7:9F:48:A5:D0"]
+        assert bt.forgotten == ["04:68:74:2F:17:5C"]
+        assert get_settings().printer_bt_address == "44:F7:9F:48:A5:D0"
+
+    def test_same_printer_is_not_forgotten(self, client, monkeypatch):
+        c, _ = client
+        bt = _FakeBt()
+        assert self._put(c, monkeypatch, bt, mac="04:68:74:2f:17:5c").status_code == 200
+        assert bt.forgotten == []
+
+    def test_pair_failure_keeps_old_printer(self, client, monkeypatch):
+        c, cfg = client
+        bt = _FakeBt(pair_ok=False)
+        assert self._put(c, monkeypatch, bt).status_code == 502
+        assert bt.forgotten == []
+        assert not cfg.exists()
+        assert get_settings().printer_bt_address == "04:68:74:2F:17:5C"

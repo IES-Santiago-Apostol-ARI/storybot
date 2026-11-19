@@ -2772,7 +2772,7 @@ async function choosePrinter(printer) {
         if (list) list.replaceChildren();
     } catch (error) {
         console.error('Error saving printer:', error);
-        showMessage('Error al guardar la impresora', 'error');
+        showMessage('No se pudo emparejar la impresora (¿está encendida y cerca?)', 'error');
     }
 }
 

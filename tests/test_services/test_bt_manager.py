@@ -1140,6 +1140,35 @@ class _RouteRecorder:
         return True
 
 
+class TestPairDeviceAlreadyPaired:
+    """dbus_fast raises a plain DBusError; AlreadyExists is in its .type."""
+
+    async def _run(self, tmp_path, exc):
+        from unittest.mock import AsyncMock, MagicMock
+
+        dev, props = AsyncMock(), AsyncMock()
+        dev.call_pair.side_effect = exc
+        obj = MagicMock()
+        obj.get_interface.side_effect = lambda n: dev if n.endswith("Device1") else props
+        bus = MagicMock(introspect=AsyncMock(), get_proxy_object=lambda *a: obj)
+        await _make_real(tmp_path)._pair_device(bus, "AA:BB:CC:00:11:22", connect=False)
+        return dev, props
+
+    async def test_already_exists_still_trusts(self, tmp_path):
+        from dbus_fast.errors import DBusError
+
+        exc = DBusError("org.bluez.Error.AlreadyExists", "Already Exists")
+        dev, props = await self._run(tmp_path, exc)
+        props.call_set.assert_awaited_once()
+        dev.call_connect.assert_not_awaited()
+
+    async def test_other_dbus_error_raises(self, tmp_path):
+        from dbus_fast.errors import DBusError
+
+        with pytest.raises(DBusError):
+            await self._run(tmp_path, DBusError("org.bluez.Error.Failed", "nope"))
+
+
 class TestRealPair:
     """RealBtManager.pair: register_agent + _pair_device seam + route_to_bt."""
 

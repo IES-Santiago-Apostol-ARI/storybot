@@ -106,10 +106,20 @@ async def get_printer_device() -> dict:
 
 @router.put("/device")
 async def set_printer_device(body: PrinterDeviceRequest) -> dict:
-    """Use another printer unit. No pairing needed: BlueZ pairs on the first
-    RFCOMM connect (no PIN), so the address is all the print path needs."""
-    settings = get_settings().model_copy(
-        update={"printer_bt_address": body.mac.upper(), "printer_bt_name": body.name}
+    """Use another printer unit: pair + trust it (an unpaired printer refuses
+    the RFCOMM print socket), save it, then unpair the one it replaces."""
+    mac = body.mac.upper()
+    bt = create_bt_manager()
+    result = await bt.pair_printer(mac)
+    if not result["ok"]:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"pairing failed: {result['error']}",
+        )
+    old = get_settings()
+    get_config_manager().save(
+        old.model_copy(update={"printer_bt_address": mac, "printer_bt_name": body.name})
     )
-    get_config_manager().save(settings)
+    if old.printer_bt_address.upper() != mac:
+        await bt.forget(old.printer_bt_address.upper())  # never raises
     return {"ok": True}
