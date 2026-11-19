@@ -2,9 +2,6 @@
 
 import asyncio
 import contextlib
-import importlib.machinery
-import sys
-import types
 from pathlib import Path
 
 import pytest
@@ -122,16 +119,19 @@ class TestMockAudioPlayer:
 
 
 class _FakePlayback:
-    """Minimal simpleaudio PlayObject stand-in: is_playing()/stop()."""
+    """Minimal asyncio.subprocess.Process stand-in: wait()/kill()."""
 
     def __init__(self) -> None:
         self._playing = True
+        self._done = asyncio.Event()
 
-    def is_playing(self) -> bool:
-        return self._playing
+    async def wait(self) -> int:
+        await self._done.wait()
+        return 0
 
-    def stop(self) -> None:
+    def kill(self) -> None:
         self._playing = False
+        self._done.set()
 
 
 class TestRealAudioPlayerStopRace:
@@ -160,24 +160,17 @@ class TestRealAudioPlayer:
     """play() must stop previous playback and keep the wait task reachable."""
 
     @pytest.fixture
-    def fake_simpleaudio(self, monkeypatch):
-        """Install a fake simpleaudio module and return the created playbacks."""
+    def fake_paplay(self, monkeypatch):
+        """Replace the paplay subprocess and return the created playbacks."""
         created: list[_FakePlayback] = []
 
-        class _FakeWaveObject:
-            @classmethod
-            def from_wave_file(cls, path):
-                return cls()
+        async def fake_exec(*args, **kwargs):
+            assert args[0] == "paplay"
+            playback = _FakePlayback()
+            created.append(playback)
+            return playback
 
-            def play(self):
-                playback = _FakePlayback()
-                created.append(playback)
-                return playback
-
-        module = types.ModuleType("simpleaudio")
-        module.__spec__ = importlib.machinery.ModuleSpec("simpleaudio", loader=None)
-        setattr(module, "WaveObject", _FakeWaveObject)
-        monkeypatch.setitem(sys.modules, "simpleaudio", module)
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
         return created
 
     @staticmethod
@@ -191,7 +184,7 @@ class TestRealAudioPlayer:
         return wav_file
 
     @pytest.mark.asyncio
-    async def test_play_stops_previous_playback(self, tmp_path, fake_simpleaudio):
+    async def test_play_stops_previous_playback(self, tmp_path, fake_paplay):
         """A second play() must stop the first playback object."""
         player = RealAudioPlayer()
         player._available = True
@@ -200,10 +193,10 @@ class TestRealAudioPlayer:
         await player.play(wav_file)
         await player.play(wav_file)
 
-        assert fake_simpleaudio[0]._playing is False
+        assert fake_paplay[0]._playing is False
 
     @pytest.mark.asyncio
-    async def test_stop_cancels_wait_task(self, tmp_path, fake_simpleaudio):
+    async def test_stop_cancels_wait_task(self, tmp_path, fake_paplay):
         """stop() must cancel the background wait task and clear its ref."""
         player = RealAudioPlayer()
         player._available = True

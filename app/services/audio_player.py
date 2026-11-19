@@ -33,7 +33,11 @@ class AudioPlayer(HardwareService):
 
 
 class RealAudioPlayer(AudioPlayer):
-    """Real audio player using simpleaudio and pydub."""
+    """Real audio player: paplay (PipeWire-Pulse default sink) plus pydub for MP3.
+
+    Not simpleaudio: it segfaults the whole server on the Jetson, and its ALSA
+    default is the onboard APE, not the Bluetooth speaker the kiosk uses.
+    """
 
     def __init__(self) -> None:
         """Initialize real audio player."""
@@ -49,9 +53,9 @@ class RealAudioPlayer(AudioPlayer):
 
     def _check_availability(self) -> bool:
         """Check if audio system is available."""
-        import importlib.util
+        import shutil
 
-        return importlib.util.find_spec("simpleaudio") is not None
+        return shutil.which("paplay") is not None
 
     async def play(self, file_path: Path) -> None:
         """Play audio file (WAV or MP3).
@@ -73,12 +77,13 @@ class RealAudioPlayer(AudioPlayer):
         if file_path.suffix.lower() == ".mp3":
             file_path = await self._convert_mp3_to_wav(file_path)
 
-        # Play WAV file
         try:
-            import simpleaudio as sa
-
-            wave_obj = sa.WaveObject.from_wave_file(str(file_path))
-            self._playback_obj = wave_obj.play()
+            self._playback_obj = await asyncio.create_subprocess_exec(
+                "paplay",
+                str(file_path),
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
             self._playing = True
 
             # Wait for playback to complete in background. Keep a strong
@@ -115,14 +120,10 @@ class RealAudioPlayer(AudioPlayer):
     async def _wait_for_completion(self) -> None:
         """Wait for playback to complete."""
         # Snapshot the handle: a concurrent stop() sets self._playback_obj to
-        # None, so reading the attribute inside the loop would raise
-        # AttributeError on None (a use-after-free style crash). The local keeps
-        # a stable reference; stop() calls .stop() on it, so is_playing() flips
-        # to False and the loop exits cleanly.
+        # None; stop() kills the process, so wait() returns.
         playback_obj = self._playback_obj
         if playback_obj is not None:
-            while playback_obj.is_playing():
-                await asyncio.sleep(0.1)
+            await playback_obj.wait()
             self._playing = False
 
     async def stop(self) -> None:
@@ -135,9 +136,9 @@ class RealAudioPlayer(AudioPlayer):
             self._wait_task = None
         if self._playback_obj is not None:
             try:
-                self._playback_obj.stop()
-            except Exception:
-                pass
+                self._playback_obj.kill()
+            except ProcessLookupError:
+                pass  # already exited
         self._playing = False
         self._playback_obj = None
 
