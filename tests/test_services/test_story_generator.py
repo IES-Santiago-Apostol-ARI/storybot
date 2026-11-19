@@ -1,11 +1,16 @@
 """Tests for StoryGenerator service."""
 
 import json
+import re
 
 import httpx
 import pytest
 
-from app.services.story_generator import SYSTEM_PREAMBLE, StoryGenerator
+from app.services.story_generator import (
+    CHARACTER_NAMES,
+    SYSTEM_PREAMBLE,
+    StoryGenerator,
+)
 
 
 class TestBuildUserMessage:
@@ -16,10 +21,21 @@ class TestBuildUserMessage:
             {"category": "objeto", "value": "llave mágica"},
         ]
         msg = sg._build_user_message(params)
-        assert (
-            msg
-            == "Cuenta una historia con estos elementos: personaje=dragón amable, objeto=llave mágica."
+        assert re.fullmatch(
+            r"Cuenta una historia con estos elementos: personaje=dragón amable "
+            r"\(nombre: \w+\), objeto=llave mágica\.",
+            msg,
         )
+
+    def test_character_names_distinct_and_from_list(self):
+        sg = StoryGenerator()
+        params = [
+            {"category": "personaje", "value": "zorro"},
+            {"category": "Personaje", "value": "oso"},
+        ]
+        names = re.findall(r"nombre: (\w+)", sg._build_user_message(params))
+        assert len(names) == 2 and len(set(names)) == 2
+        assert all(n in CHARACTER_NAMES for n in names)
 
     def test_single_param(self):
         sg = StoryGenerator()

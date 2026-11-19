@@ -1,6 +1,7 @@
 """StoryGenerator — streaming LLM client for llama-server OpenAI-compat endpoint."""
 
 import json
+import random
 from collections.abc import AsyncGenerator
 
 import httpx
@@ -20,6 +21,54 @@ SYSTEM_PREAMBLE = (
     "relevantes en la historia.\n"
     "- Escribir solo prosa narrativa. Sin títulos, sin encabezados, sin listas, "
     "sin metadatos. Solo el texto del cuento."
+)
+
+
+# Small models default to the same name ("Leo") every time; picking it here
+# forces variety across otherwise stateless generations.
+CHARACTER_NAMES = (
+    "Nora",
+    "Bruno",
+    "Lola",
+    "Teo",
+    "Vera",
+    "Hugo",
+    "Alma",
+    "Marco",
+    "Iris",
+    "Pablo",
+    "Luna",
+    "Dani",
+    "Olga",
+    "Gael",
+    "Rita",
+    "Mateo",
+    "Celia",
+    "Iker",
+    "Noa",
+    "Rubén",
+    "Elsa",
+    "Tomás",
+    "Carla",
+    "Simón",
+    "Lucía",
+    "Óscar",
+    "Inés",
+    "Martín",
+    "Sara",
+    "Jaime",
+    "Clara",
+    "Félix",
+    "Paula",
+    "Nico",
+    "Julia",
+    "Adrián",
+    "Maya",
+    "Gonzalo",
+    "Berta",
+    "Rocío",
+    "Ramón",
+    "Emma",
 )
 
 
@@ -119,7 +168,14 @@ class StoryGenerator:
         self._transport = transport
 
     def _build_user_message(self, parameters: list[dict]) -> str:
-        parts = [f"{p['category']}={p['value']}" for p in parameters]
+        n_chars = sum(p["category"].lower() == "personaje" for p in parameters)
+        names = iter(random.sample(CHARACTER_NAMES, n_chars))
+        parts = [
+            f"{p['category']}={p['value']} (nombre: {next(names)})"
+            if p["category"].lower() == "personaje"
+            else f"{p['category']}={p['value']}"
+            for p in parameters
+        ]
         return f"Cuenta una historia con estos elementos: {', '.join(parts)}."
 
     def _build_payload(self, parameters: list[dict]) -> dict:
