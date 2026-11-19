@@ -296,10 +296,15 @@ function transitionTo(newState, story = null) {
 }
 
 // Story grid rendering
+let lastStoriesJson = null;
 async function loadStories() {
     try {
         const response = await fetch('/api/stories');
         const data = await response.json();
+        // Polled while idle: skip the re-render (and its animations) when nothing changed.
+        const json = JSON.stringify(data.stories);
+        if (json === lastStoriesJson) return;
+        lastStoriesJson = json;
         stories = data.stories;
         renderStoryGrid();
     } catch (err) {
@@ -949,6 +954,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     // KSK-01 / D-06: discover AI capability before any NFC events can arrive
     await fetchCapabilities();
     loadStories();
+    // The list was fetched only once, so stories added/removed from /admin never
+    // showed up. Re-poll while idle (not mid-story, where the grid isn't shown).
+    setInterval(() => {
+        if (currentState === STATES.IDLE) loadStories();
+    }, 10000);
     startNFCListener();
     startSystemEventListener();
 
