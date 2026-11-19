@@ -8,7 +8,7 @@ lines 136-201).
 
 Purpose: auto-approve incoming pairing/service authorization so
 ``Device1.Pair()`` (plan 05) completes unattended on a headless kiosk with the
-``NoInputNoOutput`` capability. ``RequestAuthorization``/``AuthorizeService``
+``DisplayYesNo`` capability (see CAPABILITY). ``RequestAuthorization``/``AuthorizeService``
 auto-approve by returning normally (Pitfall 2 — belt-and-suspenders with the
 ``Trusted=true`` set in plan 05); PIN/passkey methods return deterministic
 dummies.
@@ -53,8 +53,10 @@ except Exception:  # pragma: no cover — exercised on machines without dbus-fas
 
 # Object path the agent is exported on (RESEARCH Pattern 1 line 147).
 AGENT_PATH = "/storybot/agent"
-# Headless auto-pair capability (BT-02). NoInputNoOutput = no passkey prompt.
-CAPABILITY = "NoInputNoOutput"
+# DisplayYesNo, not NoInputNoOutput: the QL-820NWB demands MITM pairing and
+# rejects Just Works; numeric comparison passes once OK is pressed on the
+# printer. Display-less speakers still fall back to Just Works (auto-approved).
+CAPABILITY = "DisplayYesNo"
 
 
 def _log_event(event: str, **kwargs: object) -> None:
@@ -89,7 +91,7 @@ class BluezAgent(ServiceInterface):  # type: ignore[misc]
     """The ``org.bluez.Agent1`` callback object (BT-02).
 
     Auto-approves pairing and service authorization for headless operation
-    (``NoInputNoOutput``). PIN/passkey methods return deterministic dummies —
+    (``DisplayYesNo``; RequestConfirmation auto-accepts). PIN/passkey methods return deterministic dummies —
     they should never fire for an A2DP speaker, but BlueZ requires them to
     exist on the Agent1 interface. The Display* methods are server→client
     notifications and are no-ops on a kiosk.

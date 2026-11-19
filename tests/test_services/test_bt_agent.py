@@ -36,9 +36,9 @@ class TestModuleConstants:
     def test_agent_path(self) -> None:
         assert AGENT_PATH == "/storybot/agent"
 
-    def test_capability_is_no_input_no_output(self) -> None:
-        # BT-02: headless auto-pair capability.
-        assert CAPABILITY == "NoInputNoOutput"
+    def test_capability_is_display_yes_no(self) -> None:
+        # The QL-820NWB rejects NoInputNoOutput (Just Works, no MITM).
+        assert CAPABILITY == "DisplayYesNo"
 
 
 # ---------------------------------------------------------------------------

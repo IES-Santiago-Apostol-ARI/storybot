@@ -2759,6 +2759,7 @@ function createPrinterItem(printer) {
 }
 
 async function choosePrinter(printer) {
+    showMessage(`Emparejando ${printer.name}: pulsa OK en la impresora cuando muestre el código`, 'info');
     try {
         const res = await fetch('/api/printer/device', {
             method: 'PUT',
@@ -2772,7 +2773,7 @@ async function choosePrinter(printer) {
         if (list) list.replaceChildren();
     } catch (error) {
         console.error('Error saving printer:', error);
-        showMessage('No se pudo emparejar la impresora (¿está encendida y cerca?)', 'error');
+        showMessage('No se pudo emparejar la impresora (¿encendida, cerca y pulsaste OK?)', 'error');
     }
 }
 
